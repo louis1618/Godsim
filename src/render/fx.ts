@@ -462,6 +462,30 @@ export class FxRenderer {
         if (!close) return;
         this.burst(e.x, y + 0.5, e.z, 8, { color: 0xffe9a0, frame: PF.Spark, speed: 0.8, up: 1.4, life: 0.8, size: 0.1, add: true, drag: 1.5 });
         break;
+      case 'breath': {
+        const sy = (e.y ?? 2) + this.gy(sim, e.x, e.z) + 0.4;
+        const dx = (e.tx! - e.x) / 5, dz = (e.tz! - e.z) / 5;
+        for (let i = 0; i < 26; i++) {
+          const k = Math.random();
+          const sp = 5 + Math.random() * 3;
+          this.add.spawn(e.x + dx * 0.6, sy, e.z + dz * 0.6, dx * sp * (0.7 + k * 0.5) + (Math.random() - 0.5) * 1.5, -sy * 0.55 + (Math.random() - 0.5), dz * sp * (0.7 + k * 0.5) + (Math.random() - 0.5) * 1.5, { life: 0.55, size: 0.25, size1: 0.9, color: Math.random() < 0.4 ? 0xffe08a : 0xff6a1a, frame: PF.Flame, drag: 1.2 });
+        }
+        this.flashAt(e.x + dx * 2, sy - 1, e.z + dz * 2, 14, 10);
+        break;
+      }
+      case 'ash':
+        for (let i = 0; i < 6; i++) this.alpha.spawn(e.x + (Math.random() - 0.5) * 1.5, y + 0.5, e.z + (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 0.8, 3 + Math.random() * 2, (Math.random() - 0.5) * 0.8, { life: 5, size: 1.2, size1: 3.5, color: Math.random() < 0.3 ? 0x8a3a1a : 0x3a3432, frame: PF.Smoke, alpha: 0.8, drag: 0.35 });
+        if (Math.random() < 0.5) this.burst(e.x, y + 0.6, e.z, 6, { color: 0xffa040, frame: PF.Flame, speed: 1.2, up: 4, life: 0.8, size: 0.5, size1: 0.1, add: true, grav: -3 });
+        break;
+      case 'drought':
+        this.ring(e.x, y + 0.2, e.z, (e.a ?? 18) * 1.1, 1.6);
+        this.burst(e.x, y + 0.3, e.z, 30, { color: 0xd8b87a, frame: PF.Smoke, speed: (e.a ?? 18) * 0.5, up: 0.4, life: 2.4, size: 0.8, size1: 2, drag: 1.4, alpha: 0.55, spread: 4 });
+        break;
+      case 'flood':
+        this.ring(e.x, y + 0.2, e.z, (e.a ?? 11) * 1.3, 1.2);
+        this.burst(e.x, y + 0.3, e.z, 40, { color: 0xd8f0ff, frame: PF.Drop, speed: (e.a ?? 11) * 0.4, up: 3, life: 1.2, size: 0.14, grav: -8, spread: 6 });
+        this.rig.shake = Math.max(this.rig.shake, 0.4);
+        break;
       case 'nuke': {
         const r = e.a ?? 12;
         this.screenFlash = 1;

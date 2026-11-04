@@ -310,6 +310,124 @@ function quadruped(sp: Sp): THREE.BufferGeometry {
   return b.build();
 }
 
+// ------------------------------------------------------------------ more wildlife & monsters
+function wildlife(sp: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(13 + sp, true);
+  const eye = (x: number, y: number, z: number, r: number, hp: [number, number, number]) => {
+    b.add(geo.sphere(r, 6, 4), { color: 0x1d1a24, part: P.Head, pivot: hp }, T(x, y, z));
+    b.add(geo.sphere(r * 0.35, 4, 3), { color: 0xffffff, part: P.Head, pivot: hp }, T(x * 0.95, y + r * 0.35, z + r * 0.6));
+  };
+  switch (sp) {
+    case Sp.Rabbit: {
+      const fur = 0xcab49a;
+      b.add(geo.sphere(0.085, 12, 10), { color: fur }, T(0, 0.09, -0.01, 0, 0, 0, 0.9, 0.85, 1.15));
+      b.add(geo.sphere(0.05, 8, 6), { color: 0xf3ece2 }, T(0, 0.075, 0.04, 0, 0, 0, 0.8, 0.7, 1));
+      const hp: [number, number, number] = [0, 0.13, 0.06];
+      b.add(geo.sphere(0.055, 12, 10), { color: fur, part: P.Head, pivot: hp }, T(0, 0.16, 0.1));
+      for (const sd of [-1, 1]) {
+        b.add(geo.capsule(0.017, 0.09, 3, 6), { color: fur, part: P.HeadAtt, pivot: hp }, T(sd * 0.025, 0.25, 0.08, -0.25, 0, sd * 0.18));
+        b.add(geo.capsule(0.009, 0.07, 3, 4), { color: 0xf0b8b8, part: P.HeadAtt, pivot: hp }, T(sd * 0.025, 0.25, 0.092, -0.25, 0, sd * 0.18));
+        eye(sd * 0.03, 0.175, 0.145, 0.011, hp);
+      }
+      b.add(geo.sphere(0.012, 5, 4), { color: 0xe88a9a, part: P.Head, pivot: hp }, T(0, 0.155, 0.155));
+      b.add(geo.sphere(0.03, 8, 6), { color: 0xffffff, part: P.Tail, pivot: [0, 0.1, -0.1] }, T(0, 0.1, -0.11));
+      for (const [x, z, p] of [[0.04, 0.06, P.LLeg], [-0.04, 0.06, P.RLeg], [0.05, -0.06, P.RLeg], [-0.05, -0.06, P.LLeg]] as const)
+        b.add(geo.capsule(0.016, z < 0 ? 0.05 : 0.035, 3, 4), { color: fur, part: p, pivot: [x, 0.07, z] }, T(x, 0.03, z + (z < 0 ? 0.02 : 0), z < 0 ? Math.PI / 2 : 0));
+      break;
+    }
+    case Sp.Fox: {
+      const fur = 0xe0742e, white = 0xf6efe4, dark = 0x3a2a22;
+      b.add(geo.capsule(0.07, 0.18, 4, 10), { color: fur }, T(0, 0.17, 0, Math.PI / 2));
+      b.add(geo.capsule(0.05, 0.12, 3, 8), { color: white }, T(0, 0.14, 0.02, Math.PI / 2, 0, 0, 0.9, 0.7, 1));
+      const hp: [number, number, number] = [0, 0.2, 0.13];
+      b.add(geo.sphere(0.065, 12, 10), { color: fur, part: P.Head, pivot: hp }, T(0, 0.23, 0.19));
+      b.add(geo.cone(0.04, 0.1, 8), { color: white, part: P.Head, pivot: hp }, T(0, 0.215, 0.27, Math.PI / 2));
+      b.add(geo.sphere(0.014, 5, 4), { color: dark, part: P.Head, pivot: hp }, T(0, 0.215, 0.32));
+      for (const sd of [-1, 1]) { b.add(geo.cone(0.03, 0.08, 4), { color: fur, part: P.Head, pivot: hp }, T(sd * 0.04, 0.3, 0.17, 0, 0, -sd * 0.2)); eye(sd * 0.03, 0.245, 0.245, 0.011, hp); }
+      for (const [x, z, p] of [[0.045, 0.08, P.LLeg], [-0.045, 0.08, P.RLeg], [0.045, -0.08, P.RLeg], [-0.045, -0.08, P.LLeg]] as const)
+        b.add(geo.capsule(0.018, 0.09, 3, 5), { color: dark, part: p, pivot: [x, 0.15, z] }, T(x, 0.06, z));
+      const tp: [number, number, number] = [0, 0.19, -0.14];
+      b.add(geo.capsule(0.05, 0.16, 3, 8), { color: fur, part: P.Tail, pivot: tp }, T(0, 0.2, -0.24, -1.1));
+      b.add(geo.sphere(0.045, 8, 6), { color: white, part: P.Tail, pivot: tp }, T(0, 0.26, -0.33));
+      break;
+    }
+    case Sp.Boar: {
+      const hide = 0x6a4a36, dark = 0x3e2a1e;
+      b.add(geo.capsule(0.12, 0.2, 4, 10), { color: hide }, T(0, 0.22, 0, Math.PI / 2, 0, 0, 1, 1.05, 1));
+      // bristly mane
+      for (let i = 0; i < 5; i++) b.add(geo.cone(0.03, 0.08, 4), { color: dark }, T(0, 0.34, 0.12 - i * 0.06, -0.3));
+      const hp: [number, number, number] = [0, 0.24, 0.16];
+      b.add(geo.sphere(0.1, 12, 10), { color: hide, part: P.Head, pivot: hp }, T(0, 0.23, 0.24, 0, 0, 0, 0.95, 0.95, 1.15));
+      b.add(geo.cyl(0.045, 0.05, 0.06, 10), { color: 0xc89a8a, part: P.Head, pivot: hp }, T(0, 0.2, 0.35, Math.PI / 2));
+      for (const sd of [-1, 1]) {
+        b.add(geo.cone(0.013, 0.07, 5), { color: 0xf3ecd8, part: P.Head, pivot: hp }, T(sd * 0.045, 0.2, 0.33, -0.9, 0, sd * 0.3));
+        b.add(geo.cone(0.03, 0.06, 4), { color: dark, part: P.Head, pivot: hp }, T(sd * 0.06, 0.32, 0.2, 0, 0, -sd * 0.4));
+        eye(sd * 0.05, 0.26, 0.31, 0.012, hp);
+      }
+      for (const [x, z, p] of [[0.06, 0.1, P.LLeg], [-0.06, 0.1, P.RLeg], [0.06, -0.1, P.RLeg], [-0.06, -0.1, P.LLeg]] as const)
+        b.add(geo.capsule(0.03, 0.09, 3, 5), { color: dark, part: p, pivot: [x, 0.18, z] }, T(x, 0.07, z));
+      b.add(geo.capsule(0.012, 0.06, 3, 4), { color: dark, part: P.Tail, pivot: [0, 0.25, -0.18] }, T(0, 0.24, -0.21, -0.6));
+      break;
+    }
+    case Sp.Crocodile: {
+      const scale = (p: THREE.Vector3) => hex(0x4f7a3a).multiplyScalar(0.85 + 0.25 * ((Math.floor(p.z * 30) + Math.floor(p.x * 30)) % 2));
+      b.add(geo.capsule(0.09, 0.42, 4, 10), { color: scale }, T(0, 0.1, 0, Math.PI / 2, 0, 0, 1.25, 0.75, 1));
+      b.add(geo.capsule(0.07, 0.3, 3, 8), { color: 0xd8c890 }, T(0, 0.07, 0.02, Math.PI / 2, 0, 0, 1.1, 0.5, 1));
+      for (let i = 0; i < 7; i++) b.add(geo.cone(0.022, 0.05, 4), { color: 0x3a5a2a }, T(0, 0.16, 0.2 - i * 0.07));
+      const hp: [number, number, number] = [0, 0.1, 0.3];
+      b.add(geo.box(0.13, 0.05, 0.26), { color: 0x4f7a3a, part: P.Head, pivot: hp }, T(0, 0.11, 0.42));
+      b.add(geo.box(0.12, 0.035, 0.24), { color: 0x45682f, part: P.Head, pivot: hp }, T(0, 0.07, 0.41));
+      for (let i = 0; i < 5; i++) for (const sd of [-1, 1]) b.add(geo.cone(0.008, 0.025, 3), { color: 0xf3ecd8, part: P.Head, pivot: hp }, T(sd * 0.055, 0.085, 0.32 + i * 0.045, Math.PI));
+      for (const sd of [-1, 1]) { b.add(geo.sphere(0.025, 8, 6), { color: 0x4f7a3a, part: P.Head, pivot: hp }, T(sd * 0.045, 0.15, 0.34)); b.add(geo.sphere(0.013, 6, 4), { color: 0xe8d84a, part: P.Head, pivot: hp }, T(sd * 0.045, 0.165, 0.355)); }
+      for (const [x, z, p] of [[0.11, 0.17, P.LLeg], [-0.11, 0.17, P.RLeg], [0.11, -0.15, P.RLeg], [-0.11, -0.15, P.LLeg]] as const)
+        b.add(geo.capsule(0.025, 0.06, 3, 5), { color: 0x45682f, part: p, pivot: [x * 0.7, 0.08, z] }, T(x, 0.04, z, 0, 0, Math.sign(x) * 0.9));
+      const tp: [number, number, number] = [0, 0.1, -0.3];
+      b.add(geo.cone(0.075, 0.4, 8), { color: scale, part: P.Tail, pivot: tp }, T(0, 0.09, -0.48, -Math.PI / 2, 0, 0, 1, 1, 0.7));
+      break;
+    }
+    case Sp.Fish: {
+      const body = (p: THREE.Vector3) => hex(0x4aa8d8).lerp(hex(0xe8f4ff), Math.max(0, Math.min(1, (0.06 - p.y) * 12)));
+      b.add(geo.sphere(0.07, 12, 8), { color: body }, T(0, 0.06, 0, 0, 0, 0, 0.6, 0.9, 1.5));
+      b.add(geo.box(0.005, 0.06, 0.06), { color: 0xf2a33a }, T(0, 0.12, -0.01));
+      for (const sd of [-1, 1]) { b.add(geo.sphere(0.012, 5, 4), { color: 0x1d1a24 }, T(sd * 0.032, 0.075, 0.07)); b.add(geo.box(0.004, 0.025, 0.04), { color: 0xf2a33a }, T(sd * 0.035, 0.045, 0.02, 0, 0, sd * 0.6)); }
+      const tp: [number, number, number] = [0, 0.06, -0.09];
+      b.add(geo.cone(0.05, 0.08, 4), { color: 0xf2a33a, part: P.Tail, pivot: tp }, T(0, 0.06, -0.12, -Math.PI / 2, 0, 0, 0.15, 1, 1));
+      break;
+    }
+    case Sp.Dragon: {
+      const sc = (p: THREE.Vector3) => hex(0xb8322a).lerp(hex(0x6a1a22), Math.max(0, Math.min(1, (0.3 - p.y) * 3)));
+      const belly = 0xf2c46a;
+      b.add(geo.capsule(0.12, 0.3, 4, 12), { color: sc }, T(0, 0.3, 0, Math.PI / 2 - 0.15));
+      b.add(geo.capsule(0.09, 0.22, 3, 10), { color: belly }, T(0, 0.26, 0.03, Math.PI / 2 - 0.15, 0, 0, 0.9, 0.7, 1));
+      // neck & head
+      b.add(geo.capsule(0.06, 0.16, 3, 8), { color: sc }, T(0, 0.42, 0.24, 0.6));
+      const hp: [number, number, number] = [0, 0.48, 0.3];
+      b.add(geo.sphere(0.08, 12, 10), { color: 0xb8322a, part: P.Head, pivot: hp }, T(0, 0.53, 0.36, 0, 0, 0, 0.9, 0.85, 1.2));
+      b.add(geo.box(0.09, 0.05, 0.12), { color: 0xa82a24, part: P.Head, pivot: hp }, T(0, 0.51, 0.45));
+      for (const sd of [-1, 1]) {
+        b.add(geo.cone(0.018, 0.12, 5), { color: 0xf3ecd8, part: P.HeadAtt, pivot: hp }, T(sd * 0.04, 0.62, 0.3, -0.7, 0, sd * 0.3));
+        b.add(geo.sphere(0.016, 6, 4), { color: 0xffd23a, part: P.Head, pivot: hp }, T(sd * 0.04, 0.56, 0.43));
+      }
+      // wings are the "hands": they flap with the flying pose
+      for (const sd of [-1, 1]) {
+        const part = sd < 0 ? P.LHand : P.RHand;
+        const piv: [number, number, number] = [sd * 0.1, 0.38, 0.05];
+        b.add(geo.cyl(0.012, 0.018, 0.4, 5), { color: 0x6a1a22, part, pivot: piv }, T(sd * 0.3, 0.42, 0.04, 0, 0, sd * 1.35));
+        b.add(geo.box(0.42, 0.012, 0.3), { color: 0xd85a3a, part, pivot: piv }, T(sd * 0.31, 0.4, -0.08, 0, 0, sd * -0.1));
+        for (let i = 0; i < 3; i++) b.add(geo.cyl(0.006, 0.01, 0.3, 4), { color: 0x6a1a22, part, pivot: piv }, T(sd * (0.2 + i * 0.1), 0.4, -0.08, Math.PI / 2 - 0.3 + i * 0.2, 0, 0));
+      }
+      for (const [x, z, p] of [[0.08, 0.1, P.LLeg], [-0.08, 0.1, P.RLeg], [0.08, -0.12, P.RLeg], [-0.08, -0.12, P.LLeg]] as const)
+        b.add(geo.capsule(0.035, 0.12, 3, 6), { color: 0x8a2420, part: p, pivot: [x, 0.25, z] }, T(x, 0.12, z));
+      const tp: [number, number, number] = [0, 0.28, -0.22];
+      b.add(geo.cone(0.07, 0.5, 8), { color: sc, part: P.Tail, pivot: tp }, T(0, 0.24, -0.45, -Math.PI / 2 - 0.2));
+      b.add(geo.octa(0.05), { color: 0xd85a3a, part: P.Tail, pivot: tp, flat: true }, T(0, 0.19, -0.72));
+      for (let i = 0; i < 5; i++) b.add(geo.cone(0.025, 0.06, 4), { color: belly }, T(0, 0.44 - i * 0.02, 0.12 - i * 0.1));
+      break;
+    }
+  }
+  return b.build();
+}
+
 export function buildCreatureModels(): Record<number, THREE.BufferGeometry> {
   return {
     [Sp.Human]: humanoid({ height: 0.62, width: 0.2, headR: 0.125, skinDefault: 0xf2c8a0, style: 'human' }),
@@ -326,6 +444,12 @@ export function buildCreatureModels(): Record<number, THREE.BufferGeometry> {
     [Sp.Boat]: boat(),
     [Sp.Tank]: tank(),
     [Sp.Plane]: plane(),
+    [Sp.Rabbit]: wildlife(Sp.Rabbit),
+    [Sp.Fox]: wildlife(Sp.Fox),
+    [Sp.Boar]: wildlife(Sp.Boar),
+    [Sp.Crocodile]: wildlife(Sp.Crocodile),
+    [Sp.Fish]: wildlife(Sp.Fish),
+    [Sp.Dragon]: wildlife(Sp.Dragon),
   };
 }
 

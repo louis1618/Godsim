@@ -238,6 +238,10 @@ class AudioEngine {
       case 'trade': case 'loot': if (g > 0.15 && this.rate('coin', 200)) [88, 93].forEach((m, i) => this.tone(mtof(m), { type: 'square', d: 0.08, g: 0.03 * g, t: this.ctx!.currentTime + i * 0.06, pan })); break;
       case 'arrest': case 'jail': if (g > 0.15 && this.rate('arrest', 300)) { this.tone(mtof(76), { type: 'square', d: 0.12, g: 0.04 * g, pan }); this.tone(mtof(72), { type: 'square', d: 0.12, g: 0.04 * g, t: this.ctx!.currentTime + 0.14, pan }); } break;
       case 'machine': [60, 64, 67, 72].forEach((m, i) => this.tone(mtof(m), { type: 'square', d: 0.15, g: 0.035 * Math.max(0.3, g), t: this.ctx!.currentTime + i * 0.07, pan })); break;
+      case 'breath': if (this.rate('breath', 300)) this.burst({ type: 'bandpass', f: 500, to: 1400, q: 0.8, a: 0.05, d: 0.7, g: 0.25 * Math.max(0.3, g), pan }); break;
+      case 'ash': if (g > 0.1 && this.rate('ash', 900)) this.burst({ f: 120, to: 50, a: 0.1, d: 1.2, g: 0.25 * g, pan, rate: 0.5 }); break;
+      case 'flood': this.burst({ type: 'bandpass', f: 400, to: 200, q: 0.7, a: 0.2, d: 2.5, g: 0.3, pan }); break;
+      case 'drought': this.burst({ type: 'bandpass', f: 1600, q: 0.5, a: 0.6, d: 2, g: 0.1, pan }); break;
       case 'nuke': this.boom(1, 0, 2.2); this.boom(1, 0, 1.6); this.burst({ f: 90, to: 30, a: 0.3, d: 4, g: 0.5, rate: 0.4 }); break;
       case 'era': [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => this.tone(mtof(m), { type: 'triangle', d: 0.7, g: 0.09, t: this.ctx!.currentTime + i * 0.09, verb: 0.8 })); break;
       case 'fish': if (g > 0.25 && this.rate('fish', 400)) this.burst({ type: 'bandpass', f: 1400, q: 2, d: 0.15, g: 0.05 * g, pan }); break;

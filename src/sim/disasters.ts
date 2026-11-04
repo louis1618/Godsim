@@ -1,6 +1,6 @@
 import { Sim } from './sim';
 import { UF, Emote } from './entities';
-import { SPECIES, Feat, Mat, isCiv, Bk } from './defs';
+import { SPECIES, Feat, Mat, isCiv, Bk, YEAR_TICKS } from './defs';
 import { ignite } from './nature';
 import { hurt, panic } from './ai';
 
@@ -90,8 +90,140 @@ export function spawnTornado(sim: Sim, x: number, z: number) {
   sim.log('tornado', { x, z, text: '' });
 }
 
+// --------------------------------------------------------------------------- volcano, drought, flood
+
+/** A volcano rises from the ground and erupts for a while; cooled lava turns to rock, ash enriches the soil. */
+export function spawnVolcano(sim: Sim, x: number, z: number) {
+  const w = sim.world;
+  const R = 8;
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const xx = Math.floor(x) + dx, zz = Math.floor(z) + dz;
+    if (!w.inside(xx, zz)) continue;
+    const d = Math.hypot(dx, dz);
+    if (d > R) continue;
+    const t = w.idx(xx, zz);
+    const k = 1 - d / R;
+    const crater = d < 1.6 ? -1.6 * (1 - d / 1.6) : 0;
+    w.height[t] = Math.max(w.height[t], 0.4) + 9 * Math.pow(k, 1.4) + crater;
+    if (w.water[t] > w.height[t]) w.water[t] = 0;
+    if (w.feat[t] !== Feat.None && k > 0.3) w.setFeat(t, Feat.None, 0);
+    w.mat[t] = d < 1.8 ? Mat.Lava : k > 0.35 ? Mat.Rock : w.mat[t];
+    const b = sim.buildingAt(t);
+    if (b) sim.damageBuilding(b, 400);
+  }
+  w.markTerrain(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
+  sim.near(x, z, R, (u) => { sim.fling(u, (u.x - x) * 1.5, 7, (u.z - z) * 1.5); panic(sim, u, x, z); });
+  sim.volcanoes.push({ id: sim.id(), x, z, life: 900 });
+  sim.fx.push({ t: 'quake', x, z, a: 10 });
+  sim.log('eruption', { x, z, text: '' });
+}
+
+export function spawnDrought(sim: Sim, x: number, z: number, r = 18) {
+  sim.droughts.push({ id: sim.id(), x, z, r, life: Math.round(YEAR_TICKS * 1.5) });
+  sim.fx.push({ t: 'drought', x, z, a: r });
+  sim.log('drought', { x, z, text: '' });
+}
+export function inDrought(sim: Sim, x: number, z: number) {
+  for (const d of sim.droughts) if ((x - d.x) ** 2 + (z - d.z) ** 2 < d.r * d.r) return true;
+  return false;
+}
+
+/** Water surges over low ground, wrecks what it reaches, then slowly drains away. */
+export function spawnFlood(sim: Sim, x: number, z: number, r = 11) {
+  const w = sim.world;
+  const R = Math.ceil(r);
+  let lo = Infinity;
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) { const xx = Math.floor(x) + dx, zz = Math.floor(z) + dz; if (w.inside(xx, zz) && Math.hypot(dx, dz) <= r) lo = Math.min(lo, w.height[w.idx(xx, zz)]); }
+  const level = Math.max(lo, 0) + 1.6;
+  const tiles: number[] = [], base: number[] = [];
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const xx = Math.floor(x) + dx, zz = Math.floor(z) + dz;
+    if (!w.inside(xx, zz)) continue;
+    const d = Math.hypot(dx, dz);
+    if (d > r) continue;
+    const t = w.idx(xx, zz);
+    const lv = level - (d / r) * 0.5;
+    if (w.height[t] >= lv) continue;
+    tiles.push(t); base.push(w.water[t]);
+    w.water[t] = Math.max(w.water[t], lv);
+    w.wet[t] = 255;
+    if (w.fire[t]) w.fire[t] = 0;
+  }
+  w.markTerrain(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
+  w.islandsDirty = true; w.navVersion++;
+  sim.floods.push({ id: sim.id(), x, z, r, life: 420, tiles, base, level });
+  sim.fx.push({ t: 'flood', x, z, a: r });
+  sim.near(x, z, r, (u) => { if (!SPECIES[u.sp].undead) panic(sim, u, x, z); });
+  sim.log('flood', { x, z, text: '' });
+}
+
+function disasterExtras(sim: Sim) {
+  const w = sim.world;
+  // volcanoes: lava bombs, spreading lava, ash plume
+  for (const v of sim.volcanoes) {
+    v.life--;
+    if (v.life > 0) {
+      if (sim.tick % 7 === 0) { const a = sim.rng.range(0, Math.PI * 2), d = sim.rng.range(3, 13); sim.meteors.push({ id: sim.id(), x: v.x + Math.cos(a) * d, z: v.z + Math.sin(a) * d, y: 14, vy: 0.6, size: 0.3 }); }
+      if (sim.tick % 15 === 0) sim.fx.push({ t: 'ash', x: v.x, z: v.z });
+      if (sim.tick % 6 === 0) {
+        // lava creeps downhill from the crater
+        const a = sim.rng.range(0, Math.PI * 2), d = sim.rng.range(1.5, 7);
+        const t = w.tileAt(v.x + Math.cos(a) * d, v.z + Math.sin(a) * d);
+        if (t >= 0 && !w.isWater(t)) { w.mat[t] = Mat.Lava; if (w.feat[t]) w.setFeat(t, Feat.None, 0); ignite(sim, t, 255); w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); const b = sim.buildingAt(t); if (b) sim.damageBuilding(b, 120); }
+      }
+    } else {
+      // eruption over: lava cools to rock, the slopes are covered in fertile ash
+      const R = 10;
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+        const xx = Math.floor(v.x) + dx, zz = Math.floor(v.z) + dz;
+        if (!w.inside(xx, zz)) continue;
+        const d = Math.hypot(dx, dz);
+        if (d > R) continue;
+        const t = w.idx(xx, zz);
+        if (w.mat[t] === Mat.Lava) w.mat[t] = d < 2 ? Mat.Lava : Mat.Rock;
+        else if (d > 4 && !w.isWater(t) && w.mat[t] !== Mat.Rock && sim.rng.chance(0.6)) w.mat[t] = Mat.Ash;
+      }
+      w.markTerrain(Math.floor(v.x) - R - 2, Math.floor(v.z) - R - 2, Math.floor(v.x) + R + 2, Math.floor(v.z) + R + 2);
+    }
+  }
+  sim.volcanoes = sim.volcanoes.filter((v) => v.life > 0);
+  // droughts: the land parches (handled in nature), they end on their own
+  for (const d of sim.droughts) {
+    d.life--;
+    if (sim.tick % 40 === 0) {
+      // rain clouds dissolve over the dry land
+      for (const c of sim.rainClouds) if ((c.x - d.x) ** 2 + (c.z - d.z) ** 2 < d.r * d.r) c.life = Math.min(c.life, 20);
+    }
+  }
+  sim.droughts = sim.droughts.filter((d) => d.life > 0);
+  // floods: wreck buildings and fields while high, then drain
+  for (const f of sim.floods) {
+    f.life--;
+    if (sim.tick % 10 === 0) {
+      for (const t of f.tiles) {
+        if (!w.isWater(t)) continue;
+        const b = sim.buildingAt(t);
+        if (b && b.kind !== Bk.Ruin) sim.damageBuilding(b, b.kind === Bk.Farm ? 6 : 14);
+        if (w.feat[t] === Feat.Crop || w.feat[t] === Feat.Berry || w.feat[t] === Feat.Flower) w.setFeat(t, Feat.None, 0);
+      }
+    }
+    if (f.life < 200 && sim.tick % 5 === 0) {
+      const k = Math.max(0, f.life) / 200;
+      for (let i = 0; i < f.tiles.length; i++) {
+        const t = f.tiles[i];
+        const lv = f.base[i] + (f.level - f.base[i]) * k;
+        w.water[t] = Math.min(w.water[t], Math.max(f.base[i], lv));
+      }
+      w.markTerrain(Math.floor(f.x - f.r) - 2, Math.floor(f.z - f.r) - 2, Math.floor(f.x + f.r) + 2, Math.floor(f.z + f.r) + 2);
+      if (f.life <= 0) { for (let i = 0; i < f.tiles.length; i++) w.water[f.tiles[i]] = f.base[i]; w.islandsDirty = true; w.navVersion++; }
+    }
+  }
+  sim.floods = sim.floods.filter((f) => f.life > 0);
+}
+
 export function disasterTick(sim: Sim) {
   const w = sim.world;
+  disasterExtras(sim);
   // meteors falling
   for (const m of sim.meteors) {
     m.y += m.vy; m.vy -= 0.12;
@@ -101,7 +233,7 @@ export function disasterTick(sim: Sim) {
       explode(sim, m.x, m.z, 4.5 * m.size, 180 * m.size, { crater: 3.2 * m.size, fire: true });
       const t = w.tileAt(m.x, m.z);
       if (t >= 0 && m.size >= 1) { w.mat[t] = Mat.Lava; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
-      sim.log('meteor', { x: m.x, z: m.z, text: '' });
+      if (m.size >= 0.8) sim.log('meteor', { x: m.x, z: m.z, text: '' });
     }
   }
   sim.meteors = sim.meteors.filter((m) => m.y > -900);
@@ -138,7 +270,9 @@ export function disasterTick(sim: Sim) {
     const t = w.tileAt(x, z);
     if (t >= 0 && !w.isWater(t)) {
       const r = sim.rng.next();
-      if (r < 0.3) spawnTornado(sim, x, z);
+      if (r < 0.22) spawnTornado(sim, x, z);
+      else if (r < 0.32) spawnDrought(sim, x, z, 16 + sim.rng.next() * 8);
+      else if (r < 0.38) spawnFlood(sim, x, z, 9);
       else if (r < 0.5) spawnMeteor(sim, x, z, 0.8);
       else if (r < 0.7) earthquake(sim, x, z, 8);
       else if (r < 0.85 && sim.laws.plague) {

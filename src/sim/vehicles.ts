@@ -20,7 +20,7 @@ export function enemyOf(sim: Sim, kid: number, o: Unit): boolean {
   const def = SPECIES[o.sp];
   if (kid < 0) return isCiv(o.sp) || def.undead === true || isVehicle(o.sp) && o.kingdom >= 0;
   if (o.flags & UF.Mad) return true;
-  if (def.undead || o.sp === Sp.Troll) return true;
+  if (def.undead || o.sp === Sp.Troll || o.sp === Sp.Dragon) return true;
   if (isCiv(o.sp) || isVehicle(o.sp)) {
     if (o.kingdom < 0) return isVehicle(o.sp);
     if (o.kingdom === kid) return false;

@@ -1,3 +1,4 @@
+import { inDrought } from './disasters';
 import { Sim } from './sim';
 import { Feat, Mat, MATS, isTree, Bk, Sp } from './defs';
 import { findSpot } from './seed';
@@ -41,6 +42,18 @@ export function natureTick(sim: Sim) {
       const t = (rng.next() * w.N) | 0;
       if (w.isWater(t)) continue;
       const f = w.feat[t], m = w.mat[t];
+      if (sim.droughts.length && inDrought(sim, w.tx(t), w.tz(t))) {
+        // parched: grass and berries wither, lush land browns, young trees die
+        w.grass[t] = Math.max(0, w.grass[t] - 60); w.wet[t] = 0;
+        if (f === Feat.Berry) { if (w.featAmt[t] > 40) w.featAmt[t] -= 40; else w.setFeat(t, Feat.None, 0); }
+        else if (f === Feat.Flower) w.setFeat(t, Feat.None, 0);
+        else if (isTree(f) && f !== Feat.Dead && f !== Feat.Cactus && rng.chance(0.06)) w.setFeat(t, Feat.Dead, 120);
+        if (m === Mat.Lush) { w.mat[t] = Mat.Grass; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
+        else if (m === Mat.Grass && rng.chance(0.5)) { w.mat[t] = Mat.Savanna; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
+        continue;
+      }
+      // dried land recovers once the rains return
+      if (m === Mat.Savanna && w.moist[t] > 150 && rng.chance(0.02 * growMul)) { w.mat[t] = Mat.Grass; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
       if (isTree(f) && f !== Feat.Dead) {
         const a = w.featAmt[t];
         if (a < 255 && rng.chance(growMul)) {
@@ -72,6 +85,7 @@ export function natureTick(sim: Sim) {
       for (let dz = 0; dz < b.size; dz++) for (let dx = 0; dx < b.size; dx++) {
         const t = w.idx(b.x + dx, b.z + dz);
         if (w.feat[t] !== Feat.Crop) continue;
+        if (sim.droughts.length && inDrought(sim, b.x, b.z)) { if (w.featAmt[t] > 12) { w.featAmt[t] -= 6; w.markFeatTile(t); } continue; }
         const a = w.featAmt[t];
         if (a < 255) {
           const na = Math.min(255, a + Math.round(10 * cropMul + (sim.weather.rain > 0.3 ? 2 : 0)));

@@ -122,7 +122,7 @@ const EV_ICON: Record<string, string> = {
   war: 'war', peace: 'peace', alliance: 'alliance', kingdomFounded: 'kingdoms', villageFounded: 'cat-civ', rebellion: 'rebel', captured: 'war',
   kingDied: 'crown', newKing: 'crown', hero: 'brave', heroDied: 'skeleton', villageLost: 'fire', kingdomFell: 'smite', villageGrew: 'cat-civ',
   plague: 'plague', meteor: 'meteor', tornado: 'tornado', era: 'enlighten', tradeRoute: 'cat-civ', raidWar: 'war', rebellionCrushed: 'crown',
-  warship: 'warship', voyage: 'warship', firstTank: 'tank', firstPlane: 'plane', nuke: 'nuke', famine: 'plague',
+  warship: 'warship', voyage: 'warship', firstTank: 'tank', firstPlane: 'plane', nuke: 'nuke', famine: 'plague', eruption: 'volcano', drought: 'drought', flood: 'flood', dragon: 'dragon',
 };
 export { EV_ICON };
 

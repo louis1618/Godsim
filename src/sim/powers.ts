@@ -3,7 +3,7 @@ import { Sp, Mat, Feat, Trait, isCiv, SPECIES, Bk } from './defs';
 import { spawnVehicle } from './vehicles';
 import { Unit, UF, Emote, Job } from './entities';
 import { ignite } from './nature';
-import { explode, lightning, earthquake, infect, spawnMeteor, spawnTornado } from './disasters';
+import { explode, lightning, earthquake, infect, spawnMeteor, spawnTornado, spawnVolcano, spawnDrought, spawnFlood } from './disasters';
 import { declareWar, makePeace, makeAlliance, villageOf, destroyVillage, rebelVillage, placeBuilding } from './civ';
 import { panic } from './ai';
 import { smoothstep } from '../core/math';
@@ -56,6 +56,12 @@ export const POWERS: PowerDef[] = [
   { id: 'bear', cat: 'life', mode: 'click', rate: 4 },
   { id: 'skeleton', cat: 'life', mode: 'click', rate: 6 },
   { id: 'troll', cat: 'life', mode: 'click', rate: 1.5 },
+  { id: 'rabbit', cat: 'life', mode: 'click', rate: 8 },
+  { id: 'fox', cat: 'life', mode: 'click', rate: 6 },
+  { id: 'boar', cat: 'life', mode: 'click', rate: 6 },
+  { id: 'crocodile', cat: 'life', mode: 'click', rate: 4 },
+  { id: 'fish', cat: 'life', mode: 'click', rate: 10 },
+  { id: 'dragon', cat: 'life', mode: 'click', rate: 0.5 },
   // civilization
   { id: 'war', cat: 'civ', mode: 'pair' },
   { id: 'peace', cat: 'civ', mode: 'pair' },
@@ -76,6 +82,8 @@ export const POWERS: PowerDef[] = [
   { id: 'bloom', cat: 'nature', mode: 'brush', rate: 6, size: B(2, 5, 14) },
   { id: 'heat', cat: 'nature', mode: 'brush', rate: 8, size: B(2, 5, 14) },
   { id: 'frost', cat: 'nature', mode: 'brush', rate: 8, size: B(2, 5, 14) },
+  { id: 'drought', cat: 'nature', mode: 'click', rate: 0.5 },
+  { id: 'flood', cat: 'nature', mode: 'click', rate: 0.5 },
   // disasters
   { id: 'lightning', cat: 'disaster', mode: 'click', rate: 5, key: 'KeyL' },
   { id: 'fire', cat: 'disaster', mode: 'brush', rate: 10, size: B(1, 2, 6) },
@@ -84,6 +92,7 @@ export const POWERS: PowerDef[] = [
   { id: 'tornado', cat: 'disaster', mode: 'click', rate: 1 },
   { id: 'quake', cat: 'disaster', mode: 'click', rate: 0.7 },
   { id: 'plague', cat: 'disaster', mode: 'click', rate: 1 },
+  { id: 'volcano', cat: 'disaster', mode: 'click', rate: 0.3 },
   { id: 'smite', cat: 'disaster', mode: 'unit' },
   // weapons & machines of the later ages
   { id: 'tank', cat: 'military', mode: 'click', rate: 1.5 },
@@ -100,7 +109,7 @@ export const POWERS: PowerDef[] = [
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
 export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'military', 'observe', 'settings'];
 
-const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll };
+const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll, rabbit: Sp.Rabbit, fox: Sp.Fox, boar: Sp.Boar, crocodile: Sp.Crocodile, fish: Sp.Fish, dragon: Sp.Dragon };
 
 /** Visit tiles of a circular brush with a smooth falloff weight. */
 function brush(sim: Sim, x: number, z: number, r: number, fn: (t: number, k: number, tx: number, tz: number) => void) {
@@ -173,7 +182,30 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     case 'snow': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Snow); }); break;
     case 'swamp': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Swamp); }); break;
     case 'lava': brush(sim, x, z, r, (t, k) => { if (k > 0.4) { setMat(sim, t, Mat.Lava); if (w.height[t] < 0.3) w.height[t] = 0.3; } }); break;
-    case 'human': case 'elf': case 'dwarf': case 'orc': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': case 'skeleton': case 'troll': {
+    case 'fish': {
+      if (t0 < 0 || w.waterDepth(t0) < 0.3) return false;
+      const u = sim.spawnUnit(Sp.Fish, x + sim.rng.range(-0.3, 0.3), z + sim.rng.range(-0.3, 0.3));
+      sim.fx.push({ t: 'splash', x: u.x, z: u.z });
+      break;
+    }
+    case 'dragon': {
+      if (t0 < 0) return false;
+      const u = sim.spawnUnit(Sp.Dragon, x, z);
+      u.y = 4; u.hunger = 60;
+      sim.fx.push({ t: 'spawn', x: u.x, z: u.z, u: u.id, a: u.sp });
+      sim.log('dragon', { x, z, text: '' });
+      break;
+    }
+    case 'crocodile': {
+      if (t0 < 0 || !(w.walkable(t0) || w.waterDepth(t0) < 1.5)) return false;
+      const u = sim.spawnUnit(Sp.Crocodile, x, z);
+      sim.fx.push({ t: 'spawn', x: u.x, z: u.z, u: u.id, a: u.sp });
+      break;
+    }
+    case 'volcano': spawnVolcano(sim, x, z); break;
+    case 'drought': spawnDrought(sim, x, z, 18); break;
+    case 'flood': spawnFlood(sim, x, z, 11); break;
+    case 'human': case 'elf': case 'dwarf': case 'orc': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': case 'skeleton': case 'troll': case 'rabbit': case 'fox': case 'boar': {
       if (t0 < 0 || !w.walkable(t0)) return false;
       const u = sim.spawnUnit(SPAWN[id], x + sim.rng.range(-0.3, 0.3), z + sim.rng.range(-0.3, 0.3));
       if (isCiv(u.sp)) { u.female = sim.rng.chance(0.5); u.born = sim.tick - 20; }

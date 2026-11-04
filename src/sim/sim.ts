@@ -54,6 +54,9 @@ export class Sim {
   tornadoes: { id: number; x: number; z: number; vx: number; vz: number; life: number; power: number }[] = [];
   meteors: { id: number; x: number; z: number; y: number; vy: number; size: number }[] = [];
   rainClouds: { id: number; x: number; z: number; vx: number; vz: number; life: number; r: number; storm: boolean }[] = [];
+  volcanoes: { id: number; x: number; z: number; life: number }[] = [];
+  droughts: { id: number; x: number; z: number; r: number; life: number }[] = [];
+  floods: { id: number; x: number; z: number; r: number; life: number; tiles: number[]; base: number[]; level: number }[] = [];
   // spatial hash
   cw: number; ch: number;
   cellHead: Int32Array;

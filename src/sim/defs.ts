@@ -36,8 +36,9 @@ export const MATS: MatDef[] = [
 export const enum Sp {
   Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9, Troll = 10,
   Boat = 11, Tank = 12, Plane = 13,
+  Rabbit = 14, Fox = 15, Boar = 16, Crocodile = 17, Fish = 18, Dragon = 19,
 }
-export const SPECIES_COUNT = 14;
+export const SPECIES_COUNT = 20;
 /** Machines: no hunger, no mood, no ageing; they belong to a kingdom. */
 export const isVehicle = (sp: number) => sp >= 11 && sp <= 13;
 export type Race = Sp.Human | Sp.Elf | Sp.Dwarf | Sp.Orc;
@@ -71,15 +72,21 @@ export const SPECIES: SpeciesDef[] = [
   { key: 'dwarf', civ: true, speed: 1.3, hp: 130, dmg: 14, attackRate: 1.1, range: 0.85, lifespan: [70, 100], adultAge: 7, size: 0.85, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Rock, Mat.Grass, Mat.Snow], fertility: 0.85, buildSpeed: 1.35 },
   { key: 'orc', civ: true, speed: 1.5, hp: 140, dmg: 16, attackRate: 1.15, range: 0.95, lifespan: [38, 50], adultAge: 5, size: 1.12, diet: 'meat', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Savanna, Mat.Desert, Mat.Grass], fertility: 1.35, buildSpeed: 0.95 },
   { key: 'sheep', civ: false, speed: 1.0, hp: 40, dmg: 2, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.8, diet: 'plant', aggressive: false, breedEvery: 1.6, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1, buildSpeed: 0 },
-  { key: 'wolf', civ: false, speed: 2.1, hp: 60, dmg: 10, attackRate: 0.9, range: 0.8, lifespan: [10, 15], adultAge: 2, size: 0.85, diet: 'meat', aggressive: true, breedEvery: 3.2, litter: 1, biomes: [Mat.Lush, Mat.Grass, Mat.Snow], fertility: 1, buildSpeed: 0 },
+  { key: 'wolf', civ: false, speed: 2.1, hp: 60, dmg: 10, attackRate: 0.9, range: 0.8, lifespan: [10, 15], adultAge: 2, size: 0.85, diet: 'meat', aggressive: true, breedEvery: 2.2, litter: 2, biomes: [Mat.Lush, Mat.Grass, Mat.Snow], fertility: 1, buildSpeed: 0 },
   { key: 'deer', civ: false, speed: 2.0, hp: 45, dmg: 3, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.95, diet: 'plant', aggressive: false, breedEvery: 2.0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 1, buildSpeed: 0 },
-  { key: 'bear', civ: false, speed: 1.5, hp: 220, dmg: 22, attackRate: 1.3, range: 1.0, lifespan: [20, 30], adultAge: 4, size: 1.35, diet: 'omni', aggressive: true, breedEvery: 5.5, litter: 1, biomes: [Mat.Lush, Mat.Snow], fertility: 1, buildSpeed: 0 },
+  { key: 'bear', civ: false, speed: 1.5, hp: 220, dmg: 22, attackRate: 1.3, range: 1.0, lifespan: [20, 30], adultAge: 4, size: 1.35, diet: 'omni', aggressive: true, breedEvery: 3.5, litter: 1, biomes: [Mat.Lush, Mat.Snow], fertility: 1, buildSpeed: 0 },
   { key: 'skeleton', civ: false, speed: 1.35, hp: 70, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Ash, Mat.Desert], fertility: 0, buildSpeed: 0, undead: true },
   { key: 'chicken', civ: false, speed: 1.1, hp: 15, dmg: 1, attackRate: 2, range: 0.5, lifespan: [6, 9], adultAge: 1, size: 0.55, diet: 'plant', aggressive: false, breedEvery: 1.0, litter: 2, biomes: [Mat.Grass, Mat.Savanna], fertility: 1, buildSpeed: 0 },
   { key: 'troll', civ: false, speed: 1.2, hp: 520, dmg: 34, attackRate: 1.6, range: 1.3, lifespan: [9999, 9999], adultAge: 0, size: 1.9, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Rock, Mat.Lush], fertility: 0, buildSpeed: 0, undead: true },
   { key: 'boat', civ: false, speed: 1.6, hp: 220, dmg: 30, attackRate: 2.5, range: 6, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
   { key: 'tank', civ: false, speed: 1.5, hp: 700, dmg: 55, attackRate: 2.2, range: 8, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
   { key: 'plane', civ: false, speed: 4.5, hp: 200, dmg: 70, attackRate: 0.6, range: 1, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'rabbit', civ: false, speed: 1.7, hp: 12, dmg: 1, attackRate: 2, range: 0.5, lifespan: [5, 8], adultAge: 0.6, size: 0.45, diet: 'plant', aggressive: false, breedEvery: 0.7, litter: 2, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1, buildSpeed: 0 },
+  { key: 'fox', civ: false, speed: 2.25, hp: 34, dmg: 7, attackRate: 0.9, range: 0.6, lifespan: [8, 12], adultAge: 1.2, size: 0.62, diet: 'meat', aggressive: false, breedEvery: 1.4, litter: 2, biomes: [Mat.Lush, Mat.Grass, Mat.Snow], fertility: 1, buildSpeed: 0 },
+  { key: 'boar', civ: false, speed: 1.6, hp: 85, dmg: 11, attackRate: 1.1, range: 0.75, lifespan: [12, 18], adultAge: 1.5, size: 0.85, diet: 'omni', aggressive: false, breedEvery: 1.8, litter: 2, biomes: [Mat.Lush, Mat.Grass, Mat.Swamp], fertility: 1, buildSpeed: 0 },
+  { key: 'crocodile', civ: false, speed: 1.25, hp: 170, dmg: 24, attackRate: 1.4, range: 0.95, lifespan: [40, 60], adultAge: 4, size: 1.2, diet: 'meat', aggressive: true, breedEvery: 4, litter: 2, biomes: [Mat.Swamp, Mat.Sand], fertility: 1, buildSpeed: 0 },
+  { key: 'fish', civ: false, speed: 1.3, hp: 8, dmg: 0, attackRate: 3, range: 0.3, lifespan: [4, 7], adultAge: 0.5, size: 0.42, diet: 'plant', aggressive: false, breedEvery: 0.6, litter: 3, biomes: [], fertility: 1, buildSpeed: 0 },
+  { key: 'dragon', civ: false, speed: 2.6, hp: 1100, dmg: 48, attackRate: 1.8, range: 1.6, lifespan: [9999, 9999], adultAge: 0, size: 2.2, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Rock, Mat.Snow], fertility: 0, buildSpeed: 0 },
 ];
 export const isCiv = (sp: number) => sp <= Sp.Orc;
 

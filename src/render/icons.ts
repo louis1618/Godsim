@@ -207,6 +207,32 @@ function makeIcons(): Record<string, Maker> {
   m['bear'] = () => creature(models, Sp.Bear, 0xffffff, 0xffffff, 0xffffff);
   m['skeleton'] = () => creature(models, Sp.Skeleton, 0xffffff, 0xffffff, 0xffffff, 4);
   m['troll'] = () => creature(models, Sp.Troll, 0xffffff, 0x7f9a98, 0xffffff, 8);
+  for (const [k, sp] of [['rabbit', Sp.Rabbit], ['fox', Sp.Fox], ['boar', Sp.Boar], ['crocodile', Sp.Crocodile], ['fish', Sp.Fish], ['dragon', Sp.Dragon]] as [string, Sp][])
+    m[k] = () => { const o = creature(models, sp, 0xffffff, 0xffffff, 0xffffff); o.rotation.y = sp === Sp.Crocodile || sp === Sp.Fish ? -1.0 : -0.6; return o; };
+  m['volcano'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.cyl(0.18, 0.62, 0.62, 14, 3), { color: (p) => hex(0x5a4a42).lerp(hex(0x8a7a6e), Math.max(0, 1 - p.y * 2)), jitter: 0.02 }, T(0, 0.31, 0));
+    b.add(geo.cyl(0.17, 0.12, 0.05, 12), { color: 0xff6a1a }, T(0, 0.63, 0));
+    for (let i = 0; i < 4; i++) { const a = i * 1.7; b.add(geo.capsule(0.035, 0.18 + i * 0.05, 3, 6), { color: 0xff8a2a }, T(Math.cos(a) * 0.3, 0.38 - i * 0.02, Math.sin(a) * 0.3 + 0.1, 0, 0, Math.cos(a) * 0.5)); }
+    for (let i = 0; i < 4; i++) b.add(geo.ico(0.1 + i * 0.03, 1), { color: 0x4a4440, jitter: 0.03 }, T(0.05 * i, 0.85 + i * 0.13, -0.04 * i));
+    return std(b.build(), 0x602000, 0.25);
+  };
+  m['drought'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.cyl(0.6, 0.62, 0.12, 6), { color: 0xd8a85a, flat: true }, T(0, 0.06, 0));
+    for (let i = 0; i < 4; i++) b.add(geo.box(0.6, 0.04, 0.03), { color: 0x7a5232 }, T(0, 0.125, -0.25 + i * 0.17, 0, i * 0.8, 0));
+    b.add(geo.sphere(0.24, 16, 12), { color: 0xffc23a }, T(0.05, 0.75, 0));
+    for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; b.add(geo.cone(0.05, 0.14, 5), { color: 0xffa52a }, T(0.05 + Math.cos(a) * 0.36, 0.75 + Math.sin(a) * 0.36, 0, 0, 0, a - Math.PI / 2)); }
+    b.add(geo.cyl(0.02, 0.025, 0.25, 4), { color: 0x6a5a3a }, T(-0.35, 0.24, 0.15, 0, 0, 0.3));
+    return std(b.build(), 0x603000, 0.15);
+  };
+  m['flood'] = () => {
+    const b = new ModelBuilder(1);
+    for (let i = 0; i < 3; i++) b.add(geo.torus(0.3 - i * 0.04, 0.09, 8, 18, Math.PI * 1.2), { color: vgrad(0x2a7fc4, 0xbfe8ff, 0, 0.6) }, T(-0.1 + i * 0.12, 0.3 + i * 0.12, -i * 0.05, 0, 0, 0.2));
+    b.add(geo.rbox(0.25, 0.22, 0.22, 0.03, 1), { color: 0xf3e6c8 }, T(0.35, 0.12, 0.1));
+    b.add(geo.pyramid(0.34, 0.16), { color: 0xd8483d, flat: true }, T(0.35, 0.31, 0.1));
+    return std(b.build());
+  };
   // ---------------- civ
   m['war'] = () => { const b = new ModelBuilder(1); sword(b, 0.75); sword(b, -0.75); return std(b.build()); };
   m['peace'] = () => {

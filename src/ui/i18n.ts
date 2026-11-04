@@ -27,6 +27,10 @@ const S: Record<string, Entry> = {
   // life
   human: ['인간', 'Humans'], elf: ['엘프', 'Elves'], dwarf: ['드워프', 'Dwarves'], orc: ['오크', 'Orcs'], sheep: ['양', 'Sheep'], chicken: ['닭', 'Chicken'],
   deer: ['사슴', 'Deer'], wolf: ['늑대', 'Wolf'], bear: ['곰', 'Bear'], skeleton: ['해골병사', 'Skeleton'], troll: ['트롤', 'Troll', '건물도 부숩니다', 'Smashes buildings too'],
+  rabbit: ['토끼', 'Rabbit'], fox: ['여우', 'Fox'], boar: ['멧돼지', 'Boar'], crocodile: ['악어', 'Crocodile', '늪과 물가', 'Swamps & shores'], fish: ['물고기', 'Fish', '물 위에 소환', 'Spawn on water'],
+  dragon: ['드래곤', 'Dragon', '하늘에서 불을 뿜습니다', 'Breathes fire from the sky'],
+  volcano: ['화산', 'Volcano', '분출 후 비옥한 화산재', 'Erupts, then fertile ash'], drought: ['가뭄', 'Drought', '풀과 작물이 마릅니다', 'Grass and crops wither'], flood: ['홍수', 'Flood', '저지대가 잠깁니다', 'Low ground goes under'],
+  'ev-eruption': ['화산 폭발', 'Eruption'], 'ev-drought': ['가뭄', 'Drought'], 'ev-flood': ['홍수', 'Flood'], 'ev-dragon': ['드래곤 출현', 'A dragon appears'],
   // civ
   war: ['전쟁 선포', 'Declare War', '두 왕국을 차례로', 'Pick two kingdoms'], peace: ['평화 협정', 'Make Peace', '두 왕국을 차례로', 'Pick two kingdoms'],
   alliance: ['동맹', 'Alliance', '두 왕국을 차례로', 'Pick two kingdoms'], rebel: ['반란 선동', 'Incite Rebellion', '마을 클릭', 'Click a village'],

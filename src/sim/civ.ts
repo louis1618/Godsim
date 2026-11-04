@@ -1,6 +1,7 @@
 import { Sim, setTimeout0 } from './sim';
 import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res, Mem } from './entities';
 import { SPECIES, Sp, Bk, BUILDINGS, BUILDING_KINDS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
+import { eats } from './foodchain';
 import { guardWork, traderWork, postWork, unrestTick, tryCrushRebellion, completed } from './jobs';
 import { shipyardTick, overseasSite, launchFerry } from './vehicles';
 import { kingdomName, villageName } from './names';
@@ -689,7 +690,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
       const t = findFeature(sim, u.x, u.z, 14, (f) => f === Feat.Berry);
       if (t >= 0) return { k: 'gather', tile: t, res: Res.Food, work: 0 };
       let prey: Unit | null = null, bd = 13 * 13;
-      sim.near(u.x, u.z, 13, (o, d2) => { if ((o.sp === Sp.Sheep || o.sp === Sp.Deer || o.sp === Sp.Chicken) && o.age > 1 && d2 < bd) { bd = d2; prey = o; } });
+      sim.near(u.x, u.z, 13, (o, d2) => { if (!isCiv(o.sp) && eats(u.sp, o.sp) && o.age >= SPECIES[o.sp].adultAge && (o.sp !== Sp.Fish || d2 < 9) && d2 < bd) { bd = d2; prey = o; } });
       if (prey && v.food < 40) return { k: 'hunt', u: (prey as Unit).id };
       break;
     }

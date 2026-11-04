@@ -6,6 +6,8 @@ import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset
 import { mindTick, socialise, remember } from './mind';
 import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedTick, suspectFlee } from './jobs';
 import { vehicleTick } from './vehicles';
+import { fishTick, dragonTick, aquatic } from './animals';
+import { eats, grazes, hunts } from './foodchain';
 
 const AGE_STEP = 10 / YEAR_TICKS;
 
@@ -13,6 +15,8 @@ export function unitTick(sim: Sim, u: Unit) {
   u.px = u.x; u.pz = u.z;
   if (u.flags & (UF.Ragdoll | UF.Held)) return;
   if (isVehicle(u.sp)) { vehicleTick(sim, u); return; }
+  if (u.sp === Sp.Fish) { fishTick(sim, u); return; }
+  if (u.sp === Sp.Dragon) { dragonTick(sim, u); return; }
   if (u.flags & UF.Aboard) {
     // riding a ferry: the boat carries us (it also puts us ashore)
     const b = u.task?.k === 'board' ? sim.getUnit(u.task.boat) : undefined;
@@ -42,8 +46,10 @@ export function unitTick(sim: Sim, u: Unit) {
     if (w.mat[t] === Mat.Lava) hurt(sim, u, 25, undefined, 'fire');
     if (w.isWater(t)) {
       u.anim = Anim.Swim;
-      if (w.isDeep(t) && sim.tick % 8 === 0 && !def.undead) hurt(sim, u, 3, undefined, 'drown');
-      if (!u.task || u.task.k === 'idle') escapeWater(sim, u);
+      if (!aquatic(u.sp)) {
+        if (w.isDeep(t) && sim.tick % 8 === 0 && !def.undead) hurt(sim, u, 3, undefined, 'drown');
+        if (!u.task || u.task.k === 'idle') escapeWater(sim, u);
+      }
     }
     if (u.flags & UF.Dead) return;
   }
@@ -123,6 +129,8 @@ function decide(sim: Sim, u: Unit) {
       if (civ && sim.rng.chance(0.5)) sim.emote(u, Emote.Alert, 20);
       return;
     }
+    if (u.task?.k === 'flee') return;
+    // a distant threat: keep an eye on it but carry on living
   }
   // urgent needs break into anything that is not life-or-death
   const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal', 'arrest', 'escort', 'trade', 'board', 'escorted', 'jailed'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
@@ -241,19 +249,25 @@ function decideAnimal(sim: Sim, u: Unit) {
     return;
   }
   if (u.hunger > 50) {
-    if (def.diet === 'plant' || (def.diet === 'omni' && sim.rng.chance(0.5))) {
+    const starving = u.hunger > 85;
+    // grazers (and omnivores half the time) eat plants
+    if (grazes(u.sp) && (!hunts(u.sp) || sim.rng.chance(0.5) || u.sp === Sp.Boar)) {
       const t = sim.world.tileAt(u.x, u.z);
       if (t >= 0 && sim.world.grass[t] > 40) { setTask(sim, u, { k: 'graze', work: 0 }); return; }
       const g = findGrass(sim, u.x, u.z, 8);
       if (g >= 0) { setTask(sim, u, { k: 'move', tx: (g % sim.world.W) + 0.5, tz: ((g / sim.world.W) | 0) + 0.5, then: { k: 'graze', work: 0 } }); return; }
     }
-    if (def.diet !== 'plant') {
+    // hunters pick prey from the food chain (desperation widens the menu)
+    if (hunts(u.sp)) {
       let prey: Unit | null = null, bd = 1e9;
-      sim.near(u.x, u.z, 12, (o, d2) => {
-        if (o.sp === u.sp || o.flags & UF.Held) return;
-        const od = SPECIES[o.sp];
-        const ok = (!od.civ && od.diet === 'plant') || (u.hunger > 85 && od.civ) || (u.sp === Sp.Bear && od.civ && u.hunger > 70);
-        if (ok && d2 < bd) { bd = d2; prey = o; }
+      const range = (u.sp === Sp.Crocodile ? 8 : 12) * (u.hunger > 75 ? 1.6 : 1);
+      sim.near(u.x, u.z, range, (o, d2) => {
+        if (o.sp === u.sp || o.flags & (UF.Held | UF.Jailed | UF.Aboard)) return;
+        if (!eats(u.sp, o.sp, starving)) return;
+        if (o.sp === Sp.Fish && d2 > 16) return;          // fish only near the shore
+        if (o.y > 1) return;                               // can't reach fliers
+        const w2 = d2 * (SPECIES[o.sp].hp > SPECIES[u.sp].hp ? 3 : 1); // prefer manageable prey
+        if (w2 < bd) { bd = w2; prey = o; }
       });
       if (prey) { setTask(sim, u, { k: 'hunt', u: (prey as Unit).id }); return; }
     }
@@ -275,6 +289,10 @@ function decideAnimal(sim: Sim, u: Unit) {
         sim.stats.births++;
         return;
       }
+      // rare animals go looking for a mate
+      let far: Unit | null = null, fd = 22 * 22;
+      sim.near(u.x, u.z, 22, (o, d2) => { if (o !== u && o.sp === u.sp && o.age >= def.adultAge && o.female !== u.female && d2 < fd) { fd = d2; far = o; } });
+      if (far && fd > 16) { setTask(sim, u, { k: 'wander', tx: (far as Unit).x, tz: (far as Unit).z }); return; }
     }
   }
   // herd behaviour: drift toward kin
@@ -283,13 +301,20 @@ function decideAnimal(sim: Sim, u: Unit) {
     sim.near(u.x, u.z, 7, (o) => { if (o.sp === u.sp && o !== u) { cx += o.x; cz += o.z; n++; } });
     if (n > 0) { wanderNear(sim, u, cx / n, cz / n, 3); return; }
   }
-  if (sim.rng.chance(0.35)) setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 30) });
-  else wanderNear(sim, u, u.x, u.z, def.aggressive ? 10 : 6);
+  // hungry hunters roam far in search of prey
+  const roam = hunts(u.sp) ? (u.hunger > 55 ? 26 : 10) : 6;
+  if (sim.rng.chance(u.hunger > 55 && hunts(u.sp) ? 0.1 : 0.35)) setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 30) });
+  else wanderNear(sim, u, u.x, u.z, roam);
 }
 
 export function speciesCap(sim: Sim, sp: Sp) {
   const area = sim.world.N / (192 * 192);
   switch (sp) {
+    case Sp.Rabbit: return 110 * area;
+    case Sp.Fox: return 18 * area;
+    case Sp.Boar: return 40 * area;
+    case Sp.Crocodile: return 12 * area;
+    case Sp.Dragon: return 3;
     case Sp.Sheep: return 90 * area;
     case Sp.Deer: return 70 * area;
     case Sp.Chicken: return 60 * area;
@@ -314,6 +339,9 @@ function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
       if (isCiv(u.sp) && od.aggressive && o.sp !== Sp.Skeleton && d2 < 9) threat = true;
       if (isCiv(u.sp) && od.undead) threat = true;
       if (def.aggressive && isCiv(o.sp) && o.task?.k === 'attack' && (o.task as any).u === u.id) threat = true;
+      // prey keeps an eye on whoever eats it
+      if (!isCiv(u.sp) && eats(o.sp, u.sp) && (d2 < 16 || ((o.task?.k === 'hunt' || o.task?.k === 'attack') && (o.task as any).u === u.id))) threat = true;
+      if (o.sp === Sp.Dragon) threat = d2 < 49;
     }
     if (threat && d2 < bd) { bd = d2; best = o; }
   });
@@ -340,6 +368,17 @@ function fleeFrom(sim: Sim, u: Unit, x: number, z: number) {
   const v = villageOf(sim, u);
   let tx = u.x + dx * 8, tz = u.z + dz * 8;
   if (v && Math.hypot(v.cx - x, v.cz - z) > 5) { tx = v.cx + 0.5 + dx * 2; tz = v.cz + 0.5 + dz * 2; }
+  // never flee into the water (unless at home there)
+  if (!aquatic(u.sp)) {
+    const w = sim.world;
+    const a0 = Math.atan2(tz - u.z, tx - u.x), d0 = Math.hypot(tx - u.x, tz - u.z);
+    for (let k = 0; k < 9; k++) {
+      const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
+      const xx = u.x + Math.cos(a) * d0, zz = u.z + Math.sin(a) * d0;
+      const t = w.tileAt(xx, zz);
+      if (t >= 0 && w.walkable(t)) { tx = xx; tz = zz; break; }
+    }
+  }
   setTask(sim, u, { k: 'flee', tx, tz });
 }
 
@@ -769,10 +808,24 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   if (!o || o.flags & UF.Held) { u.task = null; u.think = 0; return; }
   const def = SPECIES[u.sp];
   const d = Math.hypot(o.x - u.x, o.z - u.z);
+  if (o.sp === Sp.Fish && hunting) {
+    // fishing from the shore: a quick swipe or net when close enough
+    if (d <= 2.2) {
+      face(u, o.x, o.z); u.anim = Anim.Attack; u.animT = 6;
+      sim.fx.push({ t: 'fish', x: o.x, z: o.z, u: u.id });
+      sim.killUnit(o, 'eaten', u);
+      u.hunger = Math.max(0, u.hunger - 45);
+      if (isCiv(u.sp)) { u.carry = Res.Food; u.carryAmt = 3; setTask(sim, u, { k: 'deliver' }); } else { u.task = null; u.think = 0; }
+      return;
+    }
+    if (++u.stuck > 60) { u.task = null; u.think = 0; u.stuck = 0; return; }
+    moveTo(sim, u, o.x, o.z, 2.0, 1);
+    return;
+  }
   const gun = u.item === 12 || u.item === 13;
   const ranged = (u.item === 5 || gun) && d > 1.2; // bow, musket, rifle
   const reach = ranged ? (u.item === 13 ? 9 : u.item === 12 ? 7 : 6) : def.range * (0.8 + 0.2 * def.size);
-  if (o.sp === Sp.Plane && o.y > 1 && !ranged) { u.task = null; u.think = 0; return; }
+  if (o.y > 1 && !ranged) { u.task = null; u.think = 0; return; }
   if (d > 16) { u.task = null; u.think = 0; return; }
   if (d > reach) {
     // give up on targets we cannot reach
@@ -780,13 +833,13 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     // chase directly when close, path when far
     let blocked = false;
     if (d < 3 && !u.path) {
-      const sp = def.speed * u.speedMul * TICK_DT * 1.05;
+      const sp = def.speed * u.speedMul * TICK_DT * (hunting ? 1.3 : 1.05);
       if (stepToward(sim.world, u, o.x, o.z, sp, false) <= 1e-5) blocked = true;
       else { face(u, o.x, o.z); u.anim = Anim.Walk; }
     }
     if (d >= 3 || blocked || u.path) {
       if (u.path && sim.tick % 15 === u.id % 15) u.path = null; // re-path toward moving target
-      moveTo(sim, u, o.x, o.z, reach * 0.9, 1.05);
+      moveTo(sim, u, o.x, o.z, reach * 0.9, hunting && d < 5 ? 1.3 : 1.05);
     }
     return;
   }
@@ -810,7 +863,7 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     hurt(sim, o, dmg, u, 'attack');
   }
   if (o.flags & UF.Dead) {
-    if (hunting || (!isCiv(u.sp) && !SPECIES[u.sp].undead)) u.hunger = Math.max(0, u.hunger - 70);
+    if (hunting || (!isCiv(u.sp) && !SPECIES[u.sp].undead && eats(u.sp, o.sp, true))) u.hunger = Math.max(0, u.hunger - 70);
     if (isCiv(u.sp) && !isCiv(o.sp) && !SPECIES[o.sp].undead) { u.carry = Res.Food; u.carryAmt = 5; setTask(sim, u, { k: 'deliver' }); return; }
     if (isCiv(u.sp) && sim.rng.chance(0.3)) sim.emote(u, Emote.Swords, 18);
     u.task = null; u.think = 0;

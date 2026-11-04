@@ -27,7 +27,7 @@ export function serialize(sim: Sim): string {
     villages: [...sim.villages.values()],
     kingdoms: [...sim.kingdoms.values()],
     history: sim.history,
-    rainClouds: sim.rainClouds, tornadoes: sim.tornadoes, meteors: sim.meteors,
+    rainClouds: sim.rainClouds, tornadoes: sim.tornadoes, meteors: sim.meteors, volcanoes: sim.volcanoes, droughts: sim.droughts, floods: sim.floods,
     fire: [...fireTiles],
   };
   return JSON.stringify(data);
@@ -54,6 +54,7 @@ export function deserialize(json: string): Sim {
   for (const k of d.kingdoms) sim.kingdoms.set(k.id, fill(k, K0));
   sim.history = d.history ?? [];
   sim.rainClouds = d.rainClouds ?? []; sim.tornadoes = d.tornadoes ?? []; sim.meteors = d.meteors ?? [];
+  sim.volcanoes = d.volcanoes ?? []; sim.droughts = d.droughts ?? []; sim.floods = d.floods ?? [];
   fireTiles.clear();
   for (const t of d.fire ?? []) fireTiles.add(t);
   return sim;

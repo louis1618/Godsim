@@ -108,7 +108,7 @@ interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribut
 /** Characters are drawn a bit larger than their simulation footprint so they read well. */
 export const CREATURE_SCALE = 1.4;
 
-const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0, [Sp.Troll]: 0x5f7a78 };
+const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0, [Sp.Troll]: 0x5f7a78, [Sp.Rabbit]: 0xcab49a, [Sp.Fox]: 0xe0742e, [Sp.Boar]: 0x6a4a36, [Sp.Crocodile]: 0x4f7a3a, [Sp.Fish]: 0x4aa8d8, [Sp.Dragon]: 0xd8322a };
 
 /** Renders every creature: animated 3D instances up close, coloured map pins from afar. */
 export class UnitRenderer {
@@ -280,7 +280,7 @@ export class UnitRenderer {
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
         this.markerCol[o] = this.c.r; this.markerCol[o + 1] = this.c.g; this.markerCol[o + 2] = this.c.b;
-        const base = isCiv(u.sp) ? 8 : isVehicle(u.sp) ? 11 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : 3.6;
+        const base = isCiv(u.sp) ? 8 : isVehicle(u.sp) ? 11 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : u.sp === Sp.Dragon ? 16 : u.sp === Sp.Fish ? 2.4 : 3.6;
         this.markerSize[mk] = base * (u.flags & UF.King ? 1.7 : u.flags & UF.Hero ? 1.35 : 1) * (u.age < def.adultAge ? 0.75 : 1) * (u.sp === Sp.Bear ? 1.3 : 1);
         mk++;
       }
@@ -300,6 +300,8 @@ export class UnitRenderer {
       let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
       if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
       if (isVehicle(u.sp)) sc = CREATURE_SCALE * (u.sp === Sp.Boat ? 1.7 : u.sp === Sp.Tank ? 1.6 : 1.8);
+      if (u.sp === Sp.Dragon) sc = CREATURE_SCALE * def.size;
+      if (u.sp === Sp.Crocodile) sc = CREATURE_SCALE * 1.15 * (child ? 0.6 : 1);
       // a little pop when born
       const age = sim.tick - u.born;
       if (age < 8) sc *= 0.5 + 0.5 * Math.min(1, (age + alpha) / 8) + Math.sin(Math.min(1, (age + alpha) / 8) * Math.PI) * 0.25;

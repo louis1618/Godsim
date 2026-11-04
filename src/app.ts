@@ -19,6 +19,8 @@ import { fireTiles } from './sim/nature';
 import { damp } from './core/math';
 import { MapLabels } from './ui/maplabels';
 import { growWorld, MAX_WORLD } from './sim/expand';
+import { clearClaims } from './sim/ai';
+import { clearFarmClaims } from './sim/civ';
 
 interface FeedItem { key: number; t: number; icon: string; title: string; text: string; colors: string[]; x?: number; z?: number; }
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -180,6 +182,8 @@ export class AppCtl {
   }
 
   private attach(sim: Sim) {
+    // work claims are per-world: never let a previous world's reservations block tiles in this one
+    clearClaims(); clearFarmClaims();
     this.game.setSim(sim.world, sim);
     this.labels?.clear();
     this.feed = [];

@@ -34,15 +34,27 @@ export function seedLife(sim: Sim, opts: { tribes?: number; animals?: boolean } 
   if (opts.animals !== false) {
     const herds: [Sp, number, number[]][] = [
       [Sp.Sheep, 7, [Mat.Grass, Mat.Savanna]], [Sp.Deer, 6, [Mat.Lush, Mat.Grass]], [Sp.Chicken, 4, [Mat.Grass]],
-      [Sp.Wolf, 3, [Mat.Lush, Mat.Snow, Mat.Grass]], [Sp.Bear, 2, [Mat.Lush, Mat.Snow]],
+      [Sp.Wolf, 4, [Mat.Lush, Mat.Snow, Mat.Grass]], [Sp.Bear, 2, [Mat.Lush, Mat.Snow]],
+      [Sp.Rabbit, 6, [Mat.Grass, Mat.Lush, Mat.Savanna]], [Sp.Fox, 4, [Mat.Lush, Mat.Grass, Mat.Snow]], [Sp.Boar, 3, [Mat.Lush, Mat.Grass, Mat.Swamp]],
+      [Sp.Crocodile, 2, [Mat.Swamp, Mat.Sand]],
     ];
     for (const [sp, groups, mats] of herds) {
       for (let g = 0; g < Math.round(groups * areaMul * areaMul); g++) {
         const s = findSpot(sim, mats, 200, placed, 14);
         if (!s) continue;
-        const k = sp === Sp.Bear ? 1 : sp === Sp.Wolf ? 3 : 4;
+        const k = sp === Sp.Bear || sp === Sp.Fox ? 1 + (sp === Sp.Fox ? 1 : 0) : sp === Sp.Wolf ? 3 : sp === Sp.Crocodile ? 2 : 4;
         for (let i = 0; i < k; i++) sim.spawnUnit(sp, s[0] + sim.rng.range(-1.5, 1.5), s[1] + sim.rng.range(-1.5, 1.5));
       }
+    }
+    // schools of fish in open water
+    const w = sim.world;
+    let schools = 0;
+    for (let i = 0; i < 2000 && schools < Math.round(14 * areaMul * areaMul); i++) {
+      const x = sim.rng.int(4, w.W - 5), z = sim.rng.int(4, w.H - 5);
+      const t = w.idx(x, z);
+      if (w.waterDepth(t) < 0.6 || w.waterDepth(t) > 4) continue;
+      schools++;
+      for (let k = 0; k < 4; k++) sim.spawnUnit(Sp.Fish, x + 0.5 + sim.rng.range(-0.8, 0.8), z + 0.5 + sim.rng.range(-0.8, 0.8));
     }
   }
 }
