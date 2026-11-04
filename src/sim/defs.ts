@@ -1,0 +1,121 @@
+/** Static game data: materials, features, species, buildings. Pure data, engine agnostic. */
+
+export const TICKS_PER_SEC = 10;
+export const TICK_DT = 1 / TICKS_PER_SEC;
+export const YEAR_TICKS = 480;
+export const SEASON_TICKS = YEAR_TICKS / 4;
+
+export const enum Mat {
+  Sand = 0, Grass = 1, Lush = 2, Savanna = 3, Desert = 4, Snow = 5, Rock = 6, Soil = 7, Ash = 8, Swamp = 9, Lava = 10, Farmland = 11,
+}
+export const MAT_COUNT = 12;
+
+export const enum Feat {
+  None = 0, Oak = 1, Pine = 2, Birch = 3, Palm = 4, Cactus = 5, SnowPine = 6, Acacia = 7, Dead = 8, Berry = 9, Boulder = 10, Ore = 11, Crop = 12, Flower = 13,
+}
+export const FEAT_COUNT = 14;
+export const isTree = (f: number) => (f >= 1 && f <= 8);
+export const isWoodTree = (f: number) => (f >= 1 && f <= 7 && f !== 5);
+
+export interface MatDef { key: string; walkCost: number; fertile: number; flammable: number; }
+export const MATS: MatDef[] = [
+  { key: 'sand', walkCost: 1.2, fertile: 0.15, flammable: 0 },
+  { key: 'grass', walkCost: 1, fertile: 1, flammable: 0.5 },
+  { key: 'lush', walkCost: 1.05, fertile: 1.2, flammable: 0.6 },
+  { key: 'savanna', walkCost: 1, fertile: 0.6, flammable: 1 },
+  { key: 'desert', walkCost: 1.3, fertile: 0.05, flammable: 0 },
+  { key: 'snow', walkCost: 1.5, fertile: 0.1, flammable: 0 },
+  { key: 'rock', walkCost: 1.8, fertile: 0, flammable: 0 },
+  { key: 'soil', walkCost: 1, fertile: 0.8, flammable: 0 },
+  { key: 'ash', walkCost: 1.1, fertile: 0.9, flammable: 0 },
+  { key: 'swamp', walkCost: 2, fertile: 0.7, flammable: 0.1 },
+  { key: 'lava', walkCost: 50, fertile: 0, flammable: 0 },
+  { key: 'farmland', walkCost: 1.1, fertile: 1.4, flammable: 0.3 },
+];
+
+export const enum Sp {
+  Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9,
+}
+export const SPECIES_COUNT = 10;
+export type Race = Sp.Human | Sp.Elf | Sp.Dwarf | Sp.Orc;
+export const RACES: Race[] = [Sp.Human, Sp.Elf, Sp.Dwarf, Sp.Orc];
+
+export interface SpeciesDef {
+  key: string;
+  civ: boolean;
+  speed: number;        // tiles per second
+  hp: number;
+  dmg: number;
+  attackRate: number;   // seconds between attacks
+  range: number;        // melee reach in tiles
+  lifespan: [number, number];
+  adultAge: number;
+  size: number;         // render & collision scale
+  diet: 'plant' | 'meat' | 'omni';
+  aggressive: boolean;  // attacks other species on sight
+  breedEvery: number;   // years between births (animals); civ uses housing
+  litter: number;
+  biomes: number[];     // preferred mats for spawning/wandering
+  fertility: number;    // civ birth chance multiplier
+  buildSpeed: number;
+  favoredFeat?: number; // wood source preference
+  undead?: boolean;
+}
+
+export const SPECIES: SpeciesDef[] = [
+  { key: 'human', civ: true, speed: 1.55, hp: 100, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [55, 75], adultAge: 10, size: 1, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1.15, buildSpeed: 1 },
+  { key: 'elf', civ: true, speed: 1.7, hp: 85, dmg: 11, attackRate: 0.9, range: 0.9, lifespan: [110, 160], adultAge: 14, size: 1.05, diet: 'plant', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 0.75, buildSpeed: 0.9 },
+  { key: 'dwarf', civ: true, speed: 1.3, hp: 130, dmg: 14, attackRate: 1.1, range: 0.85, lifespan: [80, 110], adultAge: 12, size: 0.85, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Rock, Mat.Grass, Mat.Snow], fertility: 0.85, buildSpeed: 1.35 },
+  { key: 'orc', civ: true, speed: 1.5, hp: 140, dmg: 16, attackRate: 1.15, range: 0.95, lifespan: [40, 55], adultAge: 8, size: 1.12, diet: 'meat', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Savanna, Mat.Desert, Mat.Grass], fertility: 1.35, buildSpeed: 0.95 },
+  { key: 'sheep', civ: false, speed: 1.0, hp: 40, dmg: 2, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.8, diet: 'plant', aggressive: false, breedEvery: 1.6, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1, buildSpeed: 0 },
+  { key: 'wolf', civ: false, speed: 2.1, hp: 60, dmg: 10, attackRate: 0.9, range: 0.8, lifespan: [10, 15], adultAge: 2, size: 0.85, diet: 'meat', aggressive: true, breedEvery: 3.2, litter: 1, biomes: [Mat.Lush, Mat.Grass, Mat.Snow], fertility: 1, buildSpeed: 0 },
+  { key: 'deer', civ: false, speed: 2.0, hp: 45, dmg: 3, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.95, diet: 'plant', aggressive: false, breedEvery: 2.0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 1, buildSpeed: 0 },
+  { key: 'bear', civ: false, speed: 1.5, hp: 220, dmg: 22, attackRate: 1.3, range: 1.0, lifespan: [20, 30], adultAge: 4, size: 1.35, diet: 'omni', aggressive: true, breedEvery: 5.5, litter: 1, biomes: [Mat.Lush, Mat.Snow], fertility: 1, buildSpeed: 0 },
+  { key: 'skeleton', civ: false, speed: 1.35, hp: 70, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Ash, Mat.Desert], fertility: 0, buildSpeed: 0, undead: true },
+  { key: 'chicken', civ: false, speed: 1.1, hp: 15, dmg: 1, attackRate: 2, range: 0.5, lifespan: [6, 9], adultAge: 1, size: 0.55, diet: 'plant', aggressive: false, breedEvery: 1.0, litter: 2, biomes: [Mat.Grass, Mat.Savanna], fertility: 1, buildSpeed: 0 },
+];
+export const isCiv = (sp: number) => sp <= Sp.Orc;
+
+export const enum Bk {
+  TownHall = 0, House = 1, Farm = 2, Storage = 3, Tower = 4, Temple = 5, Windmill = 6, Ruin = 7,
+}
+export const BUILDING_KINDS = 8;
+
+export interface BuildingDef {
+  key: string;
+  size: number;       // square footprint in tiles
+  hp: number;
+  cost: { wood: number; stone: number; gold: number };
+  work: number;       // builder-seconds
+  housing: number;
+  minPop: number;     // village population required
+}
+export const BUILDINGS: BuildingDef[] = [
+  { key: 'townhall', size: 3, hp: 900, cost: { wood: 10, stone: 0, gold: 0 }, work: 14, housing: 4, minPop: 0 },
+  { key: 'house', size: 2, hp: 260, cost: { wood: 8, stone: 0, gold: 0 }, work: 9, housing: 4, minPop: 0 },
+  { key: 'farm', size: 3, hp: 80, cost: { wood: 3, stone: 0, gold: 0 }, work: 5, housing: 0, minPop: 5 },
+  { key: 'storage', size: 2, hp: 300, cost: { wood: 12, stone: 4, gold: 0 }, work: 10, housing: 0, minPop: 9 },
+  { key: 'tower', size: 1, hp: 450, cost: { wood: 8, stone: 14, gold: 0 }, work: 14, housing: 0, minPop: 14 },
+  { key: 'temple', size: 3, hp: 600, cost: { wood: 15, stone: 25, gold: 6 }, work: 26, housing: 0, minPop: 22 },
+  { key: 'windmill', size: 2, hp: 280, cost: { wood: 18, stone: 6, gold: 0 }, work: 14, housing: 0, minPop: 16 },
+  { key: 'ruin', size: 2, hp: 1, cost: { wood: 0, stone: 0, gold: 0 }, work: 0, housing: 0, minPop: 0 },
+];
+
+/** Unit traits (bit flags). */
+export const enum Trait {
+  Brave = 1 << 0, Strong = 1 << 1, Fast = 1 << 2, Wise = 1 << 3, Lucky = 1 << 4, Greedy = 1 << 5,
+  Peaceful = 1 << 6, Bloodlust = 1 << 7, Fertile = 1 << 8, Weak = 1 << 9, Immortal = 1 << 10, Blessed = 1 << 11,
+}
+export const TRAIT_KEYS: [Trait, string][] = [
+  [Trait.Brave, 'brave'], [Trait.Strong, 'strong'], [Trait.Fast, 'fast'], [Trait.Wise, 'wise'], [Trait.Lucky, 'lucky'],
+  [Trait.Greedy, 'greedy'], [Trait.Peaceful, 'peaceful'], [Trait.Bloodlust, 'bloodlust'], [Trait.Fertile, 'fertile'],
+  [Trait.Weak, 'weak'], [Trait.Immortal, 'immortal'], [Trait.Blessed, 'blessed'],
+];
+
+/** Kingdom colours: [primary, dark] chosen to read on both terrain and in UI. */
+export const KINGDOM_COLORS: [number, number][] = [
+  [0xe2483d, 0x8c1f22], [0x3a7ae0, 0x1d3f86], [0xf2b632, 0x9a6512], [0x46b04a, 0x1f6326],
+  [0x9a55d6, 0x522887], [0xf07c2a, 0x99410f], [0x2cb7b0, 0x136760], [0xe85b9c, 0x8d2457],
+  [0xeeeeea, 0x8d8a85], [0x3c3a48, 0x17161d], [0x9b6b43, 0x593a20], [0x86d0f2, 0x3b7ea3],
+  [0xc7e04a, 0x6f8a14], [0x7d4ab8, 0x3e1f6b], [0xd94a6a, 0x7d1d33], [0x5a8b6e, 0x2c4a39],
+];
