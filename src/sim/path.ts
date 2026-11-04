@@ -84,6 +84,7 @@ export class PathFinder {
     if (near === 0 && si >= 0 && gi >= 0 && si !== gi) return null;
     if (near === 0 && gi < 0 && !(this.blockBuildings && w.bld[goal] >= 0)) return null;
     if (this.lineClear(sx, sz, gx + 0.5, gz + 0.5, goal)) return new Int32Array([goal]);
+    if (near > 0 && Math.hypot(sx - gx - 0.5, sz - gz - 0.5) <= near) return new Int32Array([start]);
     const gen = ++this.gen;
     const W = w.W, H = w.H;
     this.hs = 0;

@@ -6,9 +6,9 @@ import { UF } from '../src/sim/entities';
 
 const seed = Number(process.argv[2] ?? 12345);
 const years = Number(process.argv[3] ?? 20);
-const world = generateWorld({ size: 192, shape: 'continents', seed });
+const world = generateWorld({ size: Number(process.argv[5] ?? 192), shape: 'continents', seed });
 const sim = new Sim(world, seed);
-seedLife(sim);
+seedLife(sim, { tribes: Number(process.argv[4] ?? 4) });
 sim.onHistory = (h) => console.log(`  [y${(h.tick / YEAR_TICKS).toFixed(1)}] ${h.type} ${h.text}`);
 const t0 = performance.now();
 let maxTick = 0;
@@ -27,3 +27,9 @@ for (let y = 0; y < years; y++) {
   maxTick = 0;
 }
 console.log('total s', ((performance.now() - t0) / 1000).toFixed(1));
+const counts: Record<string, number> = {};
+for (const h of sim.history) counts[h.type] = (counts[h.type] ?? 0) + 1;
+console.log('history', JSON.stringify(counts));
+let warriors = 0, marching = 0, razing = 0;
+for (const u of sim.units) { if (u.job === 6) warriors++; if (u.task?.k === 'march') marching++; if (u.task?.k === 'raze') razing++; }
+console.log('warriors', warriors, 'marching', marching, 'razing', razing, 'stats', JSON.stringify(sim.stats));

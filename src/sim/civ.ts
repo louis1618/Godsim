@@ -391,7 +391,7 @@ export function villageThink(sim: Sim, v: Village) {
     const cap = sim.villages.get(k.capital);
     const dist = cap ? Math.hypot(cap.cx - v.cx, cap.cz - v.cz) : 50;
     const king = sim.getUnit(k.king);
-    v.loyalty = 100 - dist * 0.9 - k.villages.length * 5 - (atWar ? 12 : 0) + (king ? (king.traits & Trait.Wise ? 15 : 0) - (king.traits & Trait.Greedy ? 10 : 0) : -30) + (v.blessT > sim.tick ? 40 : 0) + Math.min(20, v.food * 0.5);
+    v.loyalty = 92 - dist * 1.35 - k.villages.length * 7 - (atWar ? 15 : 0) + (king ? (king.traits & Trait.Wise ? 15 : 0) - (king.traits & Trait.Greedy ? 10 : 0) : -30) + (v.blessT > sim.tick ? 40 : 0) + Math.min(20, v.food * 0.5);
   } else v.loyalty = 100;
 }
 
@@ -615,7 +615,8 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
     let best: Unit | null = null;
     for (const id of cap.residents) {
       const u = sim.getUnit(id);
-      if (u && u.age >= SPECIES[u.sp].adultAge && (!best || u.level * 10 + u.age > best.level * 10 + best.age)) best = u;
+      const score = (x: Unit) => x.level * 10 + x.kills - Math.abs(x.age - (SPECIES[x.sp].lifespan[0] * 0.35 + SPECIES[x.sp].adultAge)) * 0.6;
+      if (u && u.age >= SPECIES[u.sp].adultAge && u.age < u.maxAge * 0.8 && (!best || score(u) > score(best))) best = u;
     }
     if (best) {
       const wasKing = k.king >= 0;

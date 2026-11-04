@@ -84,7 +84,7 @@ function decide(sim: Sim, u: Unit) {
   if (threat) {
     const { enemy, dist } = threat;
     const fighter = !civ ? (def.aggressive || u.hp > u.maxHp * 0.6 && SPECIES[enemy.sp].hp < def.hp * 0.7)
-      : adult && (u.job === Job.Warrior || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.King | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5);
+      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
     if (fighter && !(u.traits & Trait.Peaceful && !(u.flags & UF.Mad) && enemy.sp <= Sp.Orc)) {
       if (!u.task || u.task.k !== 'attack' || u.task.u !== enemy.id) {
         setTask(sim, u, { k: 'attack', u: enemy.id });
@@ -117,7 +117,8 @@ function decide(sim: Sim, u: Unit) {
   // 3. carrying something: deliver
   if (u.carry !== Res.None && u.carryAmt > 0) { setTask(sim, u, { k: 'deliver' }); return; }
 
-  // 4. hunger
+  // 4. hunger (soldiers on campaign live off supplies)
+  if (u.hunger > 60 && u.job === Job.Warrior && v.food >= 1 && sim.kingdoms.get(u.kingdom)?.wars.length) { v.food -= 1; u.hunger = 5; }
   if (u.hunger > 60) {
     if (v.food >= 1) { setTask(sim, u, { k: 'eat' }); return; }
     const berry = findFeature(sim, u.x, u.z, 14, (f) => f === Feat.Berry);
@@ -345,7 +346,8 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
     if (sim.pathCalls > 60) { u.anim = Anim.Idle; return false; }
     sim.pathCalls++;
     const goal = w.tileAt(tx, tz);
-    const p = sim.pf.find(u.x, u.z, goal, 5000, 0);
+    const near = arriveDist >= 1.5 ? Math.floor(arriveDist) : 0;
+    const p = sim.pf.find(u.x, u.z, goal, 5000, near);
     if (!p) {
       u.stuck++;
       if (u.stuck > 3) { u.task = null; u.think = 0; }
@@ -525,9 +527,9 @@ function run(sim: Sim, u: Unit, t: Task) {
         if (u.cd <= 0) {
           u.anim = Anim.Attack; u.animT = 6;
           u.cd = Math.round(SPECIES[u.sp].attackRate * 10);
-          sim.damageBuilding(b, SPECIES[u.sp].dmg * u.dmgMul * 0.9, u);
+          sim.damageBuilding(b, SPECIES[u.sp].dmg * u.dmgMul * (u.job === Job.Warrior ? 2.4 : 1), u);
           sim.fx.push({ t: 'bhit', x: ex, z: ez, u: u.id, tx: cx, tz: cz });
-          if (sim.rng.chance(0.05) && b.fire === 0) { b.fire = 160; sim.fx.push({ t: 'ignite', x: cx, z: cz }); }
+          if (sim.rng.chance(0.07) && b.fire === 0) { b.fire = 160; sim.fx.push({ t: 'ignite', x: cx, z: cz }); }
         }
       }
       break;
@@ -546,9 +548,14 @@ function run(sim: Sim, u: Unit, t: Task) {
       if (!v || !v.alive) { u.task = null; u.think = 0; break; }
       const k = sim.kingdoms.get(u.kingdom);
       if (!k || !k.wars.includes(v.kingdom)) { u.task = null; u.think = 0; break; }
-      if (moveTo(sim, u, v.cx + 0.5 + Math.cos(u.look) * 2, v.cz + 0.5 + Math.sin(u.look) * 2, 2.5)) {
-        // at the target: raze buildings
-        const bid = v.buildings.find((id) => { const b = sim.buildings.get(id); return b && b.alive && b.kind !== Bk.Farm; });
+      if (moveTo(sim, u, v.cx + 0.5 + Math.cos(u.look) * 2, v.cz + 0.5 + Math.sin(u.look) * 2, 4)) {
+        // at the target: go for the town hall first (capture), otherwise the nearest building
+        const hall = sim.buildings.get(v.hall);
+        let bid: number | undefined = hall && hall.alive && sim.rng.chance(0.65) ? hall.id : undefined;
+        if (bid === undefined) {
+          let bd = 1e9;
+          for (const id of v.buildings) { const b = sim.buildings.get(id); if (!b || !b.alive || b.kind === Bk.Farm) continue; const d = (b.x - u.x) ** 2 + (b.z - u.z) ** 2; if (d < bd) { bd = d; bid = id; } }
+        }
         if (bid !== undefined) setTask(sim, u, { k: 'raze', b: bid });
         else u.task = null;
       }
@@ -615,21 +622,25 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   const reach = ranged ? 6 : def.range * (0.8 + 0.2 * def.size);
   if (d > 16) { u.task = null; u.think = 0; return; }
   if (d > reach) {
+    // give up on targets we cannot reach
+    if (++u.stuck > 90) { u.task = null; u.think = 0; u.stuck = 0; return; }
     // chase directly when close, path when far
-    if (d < 3) {
+    let blocked = false;
+    if (d < 3 && !u.path) {
       const sp = def.speed * u.speedMul * TICK_DT * 1.05;
-      u.x += ((o.x - u.x) / d) * sp; u.z += ((o.z - u.z) / d) * sp;
-      const tt = sim.world.tileAt(u.x, u.z);
-      if (tt < 0 || !sim.world.walkable(tt)) { u.x = u.px; u.z = u.pz; }
-      face(u, o.x, o.z);
-      u.anim = Anim.Walk;
-    } else {
+      const nx = u.x + ((o.x - u.x) / d) * sp, nz = u.z + ((o.z - u.z) / d) * sp;
+      const tt = sim.world.tileAt(nx, nz);
+      if (tt < 0 || !sim.world.walkable(tt) || (sim.world.bld[tt] >= 0 && !sim.world.bldPassable(tt))) blocked = true;
+      else { u.x = nx; u.z = nz; face(u, o.x, o.z); u.anim = Anim.Walk; }
+    }
+    if (d >= 3 || blocked || u.path) {
       if (u.path && sim.tick % 15 === u.id % 15) u.path = null; // re-path toward moving target
       moveTo(sim, u, o.x, o.z, reach * 0.9, 1.05);
     }
     return;
   }
   face(u, o.x, o.z);
+  u.stuck = 0;
   if (u.cd > 0) { if (u.anim !== Anim.Attack || u.animT <= 0) u.anim = Anim.Idle; return; }
   u.anim = Anim.Attack; u.animT = 6;
   u.cd = Math.round(def.attackRate * 10 * (u.flags & UF.Hero ? 0.8 : 1));
