@@ -120,7 +120,7 @@ export class GameRenderer {
     if (q === 'high' && !this.composer) this.buildComposer();
     if (q === 'low' && this.composer) { this.composer.dispose(); this.composer = null; this.ao = null; this.tilt = null; }
     this.renderer.toneMapping = this.composer ? THREE.NoToneMapping : THREE.NeutralToneMapping;
-    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
+    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio, 1.5) : 1);
     this.sun.shadow.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
     if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); (this.sun.shadow as any).map = null; }
     this.resize();

@@ -21,6 +21,7 @@ import { MapLabels } from './ui/maplabels';
 
 interface FeedItem { key: number; t: number; icon: string; title: string; text: string; colors: string[]; x?: number; z?: number; }
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
+const NO_AUTO = new URLSearchParams(location.search).has('noauto');
 const BIG = new Set(['war', 'rebellion', 'kingdomFell', 'captured', 'peace']);
 
 export class AppCtl {
@@ -192,9 +193,24 @@ export class AppCtl {
   }
 
   // ------------------------------------------------------------- per frame
+  private perfT = 0; private perfN = 0; private perfSum = 0; private lastNow = performance.now(); private autoDowngraded = false;
+  /** If the machine struggles, quietly switch to the lighter renderer. */
+  private watchPerf() {
+    const now = performance.now();
+    const ms = now - this.lastNow; this.lastNow = now;
+    if (this.autoDowngraded || this.quality === 'low' || document.hidden || ms > 500) return;
+    this.perfSum += ms; this.perfN++; this.perfT += ms;
+    if (this.perfT > 4000) {
+      const avg = this.perfSum / this.perfN;
+      if (avg > 30 && store.s.screen === 'play') { this.autoDowngraded = true; this.setQuality('low'); console.info('[godsim] auto quality: low (avg frame', avg.toFixed(1), 'ms)'); }
+      this.perfT = 0; this.perfN = 0; this.perfSum = 0;
+    }
+  }
+
   private frame(dt: number) {
     const sim = this.game.sim;
     if (!sim) return;
+    if (!NO_AUTO) this.watchPerf();
     if (this.genTimer > 0) {
       this.genTimer -= dt;
       if (this.genTimer <= 0 && this.pendingOpts) { this.makeWorld(this.pendingOpts, true); audio.ui('whoosh'); this.pendingOpts = null; }
