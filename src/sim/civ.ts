@@ -653,6 +653,8 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
   }
 }
 
+export function rebelVillage(sim: Sim, vid: number) { const v = sim.villages.get(vid); const k = v && sim.kingdoms.get(v.kingdom); if (v && k) rebel(sim, v, k); }
+
 function rebel(sim: Sim, v: Village, from: Kingdom) {
   const nk = createKingdom(sim, v.race, from.id);
   from.villages = from.villages.filter((id) => id !== v.id);

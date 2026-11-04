@@ -1,0 +1,307 @@
+import { useEffect, useState } from 'preact/hooks';
+import { store } from './store';
+import { useStore } from './App';
+import { t, hint } from './i18n';
+import { POWERS, POWER_MAP, CATS } from '../sim/powers';
+import { SPECIES, KINGDOM_COLORS, Sp, TRAIT_KEYS, BUILDINGS, isCiv, YEAR_TICKS } from '../sim/defs';
+import { UF, Job } from '../sim/entities';
+import { Pause, Play, Season, SEASON_BG } from './glyphs';
+import type { AppCtl } from '../app';
+
+export const ACC: Record<string, string> = { world: '#6cc04a', life: '#ff7a8a', civ: '#ffc53d', nature: '#33c2a6', disaster: '#ff6a3a', observe: '#8f7cf2', settings: '#9aa7bd' };
+export const ACC_L: Record<string, string> = { world: '#d8f2c4', life: '#ffd8de', civ: '#fff0bf', nature: '#c8f2ea', disaster: '#ffd6c8', observe: '#e2dcff', settings: '#e3e8f0' };
+const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
+const keyLabel = (k?: string) => (k ? k.replace('Digit', '').replace('Key', '') : '');
+
+/** Re-render at ~5 Hz for live numbers. */
+function usePulse(ms = 200) {
+  const [, set] = useState(0);
+  useEffect(() => { const i = setInterval(() => set((n) => n + 1), ms); return () => clearInterval(i); }, []);
+}
+
+function TopLeft({ app }: { app: AppCtl }) {
+  usePulse(250);
+  useStore();
+  const g = app.game;
+  const sim = g.sim;
+  const season = sim.season;
+  const frac = (sim.tick % YEAR_TICKS) / YEAR_TICKS;
+  const speeds = [1, 2, 5, 10];
+  return (
+    <div class="hud-top-left">
+      <div class="gs-panel dial">
+        <div class="season" style={{ background: SEASON_BG[season] }} title={t(['spring', 'summer', 'autumn', 'winter'][season])}><Season s={season} /></div>
+        <div>
+          <div class="yr">{sim.year + 1}<small>{t('year')}</small></div>
+          <div class="season-bar"><i style={{ width: `${frac * 100}%` }} /></div>
+        </div>
+      </div>
+      <div class="gs-panel speed">
+        <button class={g.paused ? 'on' : ''} onClick={() => { g.paused = !g.paused; app.click(); store.set({ tick: store.s.tick + 1 }); }}><Pause /></button>
+        {speeds.map((sp) => (
+          <button class={!g.paused && g.speed === sp ? 'on' : ''} onClick={() => { g.speed = sp; g.paused = false; app.click(); store.set({ tick: store.s.tick + 1 }); }}><Play n={sp} /></button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TopRight({ app }: { app: AppCtl }) {
+  usePulse(500);
+  const s = useStore();
+  const sim = app.game.sim;
+  const counts = [0, 0, 0, 0];
+  let animals = 0;
+  for (const u of sim.units) { if (u.flags & UF.Dead) continue; if (u.sp <= 3) counts[u.sp]++; else animals++; }
+  const races: [Sp, string][] = [[Sp.Human, 'human'], [Sp.Elf, 'elf'], [Sp.Dwarf, 'dwarf'], [Sp.Orc, 'orc']];
+  return (
+    <div class="hud-top-right">
+      {races.map(([sp, id]) => counts[sp] > 0 && <div class="gs-panel popchip" title={t(id)}><img src={s.icons[id]} />{counts[sp]}</div>)}
+      <div class="gs-panel popchip" title={t('cat-life')}><img src={s.icons['sheep']} />{animals}</div>
+      <button class="gs-btn menu-btn" onClick={() => { store.set({ menu: !store.s.menu }); app.click(); }}><img src={s.icons['cat-settings']} /></button>
+    </div>
+  );
+}
+
+function Altimeter({ app }: { app: AppCtl }) {
+  usePulse(50);
+  const s = useStore();
+  const rig = app.game.gr.rig;
+  const top = 46 + (1 - rig.z01) * (260 - 92);
+  return (
+    <div class="gs-panel alti">
+      <img src={s.icons['cat-world']} onClick={() => { rig.flyTo(rig.tFocus.x, rig.tFocus.z, rig.vMax); app.whoosh(); }} />
+      <div class="track" />
+      <div class="knob" style={{ top: `${top}px` }} />
+      <img src={s.icons['mountain']} style={{ width: '30px' }} onClick={() => { rig.flyTo(rig.tFocus.x, rig.tFocus.z, rig.vFromZoom(0.5)); app.whoosh(); }} />
+      <img src={s.icons['human']} onClick={() => { rig.flyTo(rig.tFocus.x, rig.tFocus.z, rig.vFromZoom(0.06)); app.whoosh(); }} />
+    </div>
+  );
+}
+
+function Dock({ app }: { app: AppCtl }) {
+  const s = useStore();
+  const ctl = app.ctl;
+  const hover = (id: string, e: MouseEvent, above = 0) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    store.set({ hover: { id, x: r.left + r.width / 2, y: r.top - 10 - above } });
+    app.hoverSound();
+  };
+  const unhover = () => store.set({ hover: null });
+  const powers = POWERS.filter((p) => p.cat === s.cat);
+  return (
+    <div class="dock">
+      <div class="tabs">
+        {CATS.map((c) => (
+          <div class={`tab ${s.cat === c ? 'on' : ''}`} style={{ '--acc': ACC[c] } as any}
+            onClick={() => { store.set({ cat: c }); app.tabSound(); }}
+            onMouseEnter={(e) => hover('cat-' + c, e as any, 14)} onMouseLeave={unhover}>
+            <img src={s.icons['cat-' + c]} />
+          </div>
+        ))}
+      </div>
+      <div class="gs-panel tray">
+        <div class="tray-inner" key={s.cat}>
+          {powers.map((p, i) => (
+            <div class={`slot ${s.power === p.id ? 'on' : ''}`} style={{ '--acc': ACC[p.cat], '--acc-l': ACC_L[p.cat], animationDelay: `${i * 22}ms` } as any}
+              onClick={() => ctl.selectPower(p.id)} onMouseEnter={(e) => hover(p.id, e as any)} onMouseLeave={unhover}>
+              <img src={s.icons[p.id]} />
+              {p.key && <span class="k">{keyLabel(p.key)}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BrushSize({ app }: { app: AppCtl }) {
+  const s = useStore();
+  const p = POWER_MAP.get(s.power);
+  if (!p?.size) return null;
+  const [mn, , mx] = p.size;
+  const steps = [mn, Math.round(mn + (mx - mn) * 0.25), Math.round(mn + (mx - mn) * 0.5), Math.round(mn + (mx - mn) * 0.75), mx].filter((v, i, a) => a.indexOf(v) === i);
+  return (
+    <div class="gs-panel brush" key={s.power}>
+      {steps.map((b, i) => (
+        <button class={s.brush === b ? 'on' : ''} onClick={() => { store.set({ brush: b }); app.click(); }}>
+          <i style={{ width: 6 + i * 4 + 'px', height: 6 + i * 4 + 'px' }} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Tooltip() {
+  const s = useStore();
+  if (!s.hover) return null;
+  const p = POWER_MAP.get(s.hover.id);
+  const h = hint(s.hover.id);
+  return (
+    <div class="gs-panel tip" style={{ left: s.hover.x + 'px', top: s.hover.y + 'px' }}>
+      <b>{t(s.hover.id)}{p?.key && <span class="key">{keyLabel(p.key)}</span>}</b>
+      {h && <span>{h}</span>}
+    </div>
+  );
+}
+
+function UnitCard({ app, id }: { app: AppCtl; id: number }) {
+  usePulse(250);
+  const s = useStore();
+  const sim = app.game.sim;
+  const u = sim.unitMap.get(id);
+  if (!u || u.flags & UF.Dead) {
+    return (
+      <div class="gs-panel card" style={{ '--team': '#777' } as any}>
+        <div class="head"><img src={s.icons['skeleton']} /><div><div class="name">R.I.P.</div></div></div>
+        <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
+      </div>
+    );
+  }
+  const def = SPECIES[u.sp];
+  const k = sim.kingdoms.get(u.kingdom);
+  const v = sim.villages.get(u.village);
+  const team = k ? hex(KINGDOM_COLORS[k.color][0]) : '#b9a98a';
+  const traits = TRAIT_KEYS.filter(([b]) => u.traits & b);
+  const good = new Set(['brave', 'strong', 'fast', 'wise', 'lucky', 'fertile', 'immortal', 'blessed']);
+  const iconId = def.key;
+  const title = isCiv(u.sp) ? u.name : t(iconId);
+  return (
+    <div class="gs-panel card" style={{ '--team': team } as any}>
+      <div class="head">
+        <img src={s.icons[iconId]} />
+        <div>
+          <div class="name">{title}</div>
+          <div class="sub">{t(iconId)}{k ? ` · ${k.name}` : ''}{v ? ` · ${v.name}` : ''}</div>
+        </div>
+      </div>
+      <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
+      <div class="body">
+        <div class="stat"><span class="lbl">{t('hp')}</span><div class={`meter ${u.hp / u.maxHp < 0.35 ? 'red' : ''}`}><i style={{ width: `${(u.hp / u.maxHp) * 100}%` }} /></div></div>
+        <div class="grid4">
+          <div class="mini"><b>{Math.floor(u.age)}</b><small>{t('age')}</small></div>
+          <div class="mini"><b>{u.level}</b><small>{t('level')}</small></div>
+          <div class="mini"><b>{u.kills}</b><small>{t('kills')}</small></div>
+          <div class="mini"><b>{Math.round(def.dmg * u.dmgMul)}</b><small>ATK</small></div>
+        </div>
+        <div class="pills">
+          {u.flags & UF.King ? <span class="pill gold"><img src={s.icons['crown']} class="pi" />{t('king')}</span> : null}
+          {u.flags & UF.Hero ? <span class="pill gold"><img src={s.icons['brave']} class="pi" />{t('hero')}</span> : null}
+          {u.flags & UF.Sick ? <span class="pill bad">{t('plague')}</span> : null}
+          {u.flags & UF.Mad ? <span class="pill bad">{t('madness')}</span> : null}
+          {traits.map(([, key]) => <span class={`pill ${good.has(key) ? 'good' : 'bad'}`}>{t('t-' + key)}</span>)}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="gs-btn" onClick={() => app.ctl.follow(u.id)}><img src={s.icons['follow']} style={{ width: '24px', height: '24px' }} />{t('follow')}</button>
+        {k && <button class="gs-btn" onClick={() => store.set({ panel: 'kingdoms' })}><span class="flagdot" style={{ width: '12px', height: '18px', background: team, border: '2px solid #2a2238', borderRadius: '3px', display: 'inline-block' }} />{t('kingdom')}</button>}
+      </div>
+    </div>
+  );
+}
+
+function VillageCard({ app, id }: { app: AppCtl; id: number }) {
+  usePulse(400);
+  const s = useStore();
+  const sim = app.game.sim;
+  const v = sim.villages.get(id);
+  if (!v || !v.alive) { store.set({ sel: null }); return null; }
+  const k = sim.kingdoms.get(v.kingdom);
+  const team = k ? hex(KINGDOM_COLORS[k.color][0]) : '#b9a98a';
+  const warriors = v.residents.filter((r) => sim.getUnit(r)?.job === Job.Warrior).length;
+  const raceIcon = SPECIES[v.race].key;
+  return (
+    <div class="gs-panel card" style={{ '--team': team } as any}>
+      <div class="head">
+        <img src={s.icons['cat-civ']} />
+        <div>
+          <div class="name">{v.name}</div>
+          <div class="sub">{k?.name}{k && k.capital === v.id ? ' ★' : ''} · {'★'.repeat(v.level + 1)}</div>
+        </div>
+      </div>
+      <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
+      <div class="body">
+        <div class="grid4">
+          <div class="mini"><b>{v.residents.length}</b><small>{t('pop')}</small></div>
+          <div class="mini"><b>{warriors}</b><small>{t('army')}</small></div>
+          <div class="mini"><b>{v.buildings.length}</b><small><img src={s.icons['cat-civ']} class="pi" /></small></div>
+          <div class="mini"><b><img src={s.icons[raceIcon]} style={{ width: '24px', height: '24px', margin: '-4px 0' }} /></b><small>{t(raceIcon)}</small></div>
+        </div>
+        <div class="grid4">
+          <div class="mini"><b>{Math.floor(v.food)}</b><small>{t('food')}</small></div>
+          <div class="mini"><b>{Math.floor(v.wood)}</b><small>{t('wood')}</small></div>
+          <div class="mini"><b>{Math.floor(v.stone)}</b><small>{t('stone')}</small></div>
+          <div class="mini"><b>{Math.floor(v.gold)}</b><small>{t('gold')}</small></div>
+        </div>
+        <div class="stat"><span class="lbl">{t('loyalty')}</span><div class={`meter ${v.loyalty < 20 ? 'red' : ''}`}><i style={{ width: `${Math.max(0, Math.min(100, v.loyalty))}%` }} /></div></div>
+        {k && k.wars.length > 0 && <div class="pills"><span class="pill bad"><img src={s.icons['war']} class="pi" />{t('atWar')}</span>{k.wars.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill" style={{ background: hex(KINGDOM_COLORS[e.color][0]), color: '#fff', textShadow: '0 1px 0 #2a2238' }}>{e.name}</span>; })}</div>}
+      </div>
+      <div class="actions">
+        <button class="gs-btn" onClick={() => { app.game.gr.rig.flyTo(v.cx + 0.5, v.cz + 0.5, app.game.gr.rig.vFromZoom(0.25)); app.whoosh(); }}><img src={s.icons['follow']} style={{ width: '24px', height: '24px' }} /></button>
+      </div>
+    </div>
+  );
+}
+void BUILDINGS;
+
+function Feed({ app }: { app: AppCtl }) {
+  usePulse(500);
+  const s = useStore();
+  const now = performance.now();
+  const items = app.feed.filter((f) => now - f.t < 14000).slice(-6);
+  return (
+    <div class="feed">
+      {items.map((f) => (
+        <div class={`gs-panel ev ${now - f.t > 12000 ? 'old' : ''}`} key={f.key} onClick={() => f.x !== undefined && app.game.gr.rig.flyTo(f.x + 0.5, f.z! + 0.5, app.game.gr.rig.vFromZoom(0.3))}>
+          <img src={s.icons[f.icon]} />
+          {f.colors.map((c) => <span class="flag" style={{ background: c }} />)}
+          <div class="txt"><b>{f.title}</b>{f.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Banner({ app }: { app: AppCtl }) {
+  const s = useStore();
+  const b = app.banner;
+  if (!b || performance.now() - b.t > 3600) return null;
+  return (
+    <div class="gs-panel banner-ev" key={b.t}>
+      <img src={s.icons[b.icon]} />
+      <div><b>{b.title}</b><span>{b.text}</span></div>
+    </div>
+  );
+}
+
+function PairHint({ app }: { app: AppCtl }) {
+  const s = useStore();
+  if (s.pairFirst < 0) return null;
+  const k = app.game.sim.kingdoms.get(s.pairFirst);
+  return (
+    <div class="gs-panel pair-hint">
+      <img src={s.icons[s.power]} style={{ width: '34px' }} />
+      {k && <span class="flag" style={{ background: hex(KINGDOM_COLORS[k.color][0]) }} />}
+      {k?.name} → {t('pickSecond')}
+    </div>
+  );
+}
+
+export function Hud({ app }: { app: AppCtl }) {
+  const s = useStore();
+  return (
+    <>
+      <TopLeft app={app} />
+      <TopRight app={app} />
+      <Altimeter app={app} />
+      <Feed app={app} />
+      <Banner app={app} />
+      <PairHint app={app} />
+      {s.sel?.kind === 'unit' && <UnitCard app={app} id={s.sel.id} key={s.sel.id} />}
+      {s.sel?.kind === 'village' && <VillageCard app={app} id={s.sel.id} key={s.sel.id} />}
+      <BrushSize app={app} />
+      <Dock app={app} />
+      <Tooltip />
+    </>
+  );
+}

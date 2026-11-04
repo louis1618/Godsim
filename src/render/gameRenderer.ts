@@ -63,6 +63,13 @@ export class GameRenderer {
     this.rig.ground = (x, z) => this.terrain.groundAt(x, z);
   }
 
+  setQuality(q: 'high' | 'low') {
+    this.renderer.setPixelRatio(q === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
+    this.sun.shadow.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
+    if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); (this.sun.shadow as any).map = null; }
+    this.resize();
+  }
+
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);

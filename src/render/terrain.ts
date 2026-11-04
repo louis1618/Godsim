@@ -75,13 +75,20 @@ export class TerrainRenderer {
       Object.assign(shader.uniforms, {
         uMatTex: { value: this.matTex }, uOwnerTex: { value: this.ownerTex }, uPal: { value: pal },
         uMapSize: U.uMapSize, uMapMode: U.uMapMode, uTerritory: U.uTerritory, uTime: U.uTime,
-        uHeightScale: U.uHeightScale, uSnow: U.uSnow,
+        uHeightScale: U.uHeightScale, uSnow: U.uSnow, uGenesis: U.uGenesis,
       });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
-uniform float uHeightScale;
-varying vec3 vWPos; varying vec3 vWNormal;`)
+uniform float uHeightScale; uniform float uGenesis; uniform vec2 uMapSize;
+varying vec3 vWPos; varying vec3 vWNormal;
+${GLSL_NOISE}`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
+if (uGenesis < 1.0) {
+  float gd = clamp(length(transformed.xz / uMapSize - 0.5) * 1.25 + gsNoise(transformed.xz * 0.05) * 0.35, 0.0, 1.0);
+  float gk = smoothstep(gd, gd + 0.3, uGenesis * 1.4);
+  float sunk = min(transformed.y, -1.0) - 2.5;
+  transformed.y = mix(sunk, transformed.y, gk * gk * (3.0 - 2.0 * gk));
+}
 vWPos = transformed; vWNormal = normal;
 transformed.y *= uHeightScale;`);
       shader.fragmentShader = shader.fragmentShader

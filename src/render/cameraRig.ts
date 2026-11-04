@@ -33,6 +33,8 @@ export class CameraRig {
   mapMode = 1;
   territory = 1;
   shake = 0;
+  /** title-screen orbit blend (0 = normal rig, 1 = slow cinematic orbit around the diorama) */
+  orbit = 0; tOrbit = 0; spin = 0.6;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(40, aspect, 0.1, 4000);
@@ -108,6 +110,9 @@ export class CameraRig {
   }
 
   update(dt: number) {
+    this.orbit = damp(this.orbit, this.tOrbit, 1.4, dt);
+    if (Math.abs(this.orbit - this.tOrbit) < 0.001) this.orbit = this.tOrbit;
+    this.spin += dt * 0.045 * this.orbit;
     const rate = this.flyRate > 0 ? this.flyRate : this.rate;
     if (this.follow) {
       const p = this.follow();
@@ -159,11 +164,25 @@ export class CameraRig {
     const nearPitch = clamp(24 + this.tilt, 8, 70);
     const tp = smoothstep(0.0, 0.86, z);
     this.pitch = lerp(nearPitch, 90, tp * tp * (2 - tp));
-    const fov = lerp(52, 30, smoothstep(0.15, 0.9, z));
+    let fov = lerp(52, 30, smoothstep(0.15, 0.9, z));
     const cam = this.camera;
+    let yaw = this.yaw * (1 - smoothstep(0.72, 0.95, z));
+    let V = this.V;
+    const ob = this.orbit;
+    if (ob > 0) {
+      const e = ob * ob * (3 - 2 * ob);
+      this.pitch = lerp(this.pitch, 36, e);
+      yaw = lerp(yaw, this.spin, e);
+      fov = lerp(fov, 30, e);
+      V = lerp(V, Math.max(this.mapW, this.mapH) * 0.95, e);
+      this.heightScale = lerp(this.heightScale, 1, e);
+      this.mapMode = lerp(this.mapMode, 0, e);
+      this.territory = lerp(this.territory, 0.2, e);
+      this.focus.x = lerp(this.focus.x, this.mapW / 2, e * 0.08);
+      this.focus.z = lerp(this.focus.z, this.mapH / 2, e * 0.08);
+    }
     cam.fov = fov;
-    const yaw = this.yaw * (1 - smoothstep(0.72, 0.95, z));
-    const dist = this.V / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
+    const dist = V / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2));
     // focus height follows the ground smoothly
     const gy = Math.max(this.ground(this.focus.x, this.focus.z), 0) * this.heightScale;
     this.focus.y = Math.abs(this.focus.y - gy) > 50 ? gy : this.focus.y + (gy - this.focus.y) * 0.15;

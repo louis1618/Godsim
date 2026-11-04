@@ -14,6 +14,7 @@ export const U = {
   uFoliage: { value: new THREE.Color(1, 1, 1) },
   uAutumn: { value: 0 },
   uSnow: { value: 0 },
+  uGenesis: { value: 1 },            // 0..1 world-rising animation
 };
 
 /** GLSL helpers available to all patched shaders. */
@@ -36,13 +37,21 @@ export function patchInstanced(mat: THREE.Material, opts: { wind?: number; seaso
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
     prev?.call(mat, shader, r);
-    Object.assign(shader.uniforms, { uTime: U.uTime, uHeightScale: U.uHeightScale, uWind: U.uWind, uAutumn: U.uAutumn, uSnow: U.uSnow });
+    Object.assign(shader.uniforms, { uTime: U.uTime, uHeightScale: U.uHeightScale, uWind: U.uWind, uAutumn: U.uAutumn, uSnow: U.uSnow, uGenesis: U.uGenesis, uMapSize: U.uMapSize });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-uniform float uTime; uniform float uHeightScale; uniform float uWind; uniform float uAutumn; uniform float uSnow;
+uniform float uTime; uniform float uHeightScale; uniform float uWind; uniform float uAutumn; uniform float uSnow; uniform float uGenesis; uniform vec2 uMapSize;
 ${opts.seasonal ? 'attribute float aLeaf; varying float vLeaf; varying float vSnowTop;' : ''}
+${GLSL_NOISE}
+float gsGenesis(vec2 p) {
+  float gd = clamp(length(p / uMapSize - 0.5) * 1.25 + gsNoise(p * 0.05) * 0.35, 0.0, 1.0);
+  return smoothstep(gd, gd + 0.3, uGenesis * 1.4);
+}
 `)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+#ifdef USE_INSTANCING
+if (uGenesis < 1.0) { float gk = gsGenesis(vec2(instanceMatrix[3][0], instanceMatrix[3][2])); transformed *= max(gk * 1.12 - 0.12 * gk * gk, 0.0); }
+#endif
 ${opts.flattenSelf ? 'transformed.y *= mix(0.55, 1.0, uHeightScale);' : ''}
 ${opts.wind ? `
 #ifdef USE_INSTANCING
