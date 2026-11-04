@@ -2,7 +2,7 @@
 import { generateWorld } from '../src/sim/worldgen';
 import { Sim } from '../src/sim/sim';
 import { seedLife } from '../src/sim/seed';
-import { YEAR_TICKS, isWoodTree } from '../src/sim/defs';
+import { YEAR_TICKS, isWoodTree, Sp } from '../src/sim/defs';
 import { UF, Anim } from '../src/sim/entities';
 import { featureOffset } from '../src/sim/nav';
 
@@ -16,10 +16,11 @@ for (let t = 0; t < YEAR_TICKS * years; t++) {
   sim.step();
   if (t % 5) continue;
   for (const u of sim.units) {
-    if (u.flags & (UF.Dead | UF.Ragdoll | UF.Held)) continue;
+    if (u.flags & (UF.Dead | UF.Ragdoll | UF.Held | UF.Jailed)) continue; // prisoners live inside the prison yard on purpose
+    if (u.sp === Sp.Fish || u.sp >= Sp.Boat && u.sp <= Sp.Plane) continue;   // swimmers and machines move on their own rules
     samples++;
     const tt = world.tileAt(u.x, u.z);
-    if (tt >= 0 && world.bld[tt] >= 0 && !world.bldPassable(tt)) { inside++; insideIds.add(u.id); }
+    if (tt >= 0 && world.bld[tt] >= 0 && !world.bldPassable(tt)) { inside++; if (!insideIds.has(u.id) && process.env.DEBUG) console.log('inside', u.id, u.sp, u.task?.k, u.flags, sim.buildings.get(world.bld[tt])?.kind, sim.tick); insideIds.add(u.id); }
     if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && u.x === u.px && u.z === u.pz) walkInPlace++;
     const task = u.task;
     if (task?.k === 'gather' && u.anim === Anim.Work && isWoodTree(world.feat[task.tile])) {

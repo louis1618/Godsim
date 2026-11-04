@@ -402,7 +402,7 @@ export function villageThink(sim: Sim, v: Village) {
   want[Job.Worker] = counts[Bk.Factory] > 0 ? counts[Bk.Factory] * 3 : 0;
   const assigned: Record<number, number> = {};
   for (const u of adults) assigned[u.job] = (assigned[u.job] ?? 0) + 1;
-  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Trader, Job.Fisher, Job.Woodcutter, Job.Miner, Job.Scholar, Job.Worker];
+  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Trader, Job.Scholar, Job.Fisher, Job.Worker, Job.Woodcutter, Job.Miner];
   for (const u of adults) {
     if (u.flags & UF.King && u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; continue; }
     const cur = u.job;

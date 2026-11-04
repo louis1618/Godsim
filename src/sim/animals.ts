@@ -61,6 +61,7 @@ export function fishTick(sim: Sim, u: Unit) {
     const nx = u.x + (dx / d) * Math.min(sp, d), nz = u.z + (dz / d) * Math.min(sp, d);
     if (waterOk(sim, nx, nz)) { u.x = nx; u.z = nz; u.dir = Math.atan2(dx, dz); } else u.task = null;
   }
+  if (u.x === u.px && u.z === u.pz) u.anim = Anim.Idle;
   void w;
 }
 

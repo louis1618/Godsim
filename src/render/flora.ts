@@ -15,6 +15,7 @@ interface Pool {
 interface ChunkCache {
   // per pool index: packed matrices + colours
   mats: Float32Array[]; cols: Float32Array[]; counts: number[];
+  thinMats: Float32Array[]; thinCols: Float32Array[]; thinCounts: number[];
   box: THREE.Box3;
 }
 
@@ -68,7 +69,7 @@ export class FloraRenderer {
       });
     }
     for (let c = 0; c < world.CW * world.CH; c++) {
-      this.chunks.push({ mats: [], cols: [], counts: [], box: new THREE.Box3() });
+      this.chunks.push({ mats: [], cols: [], counts: [], thinMats: [], thinCols: [], thinCounts: [], box: new THREE.Box3() });
     }
   }
 
@@ -78,6 +79,9 @@ export class FloraRenderer {
     const cache = this.chunks[ci];
     const lists: number[][] = this.pools.map(() => []);
     const colLists: number[][] = this.pools.map(() => []);
+    // a thinned copy for the map view: from far away half the trees read the same as all of them
+    const thin: number[][] = this.pools.map(() => []);
+    const thinCol: number[][] = this.pools.map(() => []);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
     let minY = Infinity, maxY = -Infinity;
@@ -118,12 +122,22 @@ export class FloraRenderer {
         for (let k = 0; k < 16; k++) L.push(m.elements[k]);
         const tint = 0.9 + r3 * 0.2;
         colLists[pi].push(tint, tint * (0.96 + r1 * 0.08), tint);
+        const keep = f === Feat.Flower || f === Feat.Crop ? false : f === Feat.Boulder || f === Feat.Ore ? true : hash2(x, z, 53) < 0.5;
+        if (keep) {
+          // survivors grow a little to cover for the missing neighbours
+          m.compose(p, q, s.multiplyScalar(1.2));
+          for (let k = 0; k < 16; k++) thin[pi].push(m.elements[k]);
+          thinCol[pi].push(tint, tint * (0.96 + r1 * 0.08), tint);
+        }
         if (py < minY) minY = py; if (py > maxY) maxY = py;
       }
     }
     cache.mats = lists.map((l) => new Float32Array(l));
     cache.cols = colLists.map((l) => new Float32Array(l));
     cache.counts = lists.map((l) => l.length / 16);
+    cache.thinMats = thin.map((l) => new Float32Array(l));
+    cache.thinCols = thinCol.map((l) => new Float32Array(l));
+    cache.thinCounts = thin.map((l) => l.length / 16);
     cache.box.min.set(cx * CHUNK, Math.min(minY, 0) - 1, cz * CHUNK);
     cache.box.max.set((cx + 1) * CHUNK, Math.max(maxY, 0) + 3, (cz + 1) * CHUNK);
   }
@@ -157,6 +171,8 @@ export class FloraRenderer {
       order.push([ci, hi]);
       sig += hi ? 'H' + ci : 'L' + ci;
     }
+    const mapView = z01 > 0.82;
+    sig += mapView ? 'M' : '';
     if (!changed && !this.dirty && sig === this.lastKey) return;
     this.lastKey = sig;
     this.dirty = false;
@@ -164,16 +180,18 @@ export class FloraRenderer {
     for (let pi = 0; pi < this.pools.length; pi++) {
       const pool = this.pools[pi];
       let nh = 0, nl = 0;
-      for (const [ci, hi] of order) { const n = this.chunks[ci].counts[pi] || 0; if (hi) nh += n; else nl += n; }
+      for (const [ci, hi] of order) { const c = this.chunks[ci]; const n = (hi || !mapView ? c.counts[pi] : c.thinCounts[pi]) || 0; if (hi) nh += n; else nl += n; }
       this.ensureCap(pool, Math.max(nh, nl));
       let oh = 0, ol = 0;
       const hm = pool.hi.instanceMatrix.array as Float32Array, lm = pool.lo.instanceMatrix.array as Float32Array;
       const hc = pool.hi.instanceColor!.array as Float32Array, lc = pool.lo.instanceColor!.array as Float32Array;
       for (const [ci, hi] of order) {
         const c = this.chunks[ci];
-        const n = c.counts[pi] || 0;
+        const thinned = !hi && mapView;
+        const n = (thinned ? c.thinCounts[pi] : c.counts[pi]) || 0;
         if (!n) continue;
         if (hi) { hm.set(c.mats[pi], oh * 16); hc.set(c.cols[pi], oh * 3); oh += n; }
+        else if (thinned) { lm.set(c.thinMats[pi], ol * 16); lc.set(c.thinCols[pi], ol * 3); ol += n; }
         else { lm.set(c.mats[pi], ol * 16); lc.set(c.cols[pi], ol * 3); ol += n; }
       }
       pool.hi.count = oh; pool.lo.count = ol;

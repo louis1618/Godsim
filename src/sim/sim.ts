@@ -304,6 +304,8 @@ export class Sim {
   step() {
     this.tick++;
     this.pathCalls = 0;
+    // shared search budget per tick: busy worlds spread path planning over a few ticks instead of stalling one
+    this.pf.budget = 60000;
     this.rebuildCells();
     const units = this.units;
     for (let i = 0; i < units.length; i++) {
@@ -343,7 +345,17 @@ export class Sim {
     }
   }
 
-  count(sp?: Sp) { let n = 0; for (const u of this.units) if (!(u.flags & UF.Dead) && (sp === undefined || u.sp === sp)) n++; return n; }
+  /** Living creatures (of one species): counted once per tick, then served from a cache. */
+  private countCache = new Int32Array(64);
+  private countTick = -1;
+  count(sp?: Sp) {
+    if (this.countTick !== this.tick) {
+      this.countCache.fill(0);
+      for (const u of this.units) if (!(u.flags & UF.Dead)) { this.countCache[u.sp]++; this.countCache[63]++; }
+      this.countTick = this.tick;
+    }
+    return this.countCache[sp === undefined ? 63 : sp];
+  }
 }
 
 export function setTimeout0(sim: Sim, ticks: number, fn: () => void) { sim.scheduled.push({ at: sim.tick + ticks, fn }); }

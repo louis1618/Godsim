@@ -459,7 +459,7 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   if (dx0 * dx0 + dz0 * dz0 <= arriveDist * arriveDist) { u.path = null; return true; }
   const w = sim.world;
   if (!u.path) {
-    if (sim.pathCalls > 60) { u.anim = Anim.Idle; return false; }
+    if (sim.pathCalls > 60 || sim.pf.budget < 2500) { u.anim = Anim.Idle; return false; }
     sim.pathCalls++;
     // never aim into a wall: retarget to the nearest free tile
     let goal = w.tileAt(tx, tz);
@@ -468,7 +468,9 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
       if (nf) goal = w.tileAt(nf[0], nf[1]);
     }
     const near = arriveDist >= 1.5 ? Math.floor(arriveDist) : 0;
-    const p = sim.pf.find(u.x, u.z, goal, 5000, near);
+    // idle strolls may not cost a full search: an unreachable stroll target is simply dropped
+    const budget = u.task?.k === 'wander' || u.task?.k === 'idle' ? 500 : 5000;
+    const p = sim.pf.find(u.x, u.z, goal, budget, near);
     if (!p) {
       u.stuck++;
       if (u.stuck > 3) { u.task = null; u.think = 0; }
@@ -859,7 +861,7 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     const kb = 0.12 * def.size;
     const nx = o.x + ((o.x - u.x) / (d || 1)) * kb, nz = o.z + ((o.z - u.z) / (d || 1)) * kb;
     const nt = sim.world.tileAt(nx, nz);
-    if (nt >= 0 && sim.world.walkable(nt)) { o.x = nx; o.z = nz; }
+    if (free(sim.world, nt)) { o.x = nx; o.z = nz; } // knockback never shoves anyone into a wall
     hurt(sim, o, dmg, u, 'attack');
   }
   if (o.flags & UF.Dead) {

@@ -30,7 +30,7 @@ export class TerrainRenderer {
 
   constructor(private world: World) {
     const { W, H } = world;
-    const R = this.R = W * H > 260000 ? 1 : 2;
+    const R = this.R = W * H > 100000 ? 1 : 2;
     this.VW = W * R + 1; this.VH = H * R + 1;
     this.vh = new Float32Array(this.VW * this.VH);
     this.matData = new Uint8Array(W * H * 4);

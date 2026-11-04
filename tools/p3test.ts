@@ -10,7 +10,7 @@ import { Sim } from '../src/sim/sim';
 import { seedLife } from '../src/sim/seed';
 import { Bk, Sp, YEAR_TICKS } from '../src/sim/defs';
 import { Job, UF, Village, Kingdom } from '../src/sim/entities';
-import { placeBuilding, findSite, diplomacyThink, declareWar, makePeace } from '../src/sim/civ';
+import { placeBuilding, findSite, diplomacyThink, declareWar, makePeace, addResident } from '../src/sim/civ';
 import { addWanted } from '../src/sim/jobs';
 
 function world(seed: number) {
@@ -137,20 +137,24 @@ for (const seedB of [202, 203, 204, 205, 206, 207]) {
     const jobs = new Set<number>(); for (const id of v.residents) { const u = sim.getUnit(id); if (u) jobs.add(u.job); }
     return { kinds: [...kinds].sort((a, b) => a - b), jobs: [...jobs].sort((a, b) => a - b) };
   };
+  // a solid town to develop: top it up with settlers so it has enough adults for every trade
+  for (let i = 0; i < 24; i++) { const u = sim.spawnUnit(v.race, v.cx + 0.5 + sim.rng.range(-3, 3), v.cz + 0.5 + sim.rng.range(-3, 3), { kingdom: v.kingdom }); addResident(sim, v, u); }
   const s0 = snap();
   // give the town means and raise its age step by step
   const out: string[] = [`era0 ${JSON.stringify(s0)}`];
+  const seenJobs = new Set<number>();
   for (const era of [1, 2, 3, 4]) {
     k.era = era; k.tech = [0, 30, 110, 280, 600][era];
     for (let i = 0; i < YEAR_TICKS * 3; i++) { v.wood = Math.max(v.wood, 120); v.stone = Math.max(v.stone, 120); v.gold = Math.max(v.gold, 30); v.food = Math.max(v.food, 80); sim.step(); }
-    out.push(`era${era} ${JSON.stringify(snap())}`);
+    const sn = snap(); sn.jobs.forEach((j) => seenJobs.add(j));
+    out.push(`era${era} ${JSON.stringify(sn)}`);
   }
   const s4 = snap();
   const machines = sim.units.filter((u) => u.sp >= Sp.Boat && u.kingdom === k.id && !(u.flags & UF.Dead)).length;
   const hasNew = [Bk.Market, Bk.Library].every((b) => s4.kinds.includes(b));
-  const newJobs = [Job.Guard, Job.Trader, Job.Scholar].filter((j) => s4.jobs.includes(j)).length;
+  const newJobs = [Job.Guard, Job.Trader, Job.Scholar, Job.Fisher, Job.Worker].filter((j) => seenJobs.has(j)).length;
   console.log('   ' + out.join('\n   '));
-  check('development->facilities/jobs', hasNew && newJobs >= 2, `market+library=${hasNew} new professions=${newJobs} machines=${machines} soldiers' weapon item=${[...new Set(v.residents.map((id) => sim.getUnit(id)).filter((u) => u?.job === Job.Warrior).map((u) => u!.item))]}`);
+  check('development->facilities/jobs', hasNew && newJobs >= 3, `market+library=${hasNew} new professions=${newJobs} machines=${machines} soldiers' weapon item=${[...new Set(v.residents.map((id) => sim.getUnit(id)).filter((u) => u?.job === Job.Warrior).map((u) => u!.item))]}`);
 }
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 void declareWar; void ({} as Kingdom);

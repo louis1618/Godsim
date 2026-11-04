@@ -100,7 +100,10 @@ export class PathFinder {
     const gen = ++this.gen;
     const W = w.W, H = w.H;
     this.hs = 0;
-    const heur = (t: number) => { const x = t % W, z = (t / W) | 0; const dx = Math.abs(x - gx), dz = Math.abs(z - gz); return (dx + dz + (1.414 - 2) * Math.min(dx, dz)) * 1.15; };
+    // far trips search greedier (slightly longer paths, far fewer expansions)
+    const far = Math.hypot(sx - gx, sz - gz);
+    const hw = far > 60 ? 1.6 : far > 30 ? 1.35 : 1.15;
+    const heur = (t: number) => { const x = t % W, z = (t / W) | 0; const dx = Math.abs(x - gx), dz = Math.abs(z - gz); return (dx + dz + (1.414 - 2) * Math.min(dx, dz)) * hw; };
     this.g[start] = 0; this.stamp[start] = gen; this.from[start] = -1;
     this.push(heur(start), start);
     let expanded = 0, best = start, bestH = heur(start);
