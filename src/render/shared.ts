@@ -91,6 +91,15 @@ gl_Position = projectionMatrix * mvPosition;
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform float uAutumn; uniform float uSnow; varying float vLeaf; varying float vSnowTop;`)
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+{
+  // dithered fade for foliage right in front of the lens
+  float camD = length(vViewPosition);
+  if (camD < 3.2) {
+    float n = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+    if (n > (camD - 1.4) / 1.8) discard;
+  }
+}`)
         .replace('#include <color_fragment>', `#include <color_fragment>
 {
   float pick = fract(vColor.g * 17.0 + vColor.r * 5.0);

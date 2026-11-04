@@ -27,11 +27,11 @@ function tuftGeometry(): THREE.BufferGeometry {
     for (const q of quads) {
       const v = (k: number) => [q[k * 3], q[k * 3 + 1], q[k * 3 + 2]];
       for (const k of [0, 1, 2, 0, 2, 3]) pos.push(...v(k));
-      for (const k of [0, 1, 2, 0, 2, 3]) { const c = base.clone().lerp(tip, k >= 2 ? 0.55 : 0); col.push(c.r, c.g, c.b); leaf.push(0.3); }
+      for (const k of [0, 1, 2, 0, 2, 3]) { const c = base.clone().lerp(tip, k >= 2 ? 0.55 : 0); col.push(c.r, c.g, c.b); leaf.push(0.15); }
     }
     // tip triangle
     pos.push(mx - px * 0.7, mh, mz - pz * 0.7, mx + px * 0.7, mh, mz + pz * 0.7, tx, h, tz);
-    for (let k = 0; k < 3; k++) { const c = base.clone().lerp(tip, k === 2 ? 1 : 0.55); col.push(c.r, c.g, c.b); leaf.push(0.3); }
+    for (let k = 0; k < 3; k++) { const c = base.clone().lerp(tip, k === 2 ? 1 : 0.55); col.push(c.r, c.g, c.b); leaf.push(0.15); }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -53,6 +53,10 @@ export class GrassRenderer {
   private dirtyT = 0;
   constructor(private world: World) {
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
+    // blades share the ground's up-facing normal on both sides (no dark back faces)
+    mat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nnormal = normalize( vNormal );');
+    };
     patchInstanced(mat, { wind: 1.2, seasonal: true });
     this.mesh = new THREE.InstancedMesh(tuftGeometry(), mat, MAX);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
@@ -99,7 +103,7 @@ export class GrassRenderer {
         if (sc < 0.08) continue;
         p.set(px, heightCubic(w.height, w.W, w.H, px, pz) - 0.02, pz);
         q.setFromAxisAngle(up, r3 * 6.28);
-        s.set(sc * 1.3, sc * (0.9 + r1 * 0.5), sc * 1.3);
+        s.set(sc * 0.9, sc * (0.55 + r1 * 0.35), sc * 0.9);
         m.compose(p, q, s);
         this.mesh.setMatrixAt(n, m);
         c.setHex(tint[0]).lerp(c2.setHex(tint[1]), r2);
