@@ -95,7 +95,7 @@ transformed.y *= uHeightScale;`);
         .replace('#include <common>', `#include <common>
 uniform sampler2D uMatTex; uniform sampler2D uOwnerTex;
 uniform vec3 uPal[${MAT_COUNT * 2}];
-uniform vec2 uMapSize; uniform float uMapMode; uniform float uTerritory; uniform float uTime; uniform float uSnow;
+uniform vec2 uMapSize; uniform float uMapMode; uniform float uTerritory; uniform float uTime; uniform float uSnow; uniform float uHeightScale;
 varying vec3 vWPos; varying vec3 vWNormal;
 ${GLSL_NOISE}
 ivec2 gsClampT(ivec2 t) { return clamp(t, ivec2(0), ivec2(uMapSize) - 1); }
@@ -115,13 +115,16 @@ bool gsSameK(vec4 a, vec4 b) { return b.a > 0.0 && distance(a.rgb, b.rgb) < 0.01
 vec2 gp = vWPos.xz;
 float fire0, f1, f2, f3, f4;
 // --- natural (smoothly blended, noise-warped) ---
-vec2 q = gp - 0.5 + (vec2(gsNoise(gp * 1.7), gsNoise(gp * 1.7 + 31.0)) - 0.5) * 0.85;
-ivec2 i0 = ivec2(floor(q)); vec2 fq = smoothstep(0.18, 0.82, fract(q));
+vec2 q = gp - 0.5 + (vec2(gsNoise(gp * 1.7), gsNoise(gp * 1.7 + 31.0)) - 0.5) * 0.85 + (vec2(gsNoise(gp * 6.0), gsNoise(gp * 6.0 + 9.0)) - 0.5) * 0.18;
+ivec2 i0 = ivec2(floor(q)); vec2 fq = smoothstep(0.3, 0.7, fract(q));
 vec3 cA = gsMatCol(i0, gp, f1), cB = gsMatCol(i0 + ivec2(1, 0), gp, f2), cC = gsMatCol(i0 + ivec2(0, 1), gp, f3), cD = gsMatCol(i0 + ivec2(1, 1), gp, f4);
 vec3 natural = mix(mix(cA, cB, fq.x), mix(cC, cD, fq.x), fq.y);
 float fireN = mix(mix(f1, f2, fq.x), mix(f3, f4, fq.x), fq.y);
-// grass-detail mottling up close
+// surface detail up close: mottling + fine speckle that fades with distance
+float camDist = length(cameraPosition - vec3(vWPos.x, vWPos.y * uHeightScale, vWPos.z));
+float near = 1.0 - smoothstep(12.0, 60.0, camDist);
 natural *= 0.9 + 0.2 * gsNoise(gp * 5.0) * (0.6 + 0.4 * gsNoise(gp * 0.7));
+natural *= 1.0 + near * (0.16 * (gsNoise(gp * 23.0) - 0.5) + 0.1 * (gsNoise(gp * 57.0) - 0.5));
 // --- map (crisp tiles) ---
 ivec2 ti = ivec2(floor(gp));
 vec3 tileCol = gsMatCol(ti, vec2(ti) + 0.5, fire0);
@@ -131,7 +134,11 @@ float fireAmt = mix(fireN, fire0, uMapMode);
 // cliffs
 float slope = 1.0 - normalize(vWNormal).y;
 float rockAmt = smoothstep(0.3, 0.5, slope + (gsNoise(gp * 2.0) - 0.5) * 0.15) * (1.0 - uMapMode * 0.6);
-vec3 rockCol = mix(vec3(0.42, 0.39, 0.36), vec3(0.6, 0.57, 0.52), gsNoise(gp * vec2(1.5, 6.0) + vWPos.y));
+float strata = gsNoise(vec2(gp.x * 0.5 + gp.y * 0.35, vWPos.y * 2.6));
+vec3 rockCol = mix(vec3(0.47, 0.44, 0.41), vec3(0.7, 0.66, 0.6), smoothstep(0.25, 0.75, strata));
+rockCol *= 0.85 + 0.3 * gsNoise(gp * 2.6 + vWPos.y);
+rockCol *= 1.0 - 0.28 * smoothstep(0.62, 0.9, gsNoise(vec2(gp.x * 1.7 + gp.y, vWPos.y * 7.0)));
+rockCol = mix(rockCol, rockCol * vec3(0.92, 1.0, 0.86), smoothstep(0.5, 0.8, gsNoise(gp * 0.9)) * 0.5);
 col = mix(col, rockCol, rockAmt);
 // shoreline wetness & seabed
 float h = vWPos.y;

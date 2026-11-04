@@ -93,9 +93,10 @@ gl_Position = projectionMatrix * mvPosition;
 uniform float uAutumn; uniform float uSnow; varying float vLeaf; varying float vSnowTop;`)
         .replace('#include <color_fragment>', `#include <color_fragment>
 {
-  vec3 autumnCol = mix(vec3(0.93, 0.48, 0.16), vec3(0.85, 0.27, 0.12), fract(vColor.g * 13.0));
+  float pick = fract(vColor.g * 17.0 + vColor.r * 5.0);
+  vec3 autumnCol = pick < 0.45 ? vec3(0.98, 0.42, 0.08) : pick < 0.8 ? vec3(0.95, 0.66, 0.1) : vec3(0.78, 0.16, 0.08);
   float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-  diffuseColor.rgb = mix(diffuseColor.rgb, autumnCol * (0.6 + lum * 1.2), uAutumn * vLeaf * 0.85);
+  diffuseColor.rgb = mix(diffuseColor.rgb, autumnCol * (0.55 + lum * 1.6), uAutumn * vLeaf * 0.9);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94, 0.96, 1.0), uSnow * vSnowTop * 0.85);
 }`);
     }

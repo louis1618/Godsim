@@ -206,7 +206,7 @@ export class FxRenderer {
     // meteors
     const mb = new ModelBuilder(4);
     mb.add(geo.ico(0.8, 1), { color: 0x4a3a32, jitter: 0.15, flat: true }, T());
-    this.meteorMesh = new THREE.InstancedMesh(mb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0xff5a10, emissiveIntensity: 0.9, roughness: 0.9 }), 16);
+    this.meteorMesh = new THREE.InstancedMesh(mb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0xff4a10, emissiveIntensity: 0.28, roughness: 0.9 }), 16);
     this.meteorMesh.frustumCulled = false; this.meteorMesh.count = 0;
     this.group.add(this.meteorMesh);
     // tornado funnel
@@ -485,14 +485,14 @@ export class FxRenderer {
         const pp = unitPos(u.id, p);
         if (!pp) continue;
         const def = SPECIES[u.sp];
-        pa[ne * 3] = pp.x; pa[ne * 3 + 1] = pp.y + 0.62 * def.size + 0.3; pa[ne * 3 + 2] = pp.z;
+        pa[ne * 3] = pp.x; pa[ne * 3 + 1] = pp.y + 0.62 * def.size * 1.4 + 0.35; pa[ne * 3 + 2] = pp.z;
         da[ne * 2] = u.emote; da[ne * 2 + 1] = Math.min(u.emoteT, 25 - Math.min(25, u.emoteT)) / 25 + 0.2;
         ne++;
       }
       this.emoteAttr.pos.needsUpdate = true; this.emoteAttr.data.needsUpdate = true;
     }
     (this.emotes.geometry as THREE.InstancedBufferGeometry).instanceCount = ne;
-    (this.emotes.material as THREE.ShaderMaterial).uniforms.uSize.value = 0.32;
+    (this.emotes.material as THREE.ShaderMaterial).uniforms.uSize.value = 0.42;
 
     // arrows
     let na = 0;

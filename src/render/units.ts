@@ -87,6 +87,9 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
 
 interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribute; skin: THREE.InstancedBufferAttribute; hair: THREE.InstancedBufferAttribute; misc: THREE.InstancedBufferAttribute; cap: number; }
 
+/** Characters are drawn a bit larger than their simulation footprint so they read well. */
+export const CREATURE_SCALE = 1.4;
+
 const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0 };
 
 /** Renders every creature: animated 3D instances up close, coloured map pins from afar. */
@@ -272,8 +275,8 @@ export class UnitRenderer {
       ry += d * Math.min(1, dt * 12);
       this.yawCache.set(u.id, ry);
       const child = u.age < def.adultAge;
-      let sc = def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
-      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton) sc = (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
+      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
       // a little pop when born
       const age = sim.tick - u.born;
       if (age < 8) sc *= 0.5 + 0.5 * Math.min(1, (age + alpha) / 8) + Math.sin(Math.min(1, (age + alpha) / 8) * Math.PI) * 0.25;
@@ -297,7 +300,7 @@ export class UnitRenderer {
       const item = child || !isCiv(u.sp) ? 0 : u.item;
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, item, u.hitT > 0 ? u.hitT / 6 : 0);
       if (u.flags & UF.King) {
-        const hh = (def.size * (u.sp === Sp.Dwarf ? 0.55 : 0.72)) * sc / def.size;
+        const hh = (u.sp === Sp.Dwarf ? 0.55 : 0.72) * sc;
         this.tmpP.set(x, y + hh, z);
         this.tmpS.setScalar(sc);
         this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
