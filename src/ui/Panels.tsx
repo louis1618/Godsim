@@ -6,6 +6,7 @@ import { KINGDOM_COLORS, SPECIES } from '../sim/defs';
 import { listSlots, SlotMeta, deleteSlot, SLOT_COUNT } from '../sim/save';
 import { audio } from '../audio/audio';
 import type { AppCtl } from '../app';
+import { Manual } from './Manual';
 
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 
@@ -201,6 +202,7 @@ export function Panels({ app }: { app: AppCtl }) {
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'saveload' })}><img src={s.icons['saveload']} />{t('saveload')}</button>
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'laws' })}><img src={s.icons['laws']} />{t('laws')}</button>
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'audio' })}><img src={s.icons['audio']} />{t('audio')}</button>
+            <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'manual' })}><img src={s.icons['manual']} />{t('manual')}</button>
             <button class="gs-btn" onClick={() => app.guard('title', () => app.toTitle())}><img src={s.icons['newworld']} />{t('title')}</button>
           </div>
         </div>
@@ -215,6 +217,7 @@ export function Panels({ app }: { app: AppCtl }) {
     case 'kingdoms': return <Modal icon="kingdoms" title={t('kingdoms')} onClose={close}><Kingdoms app={app} /></Modal>;
     case 'history': return <Modal icon="history" title={t('history')} onClose={close}><History app={app} /></Modal>;
     case 'stats': return <Modal icon="stats" title={t('stats')} onClose={close}><Stats app={app} /></Modal>;
+    case 'manual': return <Manual />;
     case 'newworld': store.set({ panel: null }); app.guard('newworld', () => app.toCreate()); return null;
   }
   return null;

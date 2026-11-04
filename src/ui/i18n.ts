@@ -30,6 +30,8 @@ const S: Record<string, Entry> = {
   rabbit: ['토끼', 'Rabbit'], fox: ['여우', 'Fox'], boar: ['멧돼지', 'Boar'], crocodile: ['악어', 'Crocodile', '늪과 물가', 'Swamps & shores'], fish: ['물고기', 'Fish', '물 위에 소환', 'Spawn on water'],
   dragon: ['드래곤', 'Dragon', '하늘에서 불을 뿜습니다', 'Breathes fire from the sky'],
   volcano: ['화산', 'Volcano', '분출 후 비옥한 화산재', 'Erupts, then fertile ash'], drought: ['가뭄', 'Drought', '풀과 작물이 마릅니다', 'Grass and crops wither'], flood: ['홍수', 'Flood', '저지대가 잠깁니다', 'Low ground goes under'],
+  manual: ['매뉴얼', 'Manual', '그림으로 보는 안내', 'The picture guide'], 'man-basics': ['조작', 'Controls'], 'man-food': ['먹이사슬', 'Food chain'], 'man-civ': ['문명', 'Civilization'], 'man-chains': ['연쇄 반응', 'Chain reactions'], 'man-tips': ['팁', 'Tips'],
+  library: ['도서관', 'Library'], market: ['시장', 'Market'], prison: ['감옥', 'Prison'], dock: ['부두', 'Dock'], factory: ['공장', 'Factory'], apartment: ['아파트', 'Apartment'],
   'ev-eruption': ['화산 폭발', 'Eruption'], 'ev-drought': ['가뭄', 'Drought'], 'ev-flood': ['홍수', 'Flood'], 'ev-dragon': ['드래곤 출현', 'A dragon appears'],
   // civ
   war: ['전쟁 선포', 'Declare War', '두 왕국을 차례로', 'Pick two kingdoms'], peace: ['평화 협정', 'Make Peace', '두 왕국을 차례로', 'Pick two kingdoms'],

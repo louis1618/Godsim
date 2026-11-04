@@ -284,3 +284,68 @@
 .meter.pink i { background: linear-gradient(180deg, #ffc2da, #ff6a9a); }
 .pill.rel { cursor: pointer; }
 .pill.rel.dead { opacity: .45; text-decoration: line-through; cursor: default; }
+
+/* ---------------------------------------------------------------- manual */
+.pill.job { background: #e2ecff; }
+.modal.manual { width: min(860px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+.modal.manual .mbody { max-height: none; flex: 1 1 auto; min-height: 0; }
+.modal.manual .mbody { overflow-y: auto; padding-bottom: 6px; }
+.man-tabs { display: flex; gap: 8px; padding: 4px 16px 10px; flex-wrap: wrap; }
+.man-tab { display: flex; align-items: center; gap: 6px; padding: 4px 12px 4px 6px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; cursor: pointer; font-family: var(--font-display); font-size: 15px; box-shadow: 0 3px 0 var(--ink); transition: transform .12s; }
+.man-tab img { width: 30px; height: 30px; }
+.man-tab:hover { transform: translateY(-2px); }
+.man-tab.on { background: #ffe9a0; transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.man-page { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.man-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.man-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 14px; border: 3px solid var(--ink); border-radius: 16px; background: #fffaf0; min-width: 96px; }
+.man-card b { font-family: var(--font-display); font-weight: normal; font-size: 17px; }
+.man-card small { opacity: .7; font-size: 12px; }
+.mouse { width: 40px; height: 56px; }
+.man-row.keys { gap: 22px; font-size: 14px; }
+.kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin: 0 2px; border: 2px solid var(--ink); border-bottom-width: 4px; border-radius: 7px; background: #fff; font-family: var(--font-display); font-size: 13px; text-align: center; }
+.man-grid8 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 100%; }
+.man-cat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.55); }
+.man-cat img { width: 56px; height: 56px; }
+.man-cat small { font-size: 12px; text-align: center; }
+.pyramid { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.pyr-row { display: flex; justify-content: center; gap: 4px; padding: 6px 8px; border-radius: 14px; background: linear-gradient(#fff6dd, #ffe9b8); border: 3px solid var(--ink); flex-wrap: wrap; }
+.pyr-row:nth-child(1) { background: linear-gradient(#ffd6d0, #ffb8a8); }
+.pyr-row:nth-child(2) { background: linear-gradient(#ffe2c8, #ffcfa0); }
+.pyr-row.plants { background: linear-gradient(#d8f5c8, #b8e6a0); }
+.pyr-row img { width: 46px; height: 46px; transition: transform .15s, opacity .15s, filter .15s; cursor: help; }
+.pyr-row img.on { transform: scale(1.25); }
+.pyr-row img.prey { transform: scale(1.12); filter: drop-shadow(0 0 6px #6ad04a); }
+.pyr-row img.eater { transform: scale(1.12); filter: drop-shadow(0 0 6px #ff5a4a); }
+.pyr-row img.dim { opacity: .3; }
+.man-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 44px; font-size: 14px; }
+.man-legend img { width: 36px; height: 36px; }
+.man-legend b { font-family: var(--font-display); font-weight: normal; font-size: 18px; margin-right: 6px; }
+.lg { padding: 2px 8px; border-radius: 9px; border: 2px solid var(--ink); font-size: 12px; margin-left: 8px; }
+.lg.prey { background: #d8f5c8; } .lg.eater { background: #ffd6d0; }
+.eras { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; width: 100%; }
+.era { border: 3px solid var(--ink); border-radius: 16px; background: #fffaf0; padding: 8px 6px; display: flex; flex-direction: column; gap: 6px; align-items: center; position: relative; }
+.era:not(:last-child)::after { content: '➜'; position: absolute; right: -14px; top: 12px; font-size: 16px; z-index: 1; }
+.era-h { font-family: var(--font-display); font-size: 14px; text-align: center; display: flex; align-items: center; gap: 4px; }
+.era-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; }
+.era-icons { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
+.era-icons img { width: 42px; height: 42px; }
+.era-jobs { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
+.era-jobs .pill { font-size: 11px; padding: 1px 6px; }
+.chain { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; border-radius: 14px; background: rgba(255,255,255,.55); flex-wrap: wrap; }
+.chain img { width: 44px; height: 44px; }
+.chain .arrow { font-size: 18px; opacity: .7; }
+.chain small { flex-basis: 100%; font-size: 12px; opacity: .75; padding-left: 4px; }
+.tips { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.tips li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 12px; background: rgba(255,255,255,.55); font-size: 14px; }
+.tips img { width: 40px; height: 40px; }
+.man-foot { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 14px; }
+.man-foot .gs-btn[disabled] { opacity: .35; pointer-events: none; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); background: #fff; }
+.dots i.on { background: var(--ink); }
+.modal.first-visit { width: 380px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 18px 18px; text-align: center; }
+.first-visit .fv-icon { width: 96px; height: 96px; animation: logo-in .8s cubic-bezier(.2,1.6,.4,1) both; }
+.first-visit h2 { font-family: var(--font-display); font-weight: normal; font-size: 26px; margin: 0; }
+.fv-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.fv-row .gs-btn img { width: 28px; height: 28px; vertical-align: -8px; margin-right: 4px; }
+@media (max-width: 720px) { .eras { grid-template-columns: repeat(2, 1fr); } .man-grid8 { grid-template-columns: repeat(3, 1fr); } }

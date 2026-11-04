@@ -22,13 +22,19 @@ export interface UIState {
   confirm: { icon: string; title: string; actions: { label: string; primary?: boolean; fn: () => void | Promise<void> }[] } | null;
   continueMeta: import('../sim/save').SlotMeta | null;
   lastAutosave: number;
+  firstVisit: boolean;
 }
 
 type L = () => void;
+function firstVisit(): boolean {
+  const q = new URLSearchParams(location.search);
+  if (q.has('noauto') || q.has('notut')) return false;
+  try { return !localStorage.getItem('gs-seen-manual'); } catch { return false; }
+}
 class Store {
   s: UIState = {
     screen: 'boot', bootProgress: 0, cat: 'world', power: 'inspect', brush: 3, sel: null, panel: null, pairFirst: -1, icons: {},
-    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null, confirm: null, continueMeta: null, lastAutosave: 0,
+    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null, confirm: null, continueMeta: null, lastAutosave: 0, firstVisit: firstVisit(),
   };
   private ls = new Set<L>();
   set(p: Partial<UIState>) { this.s = { ...this.s, ...p }; for (const l of this.ls) l(); }

@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'preact/hooks';
 import { store, UIState } from './store';
 import { t } from './i18n';
 import { Hud } from './Hud';
+import { FirstVisit } from './Manual';
 import { Panels } from './Panels';
 import type { AppCtl } from '../app';
 
@@ -148,6 +149,7 @@ function Root({ app }: { app: AppCtl }) {
       {s.screen === 'create' && <Create app={app} />}
       {s.screen === 'play' && <Hud app={app} />}
       <Panels app={app} />
+      <FirstVisit />
       <Confirm />
       <Toast />
       <div class="flash" id="flash" />

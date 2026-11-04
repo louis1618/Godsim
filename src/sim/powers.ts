@@ -31,6 +31,7 @@ export const POWERS: PowerDef[] = [
   { id: 'stats', cat: 'observe', mode: 'panel' },
   { id: 'history', cat: 'observe', mode: 'panel' },
   { id: 'kingdoms', cat: 'observe', mode: 'panel' },
+  { id: 'manual', cat: 'observe', mode: 'panel', key: 'F1' },
   // world
   { id: 'raise', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 12), key: 'Digit1' },
   { id: 'lower', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 12), key: 'Digit2' },

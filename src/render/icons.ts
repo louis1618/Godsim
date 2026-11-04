@@ -209,6 +209,16 @@ function makeIcons(): Record<string, Maker> {
   m['troll'] = () => creature(models, Sp.Troll, 0xffffff, 0x7f9a98, 0xffffff, 8);
   for (const [k, sp] of [['rabbit', Sp.Rabbit], ['fox', Sp.Fox], ['boar', Sp.Boar], ['crocodile', Sp.Crocodile], ['fish', Sp.Fish], ['dragon', Sp.Dragon]] as [string, Sp][])
     m[k] = () => { const o = creature(models, sp, 0xffffff, 0xffffff, 0xffffff); o.rotation.y = sp === Sp.Crocodile || sp === Sp.Fish ? -1.0 : -0.6; return o; };
+  m['manual'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.rbox(0.9, 0.12, 0.66, 0.04, 1), { color: 0x8a3a2a }, T(0, 0.06, 0, 0, 0.2, 0));
+    b.add(geo.rbox(0.84, 0.1, 0.6, 0.03, 1), { color: 0xf8f0dc }, T(0.02, 0.15, 0, 0, 0.2, 0));
+    b.add(geo.rbox(0.9, 0.06, 0.66, 0.03, 1), { color: 0xc8483a }, T(0, 0.23, 0, 0, 0.2, 0));
+    b.add(geo.cyl(0.13, 0.13, 0.02, 16), { color: 0xffd23a }, T(0.05, 0.27, 0, 0, 0.2, 0));
+    b.add(geo.box(0.06, 0.02, 0.5), { color: 0xffd23a }, T(-0.3, 0.27, 0, 0, 0.2, 0));
+    b.add(geo.box(0.08, 0.3, 0.02), { color: 0x3a6ab8 }, T(0.3, 0.25, 0.28, 0.2, 0.2, 0));
+    return std(b.build());
+  };
   m['volcano'] = () => {
     const b = new ModelBuilder(1);
     b.add(geo.cyl(0.18, 0.62, 0.62, 14, 3), { color: (p) => hex(0x5a4a42).lerp(hex(0x8a7a6e), Math.max(0, 1 - p.y * 2)), jitter: 0.02 }, T(0, 0.31, 0));
