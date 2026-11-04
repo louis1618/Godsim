@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { World, CHUNK, heightCubic } from '../sim/world';
 import { FEAT_COUNT, Feat, isTree } from '../sim/defs';
 import { hash2 } from '../core/rng';
+import { featureOffset } from '../sim/nav';
 import { buildFeatureModels } from './models/nature';
 import { patchInstanced, makeInstancedDepthMaterial } from './shared';
 
@@ -89,8 +90,7 @@ export class FloraRenderer {
         if (!vars || vars.length === 0) continue;
         const r1 = hash2(x, z, 11), r2 = hash2(x, z, 23), r3 = hash2(x, z, 37);
         const pi = vars[Math.floor(r1 * vars.length) % vars.length];
-        const jitter = f === Feat.Crop ? 0 : 0.28;
-        const px = x + 0.5 + (r2 - 0.5) * jitter * 2, pz = z + 0.5 + (r3 - 0.5) * jitter * 2;
+        const [px, pz] = featureOffset(x, z, f);
         const py = heightCubic(w.height, w.W, w.H, px, pz) - 0.04;
         let sc = 0.85 + r1 * 0.35;
         const amt = w.featAmt[t];

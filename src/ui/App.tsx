@@ -32,7 +32,14 @@ function Title({ app }: { app: AppCtl }) {
       <Logo />
       <div class="logo-sub">{t('newWorld') === '새 세계' ? '작은 세계, 신의 손끝' : 'A tiny world at your fingertips'}</div>
       <div class="title-menu">
-        <div class="gs-panel title-card big" onClick={() => app.toCreate()} onMouseEnter={() => app.hoverSound()}>
+        {s.continueMeta && (
+          <div class="gs-panel title-card big cont" onClick={() => app.continueLast()} onMouseEnter={() => app.hoverSound()}>
+            <div class="cthumb" style={{ backgroundImage: `url(${s.continueMeta.thumb})` }} />
+            <span>{t('continue')}</span>
+            <small>{s.continueMeta.year + 1}{t('year')} · {t('pop')} {s.continueMeta.pop}</small>
+          </div>
+        )}
+        <div class={`gs-panel title-card ${s.continueMeta ? '' : 'big'}`} onClick={() => app.guard('newworld', () => app.toCreate())} onMouseEnter={() => app.hoverSound()}>
           <img src={s.icons['newworld']} /><span>{t('newWorld')}</span>
         </div>
         <div class="gs-panel title-card" onClick={() => store.set({ panel: 'saveload' })} onMouseEnter={() => app.hoverSound()}>
@@ -107,6 +114,31 @@ function Create({ app }: { app: AppCtl }) {
   );
 }
 
+function Confirm() {
+  const s = useStore();
+  const c = s.confirm;
+  if (!c) return null;
+  return (
+    <div class="modal-bg confirm-bg" onPointerDown={(e) => { if (e.target === e.currentTarget) store.set({ confirm: null }); }}>
+      <div class="gs-panel modal confirm">
+        <img class="cicon" src={s.icons[c.icon]} />
+        <h2>{c.title}</h2>
+        <div class="cbtns">
+          {c.actions.map((a) => <button class={`gs-btn ${a.primary ? 'primary' : ''}`} onClick={async () => { store.set({ confirm: null }); await a.fn(); }}>{a.label}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Toast() {
+  const s = useStore();
+  const [, set] = useState(0);
+  useEffect(() => { if (!s.toast) return; const id = setTimeout(() => set((n) => n + 1), 2600); return () => clearTimeout(id); }, [s.toast]);
+  if (!s.toast || performance.now() - s.toast.t > 2500) return null;
+  return <div class="gs-panel toast" key={s.toast.t}><img src={s.icons[s.toast.icon] ?? s.icons['saveload']} />{s.toast.text}</div>;
+}
+
 function Root({ app }: { app: AppCtl }) {
   const s = useStore();
   return (
@@ -116,6 +148,8 @@ function Root({ app }: { app: AppCtl }) {
       {s.screen === 'create' && <Create app={app} />}
       {s.screen === 'play' && <Hud app={app} />}
       <Panels app={app} />
+      <Confirm />
+      <Toast />
       <div class="flash" id="flash" />
     </>
   );

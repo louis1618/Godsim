@@ -2,6 +2,7 @@ import { Sim, setTimeout0 } from './sim';
 import { Unit, Task, Job, Anim, Emote, UF, Res } from './entities';
 import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
 import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf } from './civ';
+import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free } from './nav';
 
 const AGE_STEP = 10 / YEAR_TICKS;
 
@@ -35,7 +36,12 @@ export function unitTick(sim: Sim, u: Unit) {
   }
   if (--u.think <= 0 || !u.task) decide(sim, u);
   if (u.task) run(sim, u, u.task);
+  // walking animations only while the creature really changes position
+  if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && Math.abs(u.x - u.px) + Math.abs(u.z - u.pz) < 1e-4) u.anim = Anim.Idle;
 }
+
+/** Work speed from mood (content workers are productive; miserable ones slack). */
+export function workRate(u: Unit) { const m = u.mood ?? 60; return m >= 70 ? 1.2 : m >= 40 ? 1 : m >= 20 ? 0.8 : 0.6; }
 
 function metabolism(sim: Sim, u: Unit) {
   const def = SPECIES[u.sp];
@@ -358,7 +364,12 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   if (!u.path) {
     if (sim.pathCalls > 60) { u.anim = Anim.Idle; return false; }
     sim.pathCalls++;
-    const goal = w.tileAt(tx, tz);
+    // never aim into a wall: retarget to the nearest free tile
+    let goal = w.tileAt(tx, tz);
+    if (goal >= 0 && !free(w, goal)) {
+      const nf = nearestFree(w, tx, tz, 5);
+      if (nf) goal = w.tileAt(nf[0], nf[1]);
+    }
     const near = arriveDist >= 1.5 ? Math.floor(arriveDist) : 0;
     const p = sim.pf.find(u.x, u.z, goal, 5000, near);
     if (!p) {
@@ -366,13 +377,23 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
       if (u.stuck > 3) { u.task = null; u.think = 0; }
       return false;
     }
-    u.path = p; u.pathI = 0;
+    u.path = p; u.pathI = 0; u.pathNav = sim.navVersion;
+  }
+  // the world changed (building placed/destroyed): re-check the next waypoint
+  if (u.pathNav !== sim.navVersion) {
+    u.pathNav = sim.navVersion;
+    for (let i = u.pathI; i < Math.min(u.path.length, u.pathI + 6); i++) if (!free(w, u.path[i])) { u.path = null; return false; }
   }
   const last = u.pathI >= u.path.length - 1;
   const wt = u.path[Math.min(u.pathI, u.path.length - 1)];
-  // personal lateral offset spreads crowds
-  const ox = ((u.look & 15) / 15 - 0.5) * 0.5, oz = (((u.look >> 4) & 15) / 15 - 0.5) * 0.5;
-  const wx = last ? tx : (wt % w.W) + 0.5 + ox, wz = last ? tz : ((wt / w.W) | 0) + 0.5 + oz;
+  // personal lateral offset spreads crowds, but never pushes into a blocked tile
+  let wx: number, wz: number;
+  if (last) { wx = tx; wz = tz; }
+  else {
+    const cx = (wt % w.W) + 0.5, cz = ((wt / w.W) | 0) + 0.5;
+    const ox = ((u.look & 15) / 15 - 0.5) * 0.44, oz = (((u.look >> 4) & 15) / 15 - 0.5) * 0.44;
+    if (w.tileAt(cx + ox, cz + oz) === wt) { wx = cx + ox; wz = cz + oz; } else { wx = cx; wz = cz; }
+  }
   const dx = wx - u.x, dz = wz - u.z;
   const d = Math.hypot(dx, dz);
   const t = w.tileAt(u.x, u.z);
@@ -380,37 +401,26 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   let sp = SPECIES[u.sp].speed * u.speedMul * speedMul * TICK_DT / Math.sqrt(cost);
   if (u.age < SPECIES[u.sp].adultAge) sp *= 0.85;
   if (u.flags & UF.Sick) sp *= 0.7;
-  if (d <= sp) {
-    u.x = wx; u.z = wz;
+  sp *= moodSpeed(u);
+  const moved = stepToward(w, u, wx, wz, sp, true);
+  if (moved <= 1e-5) {
+    // blocked: try again with a fresh path next tick
+    if (++u.stuck > 6) { u.path = null; u.stuck = 0; }
+    return false;
+  }
+  if (d <= sp + 1e-4) {
     if (!last) u.pathI++;
     else { u.path = null; return Math.hypot(tx - u.x, tz - u.z) <= arriveDist + 0.05; }
-  } else {
-    u.x += (dx / d) * sp; u.z += (dz / d) * sp;
   }
   u.dir = Math.atan2(dx, dz);
   if (u.anim !== Anim.Panic || u.task?.k !== 'flee') u.anim = Anim.Walk;
   return false;
 }
 
-function face(u: Unit, x: number, z: number) { u.dir = Math.atan2(x - u.x, z - u.z); }
+/** Mood nudges walking pace a little (happy folk stride, miserable folk drag their feet). */
+export function moodSpeed(u: Unit) { return 0.9 + Math.max(0, Math.min(1, (u.mood ?? 60) / 100)) * 0.2; }
 
-/** Tile adjacent to a feature/building closest to the unit. */
-function standNear(sim: Sim, u: Unit, t: number): [number, number] {
-  const w = sim.world;
-  const x = t % w.W, z = (t / w.W) | 0;
-  let bx = x + 0.5, bz = z + 0.5, bd = 1e9;
-  for (let k = 0; k < 8; k++) {
-    const dx = [1, -1, 0, 0, 1, -1, 1, -1][k], dz = [0, 0, 1, -1, 1, 1, -1, -1][k];
-    const xx = x + dx, zz = z + dz;
-    if (!w.inside(xx, zz)) continue;
-    const n = w.idx(xx, zz);
-    if (!w.walkable(n) || (w.bld[n] >= 0 && !w.bldPassable(n))) continue;
-    const px = x + 0.5 + dx * 0.62, pz = z + 0.5 + dz * 0.62;
-    const d = (px - u.x) ** 2 + (pz - u.z) ** 2;
-    if (d < bd) { bd = d; bx = px; bz = pz; }
-  }
-  return [bx, bz];
-}
+function face(u: Unit, x: number, z: number) { u.dir = Math.atan2(x - u.x, z - u.z); }
 
 function run(sim: Sim, u: Unit, t: Task) {
   const w = sim.world;
@@ -476,15 +486,20 @@ function run(sim: Sim, u: Unit, t: Task) {
       const b = sim.buildings.get(t.b);
       if (!b || !b.alive || b.progress >= 1) { u.task = null; u.think = 0; break; }
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
-      // stand at the footprint edge facing the centre
-      const ang = (u.look % 628) / 100;
-      const ex = cx + Math.cos(ang) * (b.size / 2 + 0.35), ez = cz + Math.sin(ang) * (b.size / 2 + 0.35);
-      if (moveTo(sim, u, ex, ez, 0.4)) {
+      // stand right against the footprint (tools touch the wall)
+      if (t.sx === undefined || t.sz === undefined) { [t.sx, t.sz] = standAtBuilding(sim, b, u, 3); }
+      if (moveTo(sim, u, t.sx, t.sz!, 0.12)) {
         face(u, cx, cz);
         u.anim = Anim.Work;
         const def = BUILDINGS[b.kind];
-        const bs = SPECIES[u.sp].buildSpeed * (u.traits & Trait.Wise ? 1.2 : 1);
+        const bs = SPECIES[u.sp].buildSpeed * (u.traits & Trait.Wise ? 1.2 : 1) * workRate(u);
+        const before = b.progress;
         b.progress = Math.min(1, b.progress + (bs * TICK_DT) / def.work);
+        if (before < 0.15 && b.progress >= 0.15) {
+          // walls go up: the footprint becomes solid
+          w.navVersion++;
+          sim.near(b.x + b.size / 2, b.z + b.size / 2, b.size + 1, (o) => resolveInside(sim, o));
+        }
         b.hp = Math.max(b.hp, b.maxHp * b.progress);
         if (sim.tick % 6 === u.id % 6) sim.fx.push({ t: 'hammer', x: u.x, z: u.z, u: u.id, tx: cx, tz: cz });
         if (b.progress >= 1) {
@@ -533,9 +548,9 @@ function run(sim: Sim, u: Unit, t: Task) {
       const b = sim.buildings.get(t.b);
       if (!b || !b.alive) { u.task = null; u.think = 0; break; }
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
-      const ang = (u.look % 628) / 100;
-      const ex = cx + Math.cos(ang) * (b.size / 2 + 0.3), ez = cz + Math.sin(ang) * (b.size / 2 + 0.3);
-      if (moveTo(sim, u, ex, ez, 0.5)) {
+      if (t.sx === undefined || t.sz === undefined) { [t.sx, t.sz] = standAtBuilding(sim, b, u, 3); }
+      const ex = t.sx, ez = t.sz!;
+      if (moveTo(sim, u, ex, ez, 0.2)) {
         face(u, cx, cz);
         if (u.cd <= 0) {
           u.anim = Anim.Attack; u.animT = 6;
@@ -593,9 +608,12 @@ function runGather(sim: Sim, u: Unit, t: Extract<Task, { k: 'gather' }>) {
   const quarry = t.res === Res.Stone && f === Feat.None && w.mat[t.tile] === Mat.Rock;
   const ok = t.res === Res.Wood ? isWoodTree(f) || f === Feat.Dead : t.res === Res.Food ? f === Feat.Berry : t.res === Res.Stone ? f === Feat.Boulder || quarry : f === Feat.Ore;
   if (!ok) { releaseClaim(t.tile); u.task = null; u.think = 0; return; }
-  const [sx, sz] = standNear(sim, u, t.tile);
-  if (!moveTo(sim, u, sx, sz, 0.3)) return;
-  const tx = (t.tile % w.W) + 0.5, tz = ((t.tile / w.W) | 0) + 0.5;
+  if (t.sx === undefined || t.sz === undefined) {
+    if (quarry) { const nf = nearestFree(w, (t.tile % w.W) + 0.5, ((t.tile / w.W) | 0) + 0.5, 2); [t.sx, t.sz] = nf ?? [u.x, u.z]; }
+    else [t.sx, t.sz] = standAtFeature(sim, u, t.tile);
+  }
+  if (!moveTo(sim, u, t.sx, t.sz!, 0.08)) return;
+  const [tx, tz] = quarry ? [(t.tile % w.W) + 0.5, ((t.tile / w.W) | 0) + 0.5] : featureOffset(t.tile % w.W, (t.tile / w.W) | 0, f);
   face(u, tx, tz);
   u.anim = Anim.Work;
   t.work++;
@@ -642,10 +660,8 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     let blocked = false;
     if (d < 3 && !u.path) {
       const sp = def.speed * u.speedMul * TICK_DT * 1.05;
-      const nx = u.x + ((o.x - u.x) / d) * sp, nz = u.z + ((o.z - u.z) / d) * sp;
-      const tt = sim.world.tileAt(nx, nz);
-      if (tt < 0 || !sim.world.walkable(tt) || (sim.world.bld[tt] >= 0 && !sim.world.bldPassable(tt))) blocked = true;
-      else { u.x = nx; u.z = nz; face(u, o.x, o.z); u.anim = Anim.Walk; }
+      if (stepToward(sim.world, u, o.x, o.z, sp, false) <= 1e-5) blocked = true;
+      else { face(u, o.x, o.z); u.anim = Anim.Walk; }
     }
     if (d >= 3 || blocked || u.path) {
       if (u.path && sim.tick % 15 === u.id % 15) u.path = null; // re-path toward moving target

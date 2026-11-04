@@ -134,6 +134,11 @@ export class GameRenderer {
     this.rig.camera.updateProjectionMatrix();
   }
 
+  /** Draw the current state without advancing anything (used for save thumbnails). */
+  renderOnly() {
+    if (this.composer) this.composer.render(0); else this.renderer.render(this.scene, this.rig.camera);
+  }
+
   private waterT = 0;
   private frameNo = 0;
 

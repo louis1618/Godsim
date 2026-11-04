@@ -64,6 +64,8 @@ export class Game {
       if (sim.tick % 20 === 0) sim.world.ownerDirty = true;
     }
     this.alpha = this.acc / TICK_DT;
+    // creature animation follows game time: frozen when paused, brisker when fast-forwarded
+    if (!this.paused) U.uAnimTime.value += dt * Math.min(this.speed, 3);
     this.simMs = performance.now() - t0;
     // seasons drive foliage tint + snow
     const sf = sim.laws.seasons ? (sim.tick % (SEASON_TICKS * 4)) / SEASON_TICKS : 1;

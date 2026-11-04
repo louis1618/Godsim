@@ -13,12 +13,12 @@ export type Task =
   | { k: 'idle'; t: number; plant?: number }
   | { k: 'wander'; tx: number; tz: number }
   | { k: 'move'; tx: number; tz: number; then?: Task }
-  | { k: 'gather'; tile: number; res: Res; work: number }
+  | { k: 'gather'; tile: number; res: Res; work: number; sx?: number; sz?: number }
   | { k: 'deliver' }
-  | { k: 'build'; b: number }
+  | { k: 'build'; b: number; sx?: number; sz?: number }
   | { k: 'farm'; b: number; tile: number; work: number }
   | { k: 'attack'; u: number }
-  | { k: 'raze'; b: number }
+  | { k: 'raze'; b: number; sx?: number; sz?: number }
   | { k: 'flee'; tx: number; tz: number }
   | { k: 'eat' }
   | { k: 'graze'; work: number }
@@ -64,6 +64,8 @@ export interface Unit {
   item: number;             // held tool/weapon id for rendering
   vx: number; vz: number; vy: number; // flung velocity (when airborne)
   spin: number;
+  pathNav: number;          // nav version the current path was planned against
+  mood: number;             // 0..100 (see needs)
 }
 
 export interface Building {

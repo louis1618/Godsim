@@ -3,7 +3,7 @@ import { store } from './store';
 import { useStore } from './App';
 import { t } from './i18n';
 import { KINGDOM_COLORS, SPECIES } from '../sim/defs';
-import { listSlots, SlotMeta } from '../sim/save';
+import { listSlots, SlotMeta, deleteSlot, SLOT_COUNT } from '../sim/save';
 import { audio } from '../audio/audio';
 import type { AppCtl } from '../app';
 
@@ -38,24 +38,36 @@ function Laws({ app }: { app: AppCtl }) {
 
 function SaveLoad({ app }: { app: AppCtl }) {
   const s = useStore();
-  const [slots, setSlots] = useState<(SlotMeta | null)[]>([null, null, null]);
-  const [busy, setBusy] = useState(-1);
+  const [slots, setSlots] = useState<(SlotMeta | null)[]>(new Array(SLOT_COUNT).fill(null));
+  const [busy, setBusy] = useState<number | 'auto' | -1>(-1);
   const refresh = () => listSlots().then(setSlots);
   useEffect(() => { refresh(); }, []);
   const inGame = s.screen === 'play';
+  const auto = s.continueMeta;
+  const loadAs = (key: number | 'auto') => app.guard('load', async () => { setBusy(key); await app.load(key); setBusy(-1); });
   return (
-    <div class="slots">
-      {slots.map((m, i) => (
-        <div class="save-slot">
-          <div class="thumb" style={m ? { backgroundImage: `url(${m.thumb})` } : {}}>{!m && t('emptySlot')}</div>
-          <div class="meta">{m ? <>{new Date(m.date).toLocaleString()}<br /><b>{m.year + 1}{t('year')}</b> · {t('pop')} {m.pop} · {t('kingdom')} {m.kingdoms}</> : <>&nbsp;<br />&nbsp;</>}</div>
-          <div class="row">
-            {inGame && <button class="gs-btn" disabled={busy >= 0} onClick={async () => { setBusy(i); await app.save(i); await refresh(); setBusy(-1); }}>{busy === i ? '…' : t('save')}</button>}
-            {m && <button class="gs-btn primary" disabled={busy >= 0} onClick={async () => { setBusy(i); await app.load(i); setBusy(-1); }}>{t('load')}</button>}
-          </div>
+    <>
+      {auto && (
+        <div class="save-slot auto">
+          <div class="thumb" style={{ backgroundImage: `url(${auto.thumb})` }} />
+          <div class="meta"><b>{t('autosaved')}</b> · {new Date(auto.date).toLocaleString()}<br /><b>{auto.year + 1}{t('year')}</b> · {t('pop')} {auto.pop} · {t('kingdom')} {auto.kingdoms}</div>
+          <div class="row"><button class="gs-btn primary" disabled={busy !== -1} onClick={() => loadAs('auto')}>{t('load')}</button></div>
         </div>
-      ))}
-    </div>
+      )}
+      <div class="slots">
+        {slots.map((m, i) => (
+          <div class="save-slot">
+            <div class="thumb" style={m ? { backgroundImage: `url(${m.thumb})` } : {}}><span class="sno">{i + 1}</span>{!m && t('emptySlot')}</div>
+            <div class="meta">{m ? <>{new Date(m.date).toLocaleDateString()} {new Date(m.date).toLocaleTimeString()}<br /><b>{m.year + 1}{t('year')}</b> · {t('pop')} {m.pop}</> : <>&nbsp;<br />&nbsp;</>}</div>
+            <div class="row">
+              {inGame && <button class="gs-btn" disabled={busy !== -1} onClick={async () => { setBusy(i); await app.save(i); await refresh(); setBusy(-1); }}>{busy === i ? '…' : t('save')}</button>}
+              {m && <button class="gs-btn primary" disabled={busy !== -1} onClick={() => loadAs(i)}>{t('load')}</button>}
+              {m && <button class="gs-btn xs" title={t('del')} disabled={busy !== -1} onClick={async () => { await deleteSlot(i); refresh(); }}>✕</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -182,7 +194,7 @@ export function Panels({ app }: { app: AppCtl }) {
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'saveload' })}><img src={s.icons['saveload']} />{t('saveload')}</button>
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'laws' })}><img src={s.icons['laws']} />{t('laws')}</button>
             <button class="gs-btn" onClick={() => store.set({ menu: false, panel: 'audio' })}><img src={s.icons['audio']} />{t('audio')}</button>
-            <button class="gs-btn" onClick={() => { store.set({ menu: false }); app.toTitle(); }}><img src={s.icons['newworld']} />{t('title')}</button>
+            <button class="gs-btn" onClick={() => app.guard('title', () => app.toTitle())}><img src={s.icons['newworld']} />{t('title')}</button>
           </div>
         </div>
       </div>
@@ -196,7 +208,7 @@ export function Panels({ app }: { app: AppCtl }) {
     case 'kingdoms': return <Modal icon="kingdoms" title={t('kingdoms')} onClose={close}><Kingdoms app={app} /></Modal>;
     case 'history': return <Modal icon="history" title={t('history')} onClose={close}><History app={app} /></Modal>;
     case 'stats': return <Modal icon="stats" title={t('stats')} onClose={close}><Stats app={app} /></Modal>;
-    case 'newworld': store.set({ panel: null }); app.toCreate(); return null;
+    case 'newworld': store.set({ panel: null }); app.guard('newworld', () => app.toCreate()); return null;
   }
   return null;
 }

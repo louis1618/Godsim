@@ -8,6 +8,7 @@ import { unitTick } from './ai';
 import { villageThink, kingdomThink, diplomacyThink, onBuildingDestroyed } from './civ';
 import { natureTick } from './nature';
 import { disasterTick } from './disasters';
+import { resolveInside } from './nav';
 
 export interface FxEvent {
   t: string;
@@ -64,6 +65,7 @@ export class Sim {
     this.cellHead = new Int32Array(this.cw * this.ch).fill(-1);
   }
 
+  get navVersion() { return this.world.navVersion; }
   get year() { return Math.floor(this.tick / YEAR_TICKS); }
   get season() { return Math.floor((this.tick % YEAR_TICKS) / SEASON_TICKS); }
   get seasonF() { return (this.tick % YEAR_TICKS) / SEASON_TICKS; }
@@ -85,7 +87,7 @@ export class Sim {
       carry: Res.None, carryAmt: 0, traits: 0, kills: 0, xp: 0, level: 1, flags: 0, cd: 0,
       anim: Anim.Idle, animT: 0, emote: Emote.None, emoteT: 0, home: -1, born: this.tick,
       think: r.int(1, 10), look: r.int(0, 1 << 20), stuck: 0, lastHit: -1, breedT: Math.floor(def.breedEvery * YEAR_TICKS * r.range(0.5, 1.2)),
-      hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0,
+      hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60,
       ...opts,
     };
     if (isCiv(sp) && opts.traits === undefined) {
@@ -99,6 +101,7 @@ export class Sim {
     if (opts.hp === undefined) u.hp = u.maxHp;
     this.units.push(u);
     this.unitMap.set(u.id, u);
+    resolveInside(this, u);
     return u;
   }
 
@@ -227,6 +230,7 @@ export class Sim {
       if (b.kind === Bk.Farm && w.mat[t] === Mat.Farmland) { w.mat[t] = Mat.Soil; w.markMat(b.x, b.z, b.x + b.size, b.z + b.size); }
     }
     this.buildings.delete(b.id);
+    w.navVersion++;
     const v = this.villages.get(b.village);
     if (v) { const i = v.buildings.indexOf(b.id); if (i >= 0) v.buildings.splice(i, 1); }
     this.fx.push({ t: 'collapse', x: b.x + b.size / 2, z: b.z + b.size / 2, a: b.kind, b: b.size });

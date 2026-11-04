@@ -3,6 +3,7 @@ import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res } from './e
 import { SPECIES, Sp, Bk, BUILDINGS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS } from './defs';
 import { kingdomName, villageName } from './names';
 import { findFeature, setTask } from './ai';
+import { resolveInside, standAtBuilding } from './nav';
 import { hash2 } from '../core/rng';
 
 export function villageOf(sim: Sim, u: Unit): Village | undefined {
@@ -79,6 +80,8 @@ export function placeBuilding(sim: Sim, v: Village | null, kind: Bk, x: number, 
   }
   w.markTerrain(x - 2, z - 2, x + def.size + 2, z + def.size + 2);
   sim.buildings.set(b.id, b);
+  // anyone standing on a solid footprint steps aside
+  if (progress >= 0.15) sim.near(x + def.size / 2, z + def.size / 2, def.size + 1, (o) => resolveInside(sim, o));
   if (v) v.buildings.push(b.id);
   sim.fx.push({ t: 'placed', x: x + def.size / 2, z: z + def.size / 2, a: kind, b: def.size });
   return b;
@@ -124,11 +127,7 @@ export function deliverTarget(sim: Sim, u: Unit): [number, number] | null {
     const hall = sim.buildings.get(v.hall);
     if (hall && hall.alive) best = hall; else return [v.cx + 0.5, v.cz + 0.5];
   }
-  const cx = best.x + best.size / 2, cz = best.z + best.size / 2;
-  const dx = u.x - cx, dz = u.z - cz;
-  const l = Math.hypot(dx, dz) || 1;
-  const r = best.size / 2 + 0.45;
-  return [cx + (dx / l) * r, cz + (dz / l) * r];
+  return standAtBuilding(sim, best, u, 1.5);
 }
 
 // ------------------------------------------------------------------ founding / joining

@@ -25,10 +25,10 @@ export class PathFinder {
     this.heapV = new Int32Array(N * 2);
   }
 
-  passable(t: number, goal: number): boolean {
+  passable(t: number, _goal: number): boolean {
     const w = this.w;
     if (!w.walkable(t)) return false;
-    if (this.blockBuildings && w.bld[t] >= 0 && t !== goal) return w.bldPassable(t);
+    if (this.blockBuildings && w.bld[t] >= 0) return w.bldPassable(t);
     return true;
   }
 
@@ -38,13 +38,25 @@ export class PathFinder {
   lineClear(x0: number, z0: number, x1: number, z1: number, goal: number): boolean {
     const w = this.w;
     const dx = x1 - x0, dz = z1 - z0;
-    const n = Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) * 2);
+    const n = Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) * 4);
     let prev = w.tileAt(x0, z0);
+    // walkers are ~0.3 wide: also test a thin band on both sides of the line
+    const len = Math.hypot(dx, dz) || 1;
+    const px = (-dz / len) * 0.18, pz = (dx / len) * 0.18;
     for (let i = 1; i <= n; i++) {
-      const t = w.tileAt(x0 + (dx * i) / n, z0 + (dz * i) / n);
-      if (t === prev) continue;
-      if (!this.passable(t, goal) || !this.stepOk(prev, t)) return false;
-      prev = t;
+      const sx = x0 + (dx * i) / n, sz = z0 + (dz * i) / n;
+      const t = w.tileAt(sx, sz);
+      if (t !== prev) {
+        if (!this.passable(t, goal) || !this.stepOk(prev, t)) return false;
+        // no squeezing diagonally between two solid tiles
+        const ddx = (t % w.W) - (prev % w.W), ddz = ((t / w.W) | 0) - ((prev / w.W) | 0);
+        if (ddx !== 0 && ddz !== 0 && (!this.passable(prev + ddx, goal) || !this.passable(prev + ddz * w.W, goal))) return false;
+        prev = t;
+      }
+      if (i < n) {
+        const a = w.tileAt(sx + px, sz + pz), b = w.tileAt(sx - px, sz - pz);
+        if ((a >= 0 && !this.passable(a, goal)) || (b >= 0 && !this.passable(b, goal))) return false;
+      }
     }
     return true;
   }

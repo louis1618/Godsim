@@ -10,13 +10,14 @@ import { U } from './shared';
 const ANIM_GLSL = /* glsl */ `
 attribute float aSlot; attribute float aPart; attribute vec3 aPivot; attribute float aItem;
 attribute vec3 iCloth; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iMisc;
+uniform float uAnimTime;
 varying float vFlash;
 mat3 gsRotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
 mat3 gsRotY(float a) { float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c); }
 mat3 gsRotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
 // returns rotation (about pivot) and whole-body offset for this vertex
 void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
-  float A = iMisc.x; float t = uTime + iMisc.y;
+  float A = iMisc.x; float t = uAnimTime + iMisc.y;
   int part = int(aPart + 0.5);
   bool walk = A == 1.0 || A == 4.0;
   float spd = A == 4.0 ? 18.0 : 12.0;
@@ -46,6 +47,7 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   const mat = depth ? new THREE.MeshDepthMaterial() : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = U.uTime;
+    shader.uniforms.uAnimTime = U.uAnimTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${ANIM_GLSL}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -299,7 +301,7 @@ export class UnitRenderer {
       let anim: number = u.anim;
       if (ph || u.id === this.heldId) anim = Anim.Fly;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
-      if (anim === Anim.Walk && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
+      if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
       const item = u.sp === Sp.Troll ? 8 : child || !isCiv(u.sp) ? 0 : u.item;
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, item, u.hitT > 0 ? u.hitT / 6 : 0);
       if (u.flags & UF.King) {

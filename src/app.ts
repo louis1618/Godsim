@@ -14,7 +14,7 @@ import { EV_ICON } from './ui/Panels';
 import { U } from './render/shared';
 import { KINGDOM_COLORS, YEAR_TICKS, Mat } from './sim/defs';
 import { HistoryEntry } from './sim/entities';
-import { saveSlot, loadSlot } from './sim/save';
+import { saveSlot, loadSlot, autosaveMeta, SlotKey } from './sim/save';
 import { fireTiles } from './sim/nature';
 import { damp } from './core/math';
 import { MapLabels } from './ui/maplabels';
@@ -39,6 +39,11 @@ export class AppCtl {
   private lastYear = -1;
   private pendingOpts: WorldOpts | null = null;
   labels: MapLabels;
+  /** true once the current world has been played (it then deserves protection) */
+  played = false;
+  private autoT = 0;
+  private saving = false;
+  static AUTOSAVE_SECONDS = 90;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.gr = new GameRenderer(canvas);
@@ -51,6 +56,14 @@ export class AppCtl {
     const unlock = () => { audio.start(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    // never lose a world: save when the tab is hidden, warn before closing
+    document.addEventListener('visibilitychange', () => { if (document.hidden && this.played) this.autosave(); });
+    window.addEventListener('beforeunload', (e) => {
+      if (store.s.screen !== 'play' || !this.played) return;
+      this.autosave();
+      e.preventDefault();
+      e.returnValue = '';
+    });
   }
 
   async boot(progress: (k: number) => void) {
@@ -61,11 +74,76 @@ export class AppCtl {
     store.set({ icons });
     progress(0.8);
     await new Promise((r) => setTimeout(r, 0));
-    this.makeWorld({ size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, true);
-    // let the title world live a little so villages already exist
-    for (let i = 0; i < 700; i++) this.game.sim.step();
+    // resume the last world if there is one, otherwise grow a fresh title world
+    const auto = await autosaveMeta();
+    const restored = auto ? await loadSlot('auto') : null;
+    if (restored) {
+      this.attach(restored);
+      this.played = true;
+      store.set({ continueMeta: auto });
+    } else {
+      this.makeWorld({ size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, true);
+      // let the title world live a little so villages already exist
+      for (let i = 0; i < 700; i++) this.game.sim.step();
+    }
     progress(1);
   }
+
+  // ------------------------------------------------------------- protection against losing a world
+  /** Run `fn` after making sure the current world is safe (asks when a played world would be replaced). */
+  guard(kind: 'title' | 'newworld' | 'load', fn: () => void) {
+    if (!this.played) { fn(); return; }
+    const title = kind === 'load' ? t('confirmLoadTitle') : t('confirmLeaveTitle');
+    store.set({
+      menu: false,
+      confirm: {
+        icon: kind === 'newworld' ? 'newworld' : kind === 'load' ? 'saveload' : 'cat-world', title,
+        actions: [
+          { label: t('saveAndGo'), primary: true, fn: async () => { await this.autosave(); fn(); } },
+          { label: t('justGo'), fn },
+          { label: t('cancel'), fn: () => {} },
+        ],
+      },
+    });
+    audio.ui('open');
+  }
+
+  /** Quiet background save into the dedicated autosave slot. */
+  async autosave(): Promise<boolean> {
+    if (this.saving || !this.game.sim || !this.played) return false;
+    this.saving = true;
+    try {
+      const ok = await saveSlot('auto', this.game.sim, this.thumbnail());
+      if (ok) store.set({ continueMeta: await autosaveMeta(), lastAutosave: Date.now() });
+      return ok;
+    } finally { this.saving = false; this.autoT = 0; }
+  }
+
+  thumbnail(): string {
+    const src = this.gr.renderer.domElement;
+    try {
+      this.gr.renderOnly();
+      const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+      const g = c.getContext('2d')!;
+      const ar = src.width / src.height;
+      const sw = ar > 16 / 9 ? src.height * 16 / 9 : src.width, sh = ar > 16 / 9 ? src.height : src.width * 9 / 16;
+      g.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 320, 180);
+      return c.toDataURL('image/jpeg', 0.75);
+    } catch { return ''; }
+  }
+
+  async continueLast() {
+    const sim = await loadSlot('auto');
+    if (!sim) { this.toast('deny', t('loadFailed')); return; }
+    this.cancelPreview();
+    this.attach(sim);
+    this.genAnim = 0; U.uGenesis.value = 0;
+    this.enterPlay();
+  }
+
+  toast(icon: string, text: string) { store.set({ toast: { icon, text, t: performance.now() } }); }
+
+  private cancelPreview() { this.pendingOpts = null; this.genTimer = 0; }
 
   // ------------------------------------------------------------- world lifecycle
   makeWorld(o: WorldOpts, genesis: boolean) {
@@ -89,7 +167,8 @@ export class AppCtl {
   }
 
   toTitle() {
-    store.set({ screen: 'title', sel: null, panel: null, menu: false });
+    if (store.s.screen === 'play' && this.played) this.autosave();
+    store.set({ screen: 'title', sel: null, panel: null, menu: false, confirm: null });
     this.ctl.enabled = false;
     this.gr.rig.tOrbit = 1;
     this.game.speed = 1; this.game.paused = false;
@@ -97,7 +176,8 @@ export class AppCtl {
   }
 
   toCreate() {
-    store.set({ screen: 'create', panel: null, menu: false, sel: null });
+    if (store.s.screen === 'play' && this.played) this.autosave();
+    store.set({ screen: 'create', panel: null, menu: false, sel: null, confirm: null });
     this.ctl.enabled = false;
     this.gr.rig.tOrbit = 1;
     audio.ui('open');
@@ -109,9 +189,16 @@ export class AppCtl {
     this.genTimer = 0.18;
   }
 
+  /** Create button: commit the previewed world and start playing it. */
   startPlay() {
-    const o = store.s.opts;
     if (this.pendingOpts) { this.makeWorld(this.pendingOpts, true); this.pendingOpts = null; }
+    this.genTimer = 0;
+    this.enterPlay();
+  }
+
+  private enterPlay() {
+    this.played = true;
+    this.autoT = 0;
     const rig = this.gr.rig;
     rig.tOrbit = 0;
     rig.V = rig.tV = rig.vMax;
@@ -119,32 +206,26 @@ export class AppCtl {
     rig.flyTo(this.game.sim.world.W / 2, this.game.sim.world.H / 2, rig.vMax * 0.8, 1.2);
     this.game.speed = 1; this.game.paused = false;
     this.ctl.enabled = true;
-    store.set({ screen: 'play', cat: 'world', power: 'inspect', sel: null });
-    audio.ui('create');
-    void o;
-  }
-
-  async save(slot: number) {
-    // thumbnail straight from the GL canvas
-    this.gr.frame();
-    const src = this.gr.renderer.domElement;
-    const c = document.createElement('canvas'); c.width = 320; c.height = 180;
-    const g = c.getContext('2d')!;
-    const ar = src.width / src.height;
-    const sw = ar > 16 / 9 ? src.height * 16 / 9 : src.width, sh = ar > 16 / 9 ? src.height : src.width * 9 / 16;
-    g.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 320, 180);
-    await saveSlot(slot, this.game.sim, c.toDataURL('image/jpeg', 0.8));
+    store.set({ screen: 'play', cat: 'world', power: 'inspect', sel: null, panel: null, menu: false, confirm: null });
     audio.ui('create');
   }
 
-  async load(slot: number) {
+  async save(slot: SlotKey): Promise<boolean> {
+    const ok = await saveSlot(slot, this.game.sim, this.thumbnail());
+    if (ok) { audio.ui('create'); this.toast('saveload', t('saved')); }
+    else { audio.ui('deny'); this.toast('deny', t('saveFailed')); }
+    return ok;
+  }
+
+  async load(slot: SlotKey) {
     const sim = await loadSlot(slot);
-    if (!sim) return;
+    if (!sim) { audio.ui('deny'); this.toast('deny', t('loadFailed')); return; }
+    this.cancelPreview();
     this.attach(sim);
     this.genAnim = 0; U.uGenesis.value = 0;
     store.set({ panel: null, menu: false });
-    if (store.s.screen !== 'play') this.startPlay();
-    else audio.ui('create');
+    if (store.s.screen !== 'play') this.enterPlay();
+    else { this.played = true; audio.ui('create'); }
   }
 
   setQuality(q: 'high' | 'low') {
@@ -221,6 +302,10 @@ export class AppCtl {
     }
     this.ctl.update(dt);
     this.labels.update(dt);
+    if (store.s.screen === 'play' && this.played && !this.game.paused) {
+      this.autoT += dt;
+      if (this.autoT > AppCtl.AUTOSAVE_SECONDS) this.autosave();
+    }
     // audio listener + ambience estimate around the view
     const rig = this.gr.rig;
     audio.listener.x = rig.focus.x; audio.listener.z = rig.focus.z; audio.listener.span = rig.V; audio.listener.z01 = rig.z01; audio.listener.yaw = rig.yaw;

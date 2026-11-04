@@ -209,7 +209,23 @@
 .toggle::after { content: ''; position: absolute; top: 2px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--ink); transition: left .2s cubic-bezier(.2,1.6,.4,1); }
 .toggle.on { background: #8fe06a; }
 .toggle.on::after { left: 27px; }
-.slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.save-slot.auto { display: grid; grid-template-columns: 160px 1fr auto; align-items: center; margin-bottom: 14px; }
+.save-slot.auto .thumb { height: 90px; border-bottom: 0; border-right: 3px solid var(--ink); }
+.save-slot.auto .row { padding: 8px; }
+.save-slot .thumb { position: relative; }
+.save-slot .sno { position: absolute; top: 6px; left: 8px; font-family: var(--font-display); color: #fff; text-shadow: 0 2px 0 var(--ink); font-size: 18px; }
+.gs-btn.xs { flex: 0 0 auto !important; padding: 3px 9px !important; }
+.title-card.cont { width: 200px; padding-top: 8px; }
+.title-card .cthumb { width: 170px; height: 74px; border-radius: 10px; border: 3px solid var(--ink); background: #2a5f94 center/cover; }
+.title-card small { font-size: 12px; opacity: .75; margin-top: -4px; }
+.confirm { width: min(460px, 92vw); text-align: center; padding: 18px 20px 22px; }
+.confirm .cicon { width: 80px; height: 80px; margin-top: -54px; filter: drop-shadow(0 4px 0 rgba(42,34,56,.25)); }
+.confirm h2 { font-family: var(--font-display); font-weight: normal; font-size: 26px; margin: 6px 0 16px; }
+.confirm .cbtns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.confirm-bg { z-index: 40; }
+.toast { position: absolute; bottom: 190px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 18px 6px 8px; font-family: var(--font-display); font-size: 18px; animation: pop-in .3s cubic-bezier(.2,1.5,.4,1) both; z-index: 30; }
+.toast img { width: 38px; height: 38px; }
 .save-slot { border: 3px solid var(--ink); border-radius: 14px; background: #fff; overflow: hidden; cursor: default; box-shadow: 0 3px 0 var(--ink); }
 .save-slot .thumb { height: 104px; background: #2a5f94 center/cover; border-bottom: 3px solid var(--ink); display: grid; place-items: center; font-family: var(--font-display); color: rgba(255,255,255,.7); }
 .save-slot .meta { padding: 6px 10px; font-size: 13px; }

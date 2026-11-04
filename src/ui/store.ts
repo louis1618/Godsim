@@ -19,13 +19,16 @@ export interface UIState {
   hover: { id: string; x: number; y: number } | null;
   tick: number; // bumps to force refresh
   toast: { icon: string; text: string; t: number } | null;
+  confirm: { icon: string; title: string; actions: { label: string; primary?: boolean; fn: () => void | Promise<void> }[] } | null;
+  continueMeta: import('../sim/save').SlotMeta | null;
+  lastAutosave: number;
 }
 
 type L = () => void;
 class Store {
   s: UIState = {
     screen: 'boot', bootProgress: 0, cat: 'world', power: 'inspect', brush: 3, sel: null, panel: null, pairFirst: -1, icons: {},
-    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null,
+    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null, confirm: null, continueMeta: null, lastAutosave: 0,
   };
   private ls = new Set<L>();
   set(p: Partial<UIState>) { this.s = { ...this.s, ...p }; for (const l of this.ls) l(); }

@@ -55,7 +55,9 @@ export function deserialize(json: string): Sim {
 }
 
 // ---------------------------------------------------------------- IndexedDB slots
-export interface SlotMeta { slot: number; date: number; year: number; pop: number; kingdoms: number; thumb: string; size: number; }
+export type SlotKey = number | 'auto';
+export const SLOT_COUNT = 15;
+export interface SlotMeta { slot: SlotKey; date: number; year: number; pop: number; kingdoms: number; thumb: string; size: number; name?: string; }
 
 function db(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
@@ -77,44 +79,69 @@ async function gunzip(b: Blob): Promise<string> {
   catch { return await b.text(); }
 }
 
-export async function saveSlot(slot: number, sim: Sim, thumb: string): Promise<void> {
-  const blob = await gzip(serialize(sim));
-  let pop = 0; for (const u of sim.units) if (u.sp <= 3) pop++;
-  const meta: SlotMeta = { slot, date: Date.now(), year: sim.year, pop, kingdoms: [...sim.kingdoms.values()].filter((k) => k.alive).length, thumb, size: sim.world.W };
-  const d = await db();
-  await new Promise<void>((res, rej) => {
-    const tx = d.transaction(['saves', 'meta'], 'readwrite');
-    tx.objectStore('saves').put(blob, slot);
-    tx.objectStore('meta').put(meta, slot);
-    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+/**
+ * Write a save atomically (blob + meta in one transaction), then read the meta back to confirm.
+ * Returns false instead of throwing so callers can tell the player.
+ */
+export async function saveSlot(slot: SlotKey, sim: Sim, thumb: string, name?: string): Promise<boolean> {
+  try {
+    const json = serialize(sim);
+    // sanity: the snapshot must deserialize before we overwrite anything
+    JSON.parse(json);
+    const blob = await gzip(json);
+    let pop = 0; for (const u of sim.units) if (u.sp <= 3 && !(u.flags & (1 << 9))) pop++;
+    const meta: SlotMeta = { slot, date: Date.now(), year: sim.year, pop, kingdoms: [...sim.kingdoms.values()].filter((k) => k.alive).length, thumb, size: sim.world.W, name };
+    const d = await db();
+    await new Promise<void>((res, rej) => {
+      const tx = d.transaction(['saves', 'meta'], 'readwrite');
+      tx.objectStore('saves').put(blob, slot);
+      tx.objectStore('meta').put(meta, slot);
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+    });
+    const back = await getMeta(d, slot);
+    return !!back && back.date === meta.date;
+  } catch (e) {
+    console.warn('[godsim] save failed', e);
+    return false;
+  }
+}
+
+function getMeta(d: IDBDatabase, slot: SlotKey): Promise<SlotMeta | null> {
+  return new Promise((res) => {
+    const r = d.transaction('meta').objectStore('meta').get(slot);
+    r.onsuccess = () => res(r.result ?? null); r.onerror = () => res(null);
   });
 }
 
-export async function loadSlot(slot: number): Promise<Sim | null> {
-  const d = await db();
-  const blob = await new Promise<Blob | undefined>((res, rej) => {
-    const r = d.transaction('saves').objectStore('saves').get(slot);
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-  if (!blob) return null;
-  return deserialize(await gunzip(blob));
+export async function loadSlot(slot: SlotKey): Promise<Sim | null> {
+  try {
+    const d = await db();
+    const blob = await new Promise<Blob | undefined>((res, rej) => {
+      const r = d.transaction('saves').objectStore('saves').get(slot);
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    if (!blob) return null;
+    return deserialize(await gunzip(blob));
+  } catch (e) {
+    console.warn('[godsim] load failed', e);
+    return null;
+  }
 }
 
 export async function listSlots(): Promise<(SlotMeta | null)[]> {
   try {
     const d = await db();
     const out: (SlotMeta | null)[] = [];
-    for (let i = 0; i < 3; i++) {
-      out.push(await new Promise<SlotMeta | null>((res) => {
-        const r = d.transaction('meta').objectStore('meta').get(i);
-        r.onsuccess = () => res(r.result ?? null); r.onerror = () => res(null);
-      }));
-    }
+    for (let i = 0; i < SLOT_COUNT; i++) out.push(await getMeta(d, i));
     return out;
-  } catch { return [null, null, null]; }
+  } catch { return new Array(SLOT_COUNT).fill(null); }
 }
 
-export async function deleteSlot(slot: number) {
+export async function autosaveMeta(): Promise<SlotMeta | null> {
+  try { return await getMeta(await db(), 'auto'); } catch { return null; }
+}
+
+export async function deleteSlot(slot: SlotKey) {
   const d = await db();
   await new Promise<void>((res) => {
     const tx = d.transaction(['saves', 'meta'], 'readwrite');

@@ -14,7 +14,8 @@ export const U = {
   uFoliage: { value: new THREE.Color(1, 1, 1) },
   uAutumn: { value: 0 },
   uSnow: { value: 0 },
-  uGenesis: { value: 1 },            // 0..1 world-rising animation
+  uGenesis: { value: 1 },
+  uAnimTime: { value: 0 },           // game-time clock for creature animation (stops when paused)            // 0..1 world-rising animation
 };
 
 /** GLSL helpers available to all patched shaders. */

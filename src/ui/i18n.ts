@@ -38,6 +38,10 @@ const S: Record<string, Entry> = {
   pickSecond: ['두 번째 왕국 선택', 'Pick the second kingdom'], slot: ['슬롯', 'Slot'], emptySlot: ['비어 있음', 'Empty'], volume: ['음량', 'Volume'],
   music: ['음악', 'Music'], sfx: ['효과음', 'Effects'], ambience: ['환경음', 'Ambience'], quality: ['그래픽', 'Graphics'], low: ['낮음', 'Low'], high: ['높음', 'High'],
   menu: ['메뉴', 'Menu'], resume: ['계속', 'Resume'], title: ['타이틀로', 'To Title'], loading: ['세계를 빚는 중', 'Shaping the world'],
+  confirmLeaveTitle: ['지금 세계를 떠날까요?', 'Leave this world?'], confirmLoadTitle: ['지금 세계 대신 불러올까요?', 'Replace this world with the save?'],
+  saveAndGo: ['저장하고 진행', 'Save & continue'], justGo: ['저장 없이', 'Without saving'], cancel: ['취소', 'Cancel'],
+  saved: ['저장 완료', 'Saved'], saveFailed: ['저장 실패', 'Save failed'], loadFailed: ['불러오기 실패', 'Load failed'],
+  continue: ['이어하기', 'Continue'], autosaved: ['자동 저장됨', 'Autosaved'], del: ['삭제', 'Delete'],
   // laws
   'law-wars': ['전쟁', 'Wars'], 'law-rebellions': ['반란', 'Rebellions'], 'law-disasters': ['자연재해', 'Natural disasters'], 'law-plague': ['역병', 'Plague'],
   'law-seasons': ['계절', 'Seasons'], 'law-growth': ['식생 성장', 'Vegetation growth'], 'law-births': ['출생', 'Births'], 'law-animals': ['동물 번식', 'Wildlife'], 'law-fire': ['불 번짐', 'Fire spread'],

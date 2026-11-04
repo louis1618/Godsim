@@ -5,6 +5,7 @@ import { Sim } from '../sim/sim';
 import { Unit, UF, Anim, Emote } from '../sim/entities';
 import { SPECIES } from '../sim/defs';
 import { hurt } from '../sim/ai';
+import { resolveInside } from '../sim/nav';
 
 const GRAVITY = -16;
 
@@ -175,6 +176,7 @@ export class Physics {
         this.ragdolls.delete(id);
         out.delete(id);
         u.flags &= ~UF.Ragdoll;
+        resolveInside(sim, u);
         u.anim = Anim.Idle;
         u.think = 8;
         u.task = { k: 'idle', t: 12 };
