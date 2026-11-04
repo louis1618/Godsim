@@ -24,6 +24,11 @@ function siteOk(sim: Sim, x: number, z: number, size: number, vid: number, margi
   const w = sim.world;
   if (x - margin < 1 || z - margin < 1 || x + size + margin >= w.W - 1 || z + size + margin >= w.H - 1) return false;
   let hmin = Infinity, hmax = -Infinity;
+  // keep clear of shorelines / rivers
+  for (let dz = -margin - 1; dz < size + margin + 1; dz++) for (let dx = -margin - 1; dx < size + margin + 1; dx++) {
+    const t = w.idx(x + dx, z + dz);
+    if (w.water[t] > w.height[t] - 0.25) return false;
+  }
   for (let dz = -margin; dz < size + margin; dz++) for (let dx = -margin; dx < size + margin; dx++) {
     const t = w.idx(x + dx, z + dz);
     const inner = dx >= 0 && dz >= 0 && dx < size && dz < size;

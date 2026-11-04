@@ -18,6 +18,8 @@ export interface PartOpts {
   jitter?: number;      // random vertex displacement (organic shapes)
   flat?: boolean;       // faceted shading
   ao?: [number, number, number]; // [yMin, yMax, minFactor] vertical occlusion gradient
+  pivot?: [number, number, number]; // animation pivot (characters)
+  item?: number;        // which held item this vertex belongs to (characters)
 }
 
 const noise = new Noise2D(99);
@@ -26,7 +28,8 @@ const _c = new THREE.Color();
 export class ModelBuilder {
   private parts: THREE.BufferGeometry[] = [];
   rng: Rng;
-  constructor(seed = 1) { this.rng = new Rng(seed); }
+  rig = false;
+  constructor(seed = 1, rig = false) { this.rng = new Rng(seed); this.rig = rig; }
 
   add(geo: THREE.BufferGeometry, opts: PartOpts, m?: THREE.Matrix4): this {
     let g = geo.index ? geo : geo;
@@ -69,6 +72,13 @@ export class ModelBuilder {
     g.setAttribute('aLeaf', new THREE.BufferAttribute(new Float32Array(n).fill(opts.leaf ?? 0), 1));
     g.setAttribute('aSlot', new THREE.BufferAttribute(new Float32Array(n).fill(opts.slot ?? 0), 1));
     g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(n).fill(opts.part ?? 0), 1));
+    if (this.rig) {
+      const pv = new Float32Array(n * 3);
+      const [px, py, pz] = opts.pivot ?? [0, 0, 0];
+      for (let i = 0; i < n; i++) { pv[i * 3] = px; pv[i * 3 + 1] = py; pv[i * 3 + 2] = pz; }
+      g.setAttribute('aPivot', new THREE.BufferAttribute(pv, 3));
+      g.setAttribute('aItem', new THREE.BufferAttribute(new Float32Array(n).fill(opts.item ?? 0), 1));
+    }
     this.parts.push(g);
     return this;
   }

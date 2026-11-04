@@ -92,9 +92,10 @@ export class WaterRenderer {
           // diffuse ripple shading
           col *= 0.92 + 0.12 * (n0 - 0.6);
           // shoreline foam
-          float foamEdge = 0.38 + 0.12 * sin(t * 1.6 + gsNoise(p * 0.8) * 6.28);
-          float foam = smoothstep(foamEdge, 0.0, depth + (gsNoise(p * 3.0 + t * 0.3) - 0.5) * 0.16);
-          float foamRing = smoothstep(0.05, 0.0, abs(depth - foamEdge * 1.6 - 0.1)) * 0.5 * (1.0 - uMapMode);
+          float sea = 1.0 - smoothstep(0.05, 0.3, vLevel);
+          float foamEdge = (0.2 + 0.1 * sin(t * 1.6 + gsNoise(p * 0.8) * 6.28)) * mix(0.6, 1.0, sea);
+          float foam = smoothstep(foamEdge, 0.0, depth + (gsNoise(p * 3.0 + t * 0.3) - 0.5) * 0.12);
+          float foamRing = smoothstep(0.04, 0.0, abs(depth - foamEdge * 2.2 - 0.12)) * 0.35 * (1.0 - uMapMode) * sea;
           col = mix(col, vec3(0.97, 0.99, 1.0), clamp(foam * 0.9 + foamRing, 0.0, 1.0));
           float alpha = mix(0.55, 1.0, smoothstep(0.0, 1.4, depth));
           alpha = max(alpha, foam);

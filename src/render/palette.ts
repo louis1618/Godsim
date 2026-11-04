@@ -4,9 +4,9 @@ import { MAT_COUNT } from '../sim/defs';
 /** Hand-tuned stylised surface colours [light, dark] per material, in sRGB hex. */
 const MAT_COLORS: [number, number][] = [
   [0xf2dca0, 0xd9bf7e], // sand
-  [0x86c94f, 0x5fa83a], // grass
+  [0x8fd052, 0x67b03c], // grass
   [0x4f9a3a, 0x3a7d2e], // lush
-  [0xd2c063, 0xb39d47], // savanna
+  [0xbfc35e, 0xa3a447], // savanna
   [0xf0c27b, 0xd9a35c], // desert
   [0xf4f7fb, 0xd6e1ee], // snow
   [0x9a948c, 0x726c66], // rock

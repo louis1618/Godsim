@@ -1,0 +1,615 @@
+import * as THREE from 'three';
+import { Sim, FxEvent } from '../sim/sim';
+import { UF } from '../sim/entities';
+import { KINGDOM_COLORS, SPECIES, Feat } from '../sim/defs';
+import { heightCubic } from '../sim/world';
+import { makeParticleAtlas, makeEmoteAtlas, PARTICLE_CELLS, EMOTE_CELLS, PF } from './atlas';
+import { U } from './shared';
+import { fireTiles } from '../sim/nature';
+import { Physics } from '../physics/physics';
+import { CameraRig } from './cameraRig';
+import { ModelBuilder, T, geo } from './models/kit';
+
+const MAXP = 7000;
+
+/** Camera-facing instanced quads with per-particle size/rotation/colour/atlas cell. */
+class Particles {
+  readonly mesh: THREE.Mesh;
+  private pos = new Float32Array(MAXP * 3);
+  private vel = new Float32Array(MAXP * 3);
+  private col = new Float32Array(MAXP * 4);
+  private data = new Float32Array(MAXP * 3); // size, rot, frame
+  private life = new Float32Array(MAXP);
+  private max = new Float32Array(MAXP);
+  private s0 = new Float32Array(MAXP);
+  private s1 = new Float32Array(MAXP);
+  private grav = new Float32Array(MAXP);
+  private drag = new Float32Array(MAXP);
+  private vrot = new Float32Array(MAXP);
+  private a0 = new Float32Array(MAXP);
+  n = 0;
+  private iPos: THREE.InstancedBufferAttribute;
+  private iCol: THREE.InstancedBufferAttribute;
+  private iData: THREE.InstancedBufferAttribute;
+
+  constructor(tex: THREE.Texture, cells: number, additive: boolean) {
+    const g = new THREE.InstancedBufferGeometry();
+    const quad = new THREE.PlaneGeometry(1, 1);
+    g.index = quad.index; g.setAttribute('position', quad.attributes.position); g.setAttribute('uv', quad.attributes.uv);
+    this.iPos = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    this.iCol = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    this.iData = new THREE.InstancedBufferAttribute(new Float32Array(MAXP * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('iPos', this.iPos); g.setAttribute('iCol', this.iCol); g.setAttribute('iData', this.iData);
+    g.instanceCount = 0;
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, fog: true,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTex: { value: null }, uCells: { value: cells } }]),
+      vertexShader: `
+        #include <common>
+        #include <fog_pars_vertex>
+        attribute vec3 iPos; attribute vec4 iCol; attribute vec3 iData;
+        uniform float uHeightScale; uniform float uCells;
+        varying vec2 vUv; varying vec4 vCol;
+        void main() {
+          vec3 p = iPos; p.y *= uHeightScale;
+          vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+          float c = cos(iData.y), s = sin(iData.y);
+          vec2 q = position.xy;
+          q = vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+          mvPosition.xy += q * iData.x;
+          gl_Position = projectionMatrix * mvPosition;
+          vUv = vec2((uv.x + iData.z) / uCells, uv.y);
+          vCol = iCol;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `
+        #include <common>
+        #include <fog_pars_fragment>
+        uniform sampler2D uTex;
+        varying vec2 vUv; varying vec4 vCol;
+        void main() {
+          vec4 t = texture2D(uTex, vUv);
+          gl_FragColor = vec4(t.rgb * vCol.rgb, t.a * vCol.a);
+          if (gl_FragColor.a < 0.01) discard;
+          #include <colorspace_fragment>
+          #include <fog_fragment>
+        }`,
+    });
+    mat.uniforms.uTex.value = tex;
+    mat.uniforms.uHeightScale = U.uHeightScale;
+    this.mesh = new THREE.Mesh(g, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = additive ? 12 : 11;
+  }
+
+  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, o: { life: number; size: number; size1?: number; color: number | THREE.Color; alpha?: number; frame: number; grav?: number; drag?: number; rot?: number; vrot?: number }) {
+    if (this.n >= MAXP) return;
+    const i = this.n++;
+    this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
+    this.vel[i * 3] = vx; this.vel[i * 3 + 1] = vy; this.vel[i * 3 + 2] = vz;
+    const c = o.color instanceof THREE.Color ? o.color : _c.setHex(o.color);
+    this.col[i * 4] = c.r; this.col[i * 4 + 1] = c.g; this.col[i * 4 + 2] = c.b; this.col[i * 4 + 3] = o.alpha ?? 1;
+    this.a0[i] = o.alpha ?? 1;
+    this.life[i] = this.max[i] = o.life;
+    this.s0[i] = o.size; this.s1[i] = o.size1 ?? o.size;
+    this.data[i * 3 + 1] = o.rot ?? Math.random() * 6.28; this.data[i * 3 + 2] = o.frame;
+    this.grav[i] = o.grav ?? 0; this.drag[i] = o.drag ?? 0; this.vrot[i] = o.vrot ?? 0;
+  }
+
+  update(dt: number) {
+    let i = 0;
+    while (i < this.n) {
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) { this.kill(i); continue; }
+      const k = 1 - this.life[i] / this.max[i];
+      const d = Math.exp(-this.drag[i] * dt);
+      this.vel[i * 3] *= d; this.vel[i * 3 + 2] *= d; this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * d + this.grav[i] * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt; this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt; this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      this.data[i * 3] = this.s0[i] + (this.s1[i] - this.s0[i]) * k;
+      this.data[i * 3 + 1] += this.vrot[i] * dt;
+      this.col[i * 4 + 3] = this.a0[i] * (k < 0.15 ? k / 0.15 : 1 - Math.pow((k - 0.15) / 0.85, 2));
+      i++;
+    }
+    (this.iPos.array as Float32Array).set(this.pos.subarray(0, this.n * 3));
+    (this.iCol.array as Float32Array).set(this.col.subarray(0, this.n * 4));
+    (this.iData.array as Float32Array).set(this.data.subarray(0, this.n * 3));
+    this.iPos.needsUpdate = this.iCol.needsUpdate = this.iData.needsUpdate = true;
+    this.iPos.addUpdateRange(0, this.n * 3); this.iCol.addUpdateRange(0, this.n * 4); this.iData.addUpdateRange(0, this.n * 3);
+    (this.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = this.n;
+  }
+
+  private kill(i: number) {
+    const j = --this.n;
+    if (i === j) return;
+    for (let k = 0; k < 3; k++) { this.pos[i * 3 + k] = this.pos[j * 3 + k]; this.vel[i * 3 + k] = this.vel[j * 3 + k]; this.data[i * 3 + k] = this.data[j * 3 + k]; }
+    for (let k = 0; k < 4; k++) this.col[i * 4 + k] = this.col[j * 4 + k];
+    this.life[i] = this.life[j]; this.max[i] = this.max[j]; this.s0[i] = this.s0[j]; this.s1[i] = this.s1[j];
+    this.grav[i] = this.grav[j]; this.drag[i] = this.drag[j]; this.vrot[i] = this.vrot[j]; this.a0[i] = this.a0[j];
+  }
+}
+const _c = new THREE.Color();
+
+interface Bolt { mesh: THREE.Mesh; life: number; }
+interface Arrow { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number; t: number; dur: number; }
+
+/** Every transient visual: particles, emotes, bolts, arrows, meteors, tornadoes, debris, rain, clouds. */
+export class FxRenderer {
+  readonly group = new THREE.Group();
+  readonly alpha: Particles;
+  readonly add: Particles;
+  private emotes: THREE.Mesh;
+  private emoteAttr: { pos: THREE.InstancedBufferAttribute; data: THREE.InstancedBufferAttribute };
+  private bolts: Bolt[] = [];
+  private arrows: Arrow[] = [];
+  private arrowMesh: THREE.InstancedMesh;
+  private meteorMesh: THREE.InstancedMesh;
+  private tornadoMesh: THREE.InstancedMesh;
+  private debrisMesh: THREE.InstancedMesh;
+  private flash: THREE.PointLight;
+  private flashT = 0;
+  private rings: { mesh: THREE.Mesh; t: number; max: number; r: number }[] = [];
+  private clouds: THREE.InstancedMesh;
+  private cloudData: { x: number; z: number; y: number; s: number; v: number }[] = [];
+  private rainClouds: THREE.InstancedMesh;
+  screenFlash = 0;
+  private fireAcc = 0;
+
+  constructor(private physics: Physics, private rig: CameraRig) {
+    const atlas = makeParticleAtlas();
+    this.alpha = new Particles(atlas, PARTICLE_CELLS, false);
+    this.add = new Particles(atlas, PARTICLE_CELLS, true);
+    this.group.add(this.alpha.mesh, this.add.mesh);
+    // emote billboards
+    const emTex = makeEmoteAtlas();
+    const g = new THREE.InstancedBufferGeometry();
+    const quad = new THREE.PlaneGeometry(1, 1);
+    g.index = quad.index; g.setAttribute('position', quad.attributes.position); g.setAttribute('uv', quad.attributes.uv);
+    const ep = new THREE.InstancedBufferAttribute(new Float32Array(2048 * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    const ed = new THREE.InstancedBufferAttribute(new Float32Array(2048 * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('iPos', ep); g.setAttribute('iData', ed);
+    this.emoteAttr = { pos: ep, data: ed };
+    const emat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false,
+      uniforms: { uTex: { value: emTex }, uHeightScale: U.uHeightScale, uSize: { value: 0.3 } },
+      vertexShader: `
+        attribute vec3 iPos; attribute vec2 iData; uniform float uHeightScale; uniform float uSize;
+        varying vec2 vUv; varying float vA;
+        void main() {
+          vec3 p = iPos; p.y *= uHeightScale;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          float s = uSize * (0.6 + 0.4 * min(1.0, iData.y * 4.0));
+          mv.xy += position.xy * s;
+          gl_Position = projectionMatrix * mv;
+          vUv = vec2((uv.x + iData.x) / ${EMOTE_CELLS}.0, uv.y);
+          vA = min(1.0, iData.y * 6.0);
+        }`,
+      fragmentShader: `
+        uniform sampler2D uTex; varying vec2 vUv; varying float vA;
+        void main() {
+          vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb, t.a * vA); if (gl_FragColor.a < 0.02) discard;
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.emotes = new THREE.Mesh(g, emat);
+    this.emotes.frustumCulled = false; this.emotes.renderOrder = 30;
+    this.group.add(this.emotes);
+    // arrows
+    const ab = new ModelBuilder(3);
+    ab.add(geo.cyl(0.008, 0.008, 0.32, 4), { color: 0x8a5a33 }, T(0, 0, 0, Math.PI / 2));
+    ab.add(geo.cone(0.02, 0.06, 4), { color: 0xb9c0c8 }, T(0, 0, 0.18, Math.PI / 2));
+    ab.add(geo.box(0.04, 0.002, 0.06), { color: 0xf2efe8 }, T(0, 0, -0.14));
+    const std = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
+    this.arrowMesh = new THREE.InstancedMesh(ab.build(), std, 256);
+    this.arrowMesh.frustumCulled = false; this.arrowMesh.count = 0;
+    this.group.add(this.arrowMesh);
+    // meteors
+    const mb = new ModelBuilder(4);
+    mb.add(geo.ico(0.8, 1), { color: 0x4a3a32, jitter: 0.15, flat: true }, T());
+    this.meteorMesh = new THREE.InstancedMesh(mb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0xff5a10, emissiveIntensity: 0.9, roughness: 0.9 }), 16);
+    this.meteorMesh.frustumCulled = false; this.meteorMesh.count = 0;
+    this.group.add(this.meteorMesh);
+    // tornado funnel
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 12; i++) { const t = i / 12; pts.push([0.35 + Math.pow(t, 1.8) * 2.4, t * 7]); }
+    const tg = geo.lathe(pts, 18);
+    const tmat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      uniforms: { uTime: U.uTime },
+      vertexShader: `varying vec2 vUv; varying float vY; uniform float uTime; void main(){ vUv = uv; vY = position.y; vec3 p = position; p.x += sin(p.y * 0.8 + uTime * 3.0) * 0.25 * p.y / 7.0; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0); }`,
+      fragmentShader: `varying vec2 vUv; varying float vY; uniform float uTime;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+        void main(){ float s = sin((vUv.x * 6.2831 * 3.0) + vY * 1.5 - uTime * 9.0) * 0.5 + 0.5; float a = (0.25 + 0.5 * s) * smoothstep(0.0, 0.6, vY) * (1.0 - smoothstep(5.5, 7.0, vY)); gl_FragColor = vec4(mix(vec3(0.55, 0.52, 0.5), vec3(0.85, 0.83, 0.8), s), a * 0.8); }`,
+    });
+    this.tornadoMesh = new THREE.InstancedMesh(tg, tmat, 8);
+    this.tornadoMesh.frustumCulled = false; this.tornadoMesh.count = 0;
+    this.group.add(this.tornadoMesh);
+    // debris
+    const dm = new THREE.MeshStandardMaterial({ roughness: 0.8 });
+    this.debrisMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), dm, 256);
+    this.debrisMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(256 * 3), 3);
+    this.debrisMesh.castShadow = true; this.debrisMesh.frustumCulled = false; this.debrisMesh.count = 0;
+    this.group.add(this.debrisMesh);
+    // flash light
+    this.flash = new THREE.PointLight(0xffd0a0, 0, 30, 1.5);
+    this.group.add(this.flash);
+    // clouds
+    const cb = new ModelBuilder(9);
+    for (const [x, y, z, r] of [[0, 0, 0, 1.6], [1.5, -0.3, 0.2, 1.2], [-1.5, -0.35, -0.1, 1.15], [0.6, 0.5, -0.5, 1.1], [-0.5, 0.35, 0.7, 1.0], [2.6, -0.6, 0, 0.8], [-2.6, -0.6, 0.3, 0.75]] as const)
+      cb.add(geo.ico(r, 2), { color: (p) => new THREE.Color(0xffffff).multiplyScalar(0.82 + 0.18 * Math.min(1, Math.max(0, (p.y + 1) / 2))) }, T(x, y, z, 0, 0, 0, 1, 0.7, 1));
+    const cloudGeo = cb.build();
+    const cmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, opacity: 0.9, depthWrite: false });
+    this.clouds = new THREE.InstancedMesh(cloudGeo, cmat, 40);
+    this.clouds.castShadow = true; this.clouds.frustumCulled = false; this.clouds.renderOrder = 40;
+    this.group.add(this.clouds);
+    const rmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, opacity: 0.92, color: 0x8a8f99, depthWrite: false });
+    this.rainClouds = new THREE.InstancedMesh(cloudGeo, rmat, 32);
+    this.rainClouds.castShadow = true; this.rainClouds.frustumCulled = false; this.rainClouds.count = 0; this.rainClouds.renderOrder = 41;
+    this.group.add(this.rainClouds);
+  }
+
+  initClouds(W: number, H: number) {
+    this.cloudData = [];
+    const n = Math.round(14 * (W * H) / (192 * 192));
+    for (let i = 0; i < Math.min(40, n); i++) this.cloudData.push({ x: Math.random() * W * 1.4 - W * 0.2, z: Math.random() * H * 1.4 - H * 0.2, y: 34 + Math.random() * 14, s: 2.5 + Math.random() * 3, v: 0.6 + Math.random() * 0.6 });
+  }
+
+  // ---------------------------------------------------------------- event handling
+  private near(x: number, z: number, r = 1.6) {
+    const f = this.rig.focus;
+    const d2 = (x - f.x) ** 2 + (z - f.z) ** 2;
+    const R = this.rig.V * r + 10;
+    return d2 < R * R;
+  }
+
+  burst(x: number, y: number, z: number, n: number, o: { color: number; frame: number; speed: number; up?: number; life: number; size: number; size1?: number; grav?: number; drag?: number; add?: boolean; spread?: number; alpha?: number }) {
+    const ps = o.add ? this.add : this.alpha;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = o.speed * (0.4 + Math.random() * 0.6);
+      const sp = o.spread ?? 0;
+      ps.spawn(x + (Math.random() - 0.5) * sp, y + (Math.random() - 0.5) * sp * 0.5, z + (Math.random() - 0.5) * sp, Math.cos(a) * s, (o.up ?? 0) * (0.6 + Math.random() * 0.8), Math.sin(a) * s,
+        { life: o.life * (0.7 + Math.random() * 0.6), size: o.size * (0.7 + Math.random() * 0.6), size1: o.size1, color: o.color, frame: o.frame, grav: o.grav, drag: o.drag, vrot: (Math.random() - 0.5) * 4, alpha: o.alpha });
+    }
+  }
+
+  private gy(sim: Sim, x: number, z: number) { const w = sim.world; return Math.max(heightCubic(w.height, w.W, w.H, x, z), w.water[w.tileAt(x, z)] ?? 0); }
+
+  handle(sim: Sim, e: FxEvent) {
+    const close = this.near(e.x, e.z);
+    const y = (e.y ?? this.gy(sim, e.x, e.z));
+    switch (e.t) {
+      case 'hit':
+        if (!close) return;
+        this.burst(e.x, y + 0.3, e.z, 4, { color: 0xfff2c0, frame: PF.Spark, speed: 1.6, up: 1.5, life: 0.3, size: 0.12, size1: 0.02, add: true });
+        this.burst(e.x, y + 0.05, e.z, 2, { color: 0xd8c8a8, frame: PF.Smoke, speed: 0.6, up: 0.3, life: 0.5, size: 0.15, size1: 0.3, alpha: 0.6 });
+        break;
+      case 'bhit':
+        if (!close) return;
+        this.burst(e.tx ?? e.x, y + 0.4, e.tz ?? e.z, 3, { color: 0xb08a5a, frame: PF.Chip, speed: 1.5, up: 2, life: 0.6, size: 0.06, grav: -8 });
+        break;
+      case 'death': {
+        if (!close) return;
+        const fire = e.b === 1, plague = e.b === 2;
+        this.burst(e.x, y + 0.2, e.z, 6, { color: fire ? 0x3a3330 : plague ? 0x9ad65a : 0xece8e0, frame: PF.Smoke, speed: 0.8, up: 0.4, life: 0.8, size: 0.2, size1: 0.45, drag: 2, alpha: 0.8 });
+        if (e.a !== undefined && SPECIES[e.a].civ) this.alpha.spawn(e.x, y + 0.5, e.z, 0, 0.55, 0, { life: 2.4, size: 0.3, size1: 0.22, color: 0xffffff, frame: PF.Soul, alpha: 0.9, rot: 0 });
+        break;
+      }
+      case 'birth':
+        if (!close) return;
+        this.burst(e.x, y + 0.4, e.z, 3, { color: 0xff6a8a, frame: PF.Heart, speed: 0.3, up: 0.8, life: 1.2, size: 0.12, drag: 1 });
+        this.burst(e.x, y + 0.2, e.z, 5, { color: 0xfff2a0, frame: PF.Spark, speed: 0.6, up: 0.8, life: 0.6, size: 0.08, add: true });
+        break;
+      case 'levelup':
+        this.burst(e.x, y + 0.3, e.z, 14, { color: 0xffd53a, frame: PF.Spark, speed: 1, up: 2.2, life: 0.9, size: 0.12, add: true, drag: 1.5 });
+        break;
+      case 'chop': case 'mine': case 'pick': case 'harvest':
+        if (!close) return;
+        this.burst(e.x, y + 0.3, e.z, 3, { color: e.t === 'chop' ? 0xc89a5a : e.t === 'mine' ? 0x9a948c : e.t === 'pick' ? 0xd8304a : 0xe8c45a, frame: e.t === 'pick' ? PF.Dot : PF.Chip, speed: 1.2, up: 2.2, life: 0.6, size: 0.06, grav: -9 });
+        break;
+      case 'hammer':
+        if (!close || Math.random() < 0.5) return;
+        this.burst(e.tx ?? e.x, y + 0.3, e.tz ?? e.z, 2, { color: 0xd8c8a8, frame: PF.Smoke, speed: 0.4, up: 0.4, life: 0.5, size: 0.12, size1: 0.25, alpha: 0.6 });
+        this.burst(e.x, y + 0.35, e.z, 2, { color: 0xffe9a0, frame: PF.Spark, speed: 1, up: 1.4, life: 0.25, size: 0.06, add: true });
+        break;
+      case 'placed':
+        this.burst(e.x, y + 0.1, e.z, 8, { color: 0xd8c8a8, frame: PF.Smoke, speed: 1.2, up: 0.2, life: 0.8, size: 0.3, size1: 0.6, drag: 3, alpha: 0.7, spread: (e.b ?? 2) });
+        break;
+      case 'built': {
+        this.burst(e.x, y + 0.6, e.z, 16, { color: 0xffe9a0, frame: PF.Spark, speed: 1.5, up: 2.2, life: 0.9, size: 0.12, add: true, drag: 1.5, spread: (e.b ?? 2) * 0.8 });
+        this.burst(e.x, y + 0.05, e.z, 10, { color: 0xe0d4bc, frame: PF.Smoke, speed: 1.6, up: 0.2, life: 0.9, size: 0.35, size1: 0.7, drag: 3, alpha: 0.6, spread: e.b ?? 2 });
+        break;
+      }
+      case 'collapse': {
+        const s = e.b ?? 2;
+        this.burst(e.x, y + 0.3, e.z, 18, { color: 0x8d8070, frame: PF.Smoke, speed: 1.8, up: 0.8, life: 1.6, size: 0.5, size1: 1.2, drag: 2, alpha: 0.85, spread: s });
+        for (let i = 0; i < 6 + s * 2; i++) this.physics.spawnDebris(new THREE.Vector3(e.x + (Math.random() - 0.5) * s, y + 0.5 + Math.random(), e.z + (Math.random() - 0.5) * s), new THREE.Vector3((Math.random() - 0.5) * 4, 2 + Math.random() * 3, (Math.random() - 0.5) * 4), Math.random() < 0.5 ? 0x8a6a42 : 0x9a948c, 0.18, 4);
+        this.rig.shake = Math.max(this.rig.shake, close ? 0.3 : 0);
+        break;
+      }
+      case 'treefall':
+        if (!close) return;
+        this.burst(e.x, y + 0.9, e.z, 10, { color: 0x6aa84a, frame: PF.Leaf, speed: 1.2, up: 0.8, life: 1.5, size: 0.1, grav: -1.2, drag: 1.5 });
+        for (let i = 0; i < 2; i++) this.physics.spawnDebris(new THREE.Vector3(e.x, y + 0.4 + i * 0.3, e.z), new THREE.Vector3(Math.sin(e.b ?? 0) * 1.5, 1, Math.cos(e.b ?? 0) * 1.5), 0x7a5235, 0.14, 2.5);
+        break;
+      case 'uproot':
+        this.burst(e.x, y + 0.9, e.z, 6, { color: 0x6aa84a, frame: PF.Leaf, speed: 2, up: 3, life: 1.5, size: 0.12, grav: -2 });
+        this.physics.spawnDebris(new THREE.Vector3(e.x, y + 0.6, e.z), new THREE.Vector3((Math.random() - 0.5) * 6, 6 + Math.random() * 4, (Math.random() - 0.5) * 6), e.a === Feat.Boulder ? 0x8d8780 : 0x5aa34a, 0.3, 4);
+        break;
+      case 'rockbreak':
+        this.burst(e.x, y + 0.2, e.z, 8, { color: 0x9a948c, frame: PF.Chip, speed: 1.5, up: 2.5, life: 0.8, size: 0.08, grav: -9 });
+        break;
+      case 'sprout':
+        if (!close || this.rig.z01 > 0.5) return;
+        this.burst(e.x, y + 0.15, e.z, 2, { color: 0xa8e070, frame: PF.Spark, speed: 0.2, up: 0.6, life: 0.6, size: 0.06, add: true });
+        break;
+      case 'arrow':
+        if (!close) return;
+        this.arrows.push({ x0: e.x, z0: e.z, x1: e.tx!, z1: e.tz!, y0: y + 0.35, y1: this.gy(sim, e.tx!, e.tz!) + 0.3, t: 0, dur: Math.max(0.15, Math.hypot(e.tx! - e.x, e.tz! - e.z) * 0.1) });
+        break;
+      case 'explosion': {
+        const r = e.a ?? 3;
+        this.burst(e.x, y + 0.3, e.z, 30, { color: 0xffa040, frame: PF.Flame, speed: r * 1.6, up: r * 1.2, life: 0.7, size: r * 0.4, size1: r * 0.15, add: true, drag: 3 });
+        this.burst(e.x, y + 0.3, e.z, 20, { color: 0xfff0b0, frame: PF.Spark, speed: r * 3, up: r * 2, life: 0.6, size: 0.2, add: true, grav: -6 });
+        this.burst(e.x, y + 0.5, e.z, 24, { color: 0x5a524c, frame: PF.Smoke, speed: r * 1.2, up: r * 0.8, life: 2.4, size: r * 0.4, size1: r * 0.9, drag: 1.6, alpha: 0.85 });
+        this.burst(e.x, y + 0.2, e.z, 14, { color: 0x6a5a48, frame: PF.Chip, speed: r * 2, up: r * 3, life: 1.4, size: 0.14, grav: -12 });
+        for (let i = 0; i < Math.min(14, r * 2); i++) this.physics.spawnDebris(new THREE.Vector3(e.x, y + 0.5, e.z), new THREE.Vector3((Math.random() - 0.5) * r * 3, 4 + Math.random() * r * 2, (Math.random() - 0.5) * r * 3), Math.random() < 0.5 ? 0x5a4a3a : 0x8d8780, 0.22, 4);
+        this.ring(e.x, y + 0.1, e.z, r * 2.6, 0.6);
+        this.flashAt(e.x, y + 2, e.z, 30 * Math.min(2, r / 3), r * 6);
+        this.rig.shake = Math.max(this.rig.shake, Math.min(1.2, r * 0.18) * (close ? 1 : 0.4));
+        break;
+      }
+      case 'lightning': this.bolt(sim, e.x, e.z); break;
+      case 'ignite':
+        this.burst(e.x, y + 0.3, e.z, 8, { color: 0xffa040, frame: PF.Flame, speed: 0.8, up: 1.2, life: 0.6, size: 0.35, size1: 0.1, add: true });
+        break;
+      case 'quake':
+        this.rig.shake = Math.max(this.rig.shake, 1.0);
+        for (let i = 0; i < 40; i++) {
+          const a = Math.random() * Math.PI * 2, d = Math.random() * (e.a ?? 8);
+          const x = e.x + Math.cos(a) * d, z = e.z + Math.sin(a) * d;
+          this.alpha.spawn(x, this.gy(sim, x, z) + 0.1, z, 0, 0.5, 0, { life: 1.4, size: 0.5, size1: 1.0, color: 0xa89a84, frame: PF.Smoke, alpha: 0.7, drag: 1 });
+        }
+        break;
+      case 'plague':
+        this.burst(e.x, y + 0.5, e.z, 26, { color: 0x8fd14f, frame: PF.Smoke, speed: 1.5, up: 0.5, life: 2.5, size: 0.6, size1: 1.4, drag: 1.2, alpha: 0.55, spread: e.a ?? 3 });
+        break;
+      case 'heal':
+        this.burst(e.x, y + 0.3, e.z, 8, { color: 0x8fff9a, frame: PF.Spark, speed: 0.5, up: 1.5, life: 0.8, size: 0.1, add: true });
+        break;
+      case 'found': case 'capture': case 'upgrade': {
+        const k = sim.kingdoms.get(e.a ?? -1);
+        const col = k ? KINGDOM_COLORS[k.color][0] : 0xffe9a0;
+        this.burst(e.x, y + 0.5, e.z, 26, { color: col, frame: PF.Chip, speed: 2.2, up: 4, life: 1.8, size: 0.09, grav: -5, drag: 1 });
+        this.burst(e.x, y + 0.5, e.z, 16, { color: 0xffe9a0, frame: PF.Spark, speed: 1.4, up: 3, life: 1.2, size: 0.16, add: true, drag: 1.5 });
+        if (e.t === 'found') for (let i = 0; i < 20; i++) this.add.spawn(e.x, y + i * 0.4, e.z, 0, 2, 0, { life: 1.2, size: 0.9, size1: 0.3, color: 0xfff2c0, frame: PF.Dot, alpha: 0.35 });
+        break;
+      }
+      case 'rise':
+        this.burst(e.x, y + 0.3, e.z, 12, { color: 0x3a2e48, frame: PF.Smoke, speed: 0.8, up: 0.8, life: 1.5, size: 0.4, size1: 0.8, alpha: 0.8 });
+        break;
+      case 'fling': {
+        const u = sim.getUnit(e.u ?? -1) ?? sim.unitMap.get(e.u ?? -1);
+        if (u) this.physics.fling(sim, u, e.tx ?? 0, e.a ?? 5, e.tz ?? 0, 8);
+        break;
+      }
+      case 'deliver':
+        if (!close || this.rig.z01 > 0.45) return;
+        this.burst(e.x, y + 0.4, e.z, 2, { color: 0xffe9a0, frame: PF.Spark, speed: 0.3, up: 0.8, life: 0.4, size: 0.06, add: true });
+        break;
+    }
+  }
+
+  private ring(x: number, y: number, z: number, r: number, life: number) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48), new THREE.MeshBasicMaterial({ color: 0xfff2d0, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(x, y * U.uHeightScale.value, z);
+    this.group.add(m);
+    this.rings.push({ mesh: m, t: 0, max: life, r });
+  }
+
+  flashAt(x: number, y: number, z: number, intensity: number, dist: number) {
+    this.flash.position.set(x, y * U.uHeightScale.value, z);
+    this.flash.intensity = intensity; this.flash.distance = dist;
+    this.flashT = 0.35;
+  }
+
+  bolt(sim: Sim, x: number, z: number) {
+    const gy = this.gy(sim, x, z);
+    const pts: THREE.Vector3[] = [];
+    let px = x + (Math.random() - 0.5) * 6, pz = z + (Math.random() - 0.5) * 6, py = gy + 45;
+    const n = 14;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const tx = x + (px - x) * (1 - t), tz = z + (pz - z) * (1 - t);
+      pts.push(new THREE.Vector3(tx + (i === n ? 0 : (Math.random() - 0.5) * 1.6), py + (gy - py) * t, tz + (i === n ? 0 : (Math.random() - 0.5) * 1.6)));
+    }
+    const geom = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.1), 60, 0.12, 4, false);
+    const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0xf2f6ff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+    mesh.scale.y = U.uHeightScale.value;
+    this.group.add(mesh);
+    this.bolts.push({ mesh, life: 0.35 });
+    this.burst(x, gy + 0.2, z, 22, { color: 0xc8e0ff, frame: PF.Spark, speed: 3, up: 3, life: 0.5, size: 0.2, add: true, grav: -8 });
+    this.burst(x, gy + 0.2, z, 10, { color: 0x4a4a52, frame: PF.Smoke, speed: 1, up: 0.8, life: 1.5, size: 0.4, size1: 0.9, alpha: 0.7 });
+    this.flashAt(x, gy + 6, z, 80, 40);
+    this.screenFlash = Math.max(this.screenFlash, 0.5);
+    this.rig.shake = Math.max(this.rig.shake, 0.4);
+  }
+
+  // ---------------------------------------------------------------- per-frame
+  update(sim: Sim, dt: number, alpha: number, unitPos: (id: number, out: THREE.Vector3) => THREE.Vector3 | null) {
+    const hs = U.uHeightScale.value;
+    const w = sim.world;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+    // fire on tiles near the camera
+    this.fireAcc += dt;
+    if (this.fireAcc > 0.06 && fireTiles.size) {
+      this.fireAcc = 0;
+      let spawned = 0;
+      for (const t of fireTiles) {
+        const x = (t % w.W) + 0.5, z = ((t / w.W) | 0) + 0.5;
+        if (!this.near(x, z, 1.2)) continue;
+        if (Math.random() > 0.55) continue;
+        const f = w.fire[t] / 255;
+        const tree = w.feat[t] >= 1 && w.feat[t] <= 8;
+        const y = heightCubic(w.height, w.W, w.H, x, z) + (tree ? 0.5 : 0.05);
+        this.add.spawn(x + (Math.random() - 0.5) * 0.7, y, z + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.2, 0.8 + Math.random() * 0.6, (Math.random() - 0.5) * 0.2, { life: 0.6, size: (tree ? 0.55 : 0.35) * (0.5 + f), size1: 0.05, color: Math.random() < 0.3 ? 0xffd27a : 0xff7a2a, frame: PF.Flame, rot: (Math.random() - 0.5) * 0.4 });
+        if (Math.random() < 0.3) this.alpha.spawn(x, y + 0.6, z, 0.15, 0.7, 0.05, { life: 2.4, size: 0.4, size1: 1.2, color: 0x4a4440, frame: PF.Smoke, alpha: 0.55, drag: 0.4 });
+        if (++spawned > 160) break;
+      }
+    }
+    // burning buildings
+    for (const b of sim.buildings.values()) {
+      if (b.fire <= 0 || Math.random() > 0.5) continue;
+      const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
+      if (!this.near(cx, cz)) continue;
+      const y = heightCubic(w.height, w.W, w.H, cx, cz) + 0.5 + Math.random() * b.size * 0.4;
+      this.add.spawn(cx + (Math.random() - 0.5) * b.size * 0.8, y, cz + (Math.random() - 0.5) * b.size * 0.8, 0, 1, 0, { life: 0.7, size: 0.6, size1: 0.1, color: 0xff8a2a, frame: PF.Flame });
+      if (Math.random() < 0.4) this.alpha.spawn(cx, y + 0.8, cz, 0.2, 0.9, 0.1, { life: 3, size: 0.6, size1: 1.8, color: 0x3a3632, frame: PF.Smoke, alpha: 0.6, drag: 0.3 });
+    }
+    // burning creatures
+    for (const u of sim.units) {
+      if (!(u.flags & UF.Burning) || Math.random() > 0.4) continue;
+      const pp = unitPos(u.id, p);
+      if (pp) this.add.spawn(pp.x, pp.y + 0.3, pp.z, 0, 1, 0, { life: 0.4, size: 0.3, size1: 0.05, color: 0xff8a2a, frame: PF.Flame });
+    }
+    this.alpha.update(dt);
+    this.add.update(dt);
+
+    // emotes
+    let ne = 0;
+    if (this.rig.z01 < 0.5) {
+      const pa = this.emoteAttr.pos.array as Float32Array, da = this.emoteAttr.data.array as Float32Array;
+      for (const u of sim.units) {
+        if (!u.emote || u.flags & UF.Dead || ne >= 2048) continue;
+        if (!this.near(u.x, u.z, 0.9)) continue;
+        const pp = unitPos(u.id, p);
+        if (!pp) continue;
+        const def = SPECIES[u.sp];
+        pa[ne * 3] = pp.x; pa[ne * 3 + 1] = pp.y + 0.62 * def.size + 0.3; pa[ne * 3 + 2] = pp.z;
+        da[ne * 2] = u.emote; da[ne * 2 + 1] = Math.min(u.emoteT, 25 - Math.min(25, u.emoteT)) / 25 + 0.2;
+        ne++;
+      }
+      this.emoteAttr.pos.needsUpdate = true; this.emoteAttr.data.needsUpdate = true;
+    }
+    (this.emotes.geometry as THREE.InstancedBufferGeometry).instanceCount = ne;
+    (this.emotes.material as THREE.ShaderMaterial).uniforms.uSize.value = 0.32;
+
+    // arrows
+    let na = 0;
+    for (const a of this.arrows) {
+      a.t += dt;
+      const k = Math.min(1, a.t / a.dur);
+      const x = a.x0 + (a.x1 - a.x0) * k, z = a.z0 + (a.z1 - a.z0) * k;
+      const arc = Math.sin(k * Math.PI) * Math.hypot(a.x1 - a.x0, a.z1 - a.z0) * 0.18;
+      const y = a.y0 + (a.y1 - a.y0) * k + arc;
+      const dy = (a.y1 - a.y0) / a.dur + Math.cos(k * Math.PI) * Math.PI * Math.hypot(a.x1 - a.x0, a.z1 - a.z0) * 0.18 / a.dur;
+      const hdist = Math.hypot(a.x1 - a.x0, a.z1 - a.z0) / a.dur;
+      q.setFromEuler(new THREE.Euler(-Math.atan2(dy, hdist), Math.atan2(a.x1 - a.x0, a.z1 - a.z0), 0, 'YXZ'));
+      p.set(x, y * hs, z); s.setScalar(1);
+      m.compose(p, q, s);
+      if (na < 256) this.arrowMesh.setMatrixAt(na++, m);
+    }
+    this.arrows = this.arrows.filter((a) => a.t < a.dur);
+    this.arrowMesh.count = na; this.arrowMesh.instanceMatrix.needsUpdate = true;
+
+    // meteors
+    let nm = 0;
+    for (const me of sim.meteors) {
+      const y = me.y;
+      p.set(me.x, y * hs, me.z); q.setFromEuler(new THREE.Euler(U.uTime.value * 2, U.uTime.value * 1.3, 0)); s.setScalar(me.size);
+      m.compose(p, q, s);
+      this.meteorMesh.setMatrixAt(nm++, m);
+      for (let i = 0; i < 3; i++) this.add.spawn(me.x + (Math.random() - 0.5) * 0.6, y + 0.5, me.z + (Math.random() - 0.5) * 0.6, 0, 4, 0, { life: 0.5, size: 1.2 * me.size, size1: 0.2, color: 0xff8a2a, frame: PF.Flame });
+      this.alpha.spawn(me.x, y + 1, me.z, 0, 2, 0, { life: 1.8, size: 0.8 * me.size, size1: 2.2 * me.size, color: 0x4a4440, frame: PF.Smoke, alpha: 0.6 });
+    }
+    this.meteorMesh.count = nm; this.meteorMesh.instanceMatrix.needsUpdate = true;
+
+    // tornadoes
+    let nt = 0;
+    for (const tn of sim.tornadoes) {
+      const gy = this.gy(sim, tn.x, tn.z);
+      p.set(tn.x, gy * hs, tn.z); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), U.uTime.value * 4); s.set(1, Math.min(1, (500 - tn.life) / 30) * Math.min(1, tn.life / 40), 1);
+      m.compose(p, q, s);
+      this.tornadoMesh.setMatrixAt(nt++, m);
+      if (Math.random() < 0.8) {
+        const a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 1.5;
+        this.alpha.spawn(tn.x + Math.cos(a) * r, gy + Math.random() * 2, tn.z + Math.sin(a) * r, -Math.sin(a) * 4, 2.5, Math.cos(a) * 4, { life: 1.2, size: 0.5, size1: 1.2, color: 0x9a9084, frame: PF.Smoke, alpha: 0.5 });
+      }
+    }
+    this.tornadoMesh.count = nt; this.tornadoMesh.instanceMatrix.needsUpdate = true;
+
+    // debris
+    let nd = 0;
+    const col = this.debrisMesh.instanceColor!.array as Float32Array;
+    for (const d of this.physics.debris) {
+      if (nd >= 256) break;
+      const t = d.body.translation(), r = d.body.rotation();
+      p.set(t.x, t.y * hs, t.z); q.set(r.x, r.y, r.z, r.w);
+      const fade = Math.min(1, d.life / 0.6);
+      s.copy(d.size).multiplyScalar(fade);
+      m.compose(p, q, s);
+      this.debrisMesh.setMatrixAt(nd, m);
+      col[nd * 3] = d.color.r; col[nd * 3 + 1] = d.color.g; col[nd * 3 + 2] = d.color.b;
+      nd++;
+    }
+    this.debrisMesh.count = nd; this.debrisMesh.instanceMatrix.needsUpdate = true; this.debrisMesh.instanceColor!.needsUpdate = true;
+
+    // bolts / rings / flash
+    for (const b of this.bolts) { b.life -= dt; (b.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, b.life / 0.35) * (0.6 + Math.random() * 0.4); }
+    for (const b of this.bolts.filter((b) => b.life <= 0)) { this.group.remove(b.mesh); b.mesh.geometry.dispose(); }
+    this.bolts = this.bolts.filter((b) => b.life > 0);
+    for (const r of this.rings) {
+      r.t += dt; const k = r.t / r.max;
+      r.mesh.scale.setScalar(0.3 + k * r.r);
+      (r.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
+    }
+    for (const r of this.rings.filter((r) => r.t >= r.max)) { this.group.remove(r.mesh); r.mesh.geometry.dispose(); }
+    this.rings = this.rings.filter((r) => r.t < r.max);
+    if (this.flashT > 0) { this.flashT -= dt; this.flash.intensity *= Math.exp(-dt * 10); if (this.flashT <= 0) this.flash.intensity = 0; }
+    this.screenFlash = Math.max(0, this.screenFlash - dt * 2.5);
+
+    // clouds: drift, fade out as the camera descends through them
+    const camY = this.rig.camera.position.y;
+    let nc = 0;
+    const W = w.W, H = w.H;
+    for (const c of this.cloudData) {
+      c.x += c.v * dt; c.z += c.v * 0.3 * dt;
+      if (c.x > W * 1.25) c.x = -W * 0.25;
+      if (c.z > H * 1.25) c.z = -H * 0.25;
+      p.set(c.x, c.y, c.z); q.identity(); s.set(c.s, c.s * 0.8, c.s);
+      m.compose(p, q, s);
+      this.clouds.setMatrixAt(nc++, m);
+    }
+    this.clouds.count = nc; this.clouds.instanceMatrix.needsUpdate = true;
+    const cOp = THREE.MathUtils.smoothstep(camY, 55, 110);
+    (this.clouds.material as THREE.MeshStandardMaterial).opacity = 0.85 * cOp;
+    this.clouds.visible = cOp > 0.01;
+    this.clouds.castShadow = cOp > 0.3;
+    // rain clouds + rain
+    let nr = 0;
+    let rainHere = 0;
+    const f = this.rig.focus;
+    for (const rc of sim.rainClouds) {
+      if (nr >= 32) break;
+      const life = Math.min(1, rc.life / 60);
+      p.set(rc.x, 22, rc.z); q.identity(); s.set(rc.r * 0.55 * life, rc.r * 0.35 * life, rc.r * 0.55 * life);
+      m.compose(p, q, s);
+      this.rainClouds.setMatrixAt(nr++, m);
+      const d = Math.hypot(rc.x - f.x, rc.z - f.z);
+      if (d < rc.r + this.rig.V) rainHere = Math.max(rainHere, 1 - Math.max(0, d - rc.r) / (this.rig.V + 1));
+      // rain streaks under the cloud (only when reasonably close)
+      if (this.near(rc.x, rc.z, 1.4)) {
+        const n = Math.round(rc.r * 4 * dt * 60 / 4);
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * rc.r;
+          const x = rc.x + Math.cos(a) * rr, z = rc.z + Math.sin(a) * rr;
+          this.alpha.spawn(x, 18 + Math.random() * 4, z, 0.6, -28, 0, { life: 0.7, size: 0.35, color: 0xbcd4f0, frame: PF.Drop, alpha: 0.55, rot: 0.03 });
+        }
+      }
+    }
+    this.rainClouds.count = nr; this.rainClouds.instanceMatrix.needsUpdate = true;
+    (this.rainClouds.material as THREE.MeshStandardMaterial).opacity = 0.9 * THREE.MathUtils.smoothstep(camY, 26, 50);
+    U.uRain.value += (rainHere * 0.6 - U.uRain.value) * Math.min(1, dt);
+    void alpha;
+  }
+}

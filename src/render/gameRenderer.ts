@@ -70,6 +70,8 @@ export class GameRenderer {
     this.rig.camera.updateProjectionMatrix();
   }
 
+  private waterT = 0;
+
   frame() {
     const dt = Math.min(this.clock.getDelta(), 0.1);
     U.uTime.value += dt;
@@ -79,7 +81,12 @@ export class GameRenderer {
     U.uMapMode.value = rig.mapMode;
     U.uTerritory.value = rig.territory;
     for (const f of this.onFrame) f(dt);
-    if (this.terrain) this.terrain.sync();
+    if (this.terrain) {
+      const terrainChanged = !this.world.dirtyTerrain.empty;
+      this.terrain.sync();
+      if (terrainChanged) this.waterT = 0.15;
+      if (this.waterT > 0) { this.waterT -= dt; if (this.waterT <= 0) this.water.rebuild(); }
+    }
     if (this.flora) this.flora.update(rig.camera, rig.heightScale, rig.z01, U.uTime.value);
     // fog: thick near the ground for depth, nearly none from orbit
     this.fog.density = lerp(0.0075, 0.0004, Math.pow(rig.z01, 0.6));

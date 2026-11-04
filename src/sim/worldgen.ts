@@ -126,8 +126,8 @@ export function generateWorld(opt: GenOptions): World {
       else if (h > 11.5 || (h > 7.5 && t < 0.45)) mt = Mat.Snow;
       else if (h > 7.2) mt = Mat.Rock;
       else if (t < 0.18) mt = Mat.Snow;
-      else if (t > 0.78 && m < 0.36) mt = Mat.Desert;
-      else if (t > 0.6 && m < 0.48) mt = Mat.Savanna;
+      else if (t > 0.8 && m < 0.33) mt = Mat.Desert;
+      else if (t > 0.68 && m < 0.42) mt = Mat.Savanna;
       else if (m > 0.72 && h < 2.2 && t > 0.45) mt = Mat.Swamp;
       else if (m > 0.55) mt = Mat.Lush;
       else mt = Mat.Grass;
