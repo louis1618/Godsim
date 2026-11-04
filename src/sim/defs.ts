@@ -63,10 +63,10 @@ export interface SpeciesDef {
 }
 
 export const SPECIES: SpeciesDef[] = [
-  { key: 'human', civ: true, speed: 1.55, hp: 100, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [55, 75], adultAge: 10, size: 1, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1.15, buildSpeed: 1 },
-  { key: 'elf', civ: true, speed: 1.7, hp: 85, dmg: 11, attackRate: 0.9, range: 0.9, lifespan: [110, 160], adultAge: 14, size: 1.05, diet: 'plant', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 0.75, buildSpeed: 0.9 },
-  { key: 'dwarf', civ: true, speed: 1.3, hp: 130, dmg: 14, attackRate: 1.1, range: 0.85, lifespan: [80, 110], adultAge: 12, size: 0.85, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Rock, Mat.Grass, Mat.Snow], fertility: 0.85, buildSpeed: 1.35 },
-  { key: 'orc', civ: true, speed: 1.5, hp: 140, dmg: 16, attackRate: 1.15, range: 0.95, lifespan: [40, 55], adultAge: 8, size: 1.12, diet: 'meat', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Savanna, Mat.Desert, Mat.Grass], fertility: 1.35, buildSpeed: 0.95 },
+  { key: 'human', civ: true, speed: 1.55, hp: 100, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [50, 70], adultAge: 6, size: 1, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1.15, buildSpeed: 1 },
+  { key: 'elf', civ: true, speed: 1.7, hp: 85, dmg: 11, attackRate: 0.9, range: 0.9, lifespan: [100, 140], adultAge: 8, size: 1.05, diet: 'plant', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 0.75, buildSpeed: 0.9 },
+  { key: 'dwarf', civ: true, speed: 1.3, hp: 130, dmg: 14, attackRate: 1.1, range: 0.85, lifespan: [70, 100], adultAge: 7, size: 0.85, diet: 'omni', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Rock, Mat.Grass, Mat.Snow], fertility: 0.85, buildSpeed: 1.35 },
+  { key: 'orc', civ: true, speed: 1.5, hp: 140, dmg: 16, attackRate: 1.15, range: 0.95, lifespan: [38, 50], adultAge: 5, size: 1.12, diet: 'meat', aggressive: false, breedEvery: 0, litter: 1, biomes: [Mat.Savanna, Mat.Desert, Mat.Grass], fertility: 1.35, buildSpeed: 0.95 },
   { key: 'sheep', civ: false, speed: 1.0, hp: 40, dmg: 2, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.8, diet: 'plant', aggressive: false, breedEvery: 1.6, litter: 1, biomes: [Mat.Grass, Mat.Lush, Mat.Savanna], fertility: 1, buildSpeed: 0 },
   { key: 'wolf', civ: false, speed: 2.1, hp: 60, dmg: 10, attackRate: 0.9, range: 0.8, lifespan: [10, 15], adultAge: 2, size: 0.85, diet: 'meat', aggressive: true, breedEvery: 3.2, litter: 1, biomes: [Mat.Lush, Mat.Grass, Mat.Snow], fertility: 1, buildSpeed: 0 },
   { key: 'deer', civ: false, speed: 2.0, hp: 45, dmg: 3, attackRate: 1.5, range: 0.7, lifespan: [12, 18], adultAge: 2, size: 0.95, diet: 'plant', aggressive: false, breedEvery: 2.0, litter: 1, biomes: [Mat.Lush, Mat.Grass], fertility: 1, buildSpeed: 0 },
@@ -93,7 +93,7 @@ export interface BuildingDef {
 export const BUILDINGS: BuildingDef[] = [
   { key: 'townhall', size: 3, hp: 900, cost: { wood: 10, stone: 0, gold: 0 }, work: 14, housing: 4, minPop: 0 },
   { key: 'house', size: 2, hp: 260, cost: { wood: 8, stone: 0, gold: 0 }, work: 9, housing: 4, minPop: 0 },
-  { key: 'farm', size: 3, hp: 80, cost: { wood: 3, stone: 0, gold: 0 }, work: 5, housing: 0, minPop: 5 },
+  { key: 'farm', size: 3, hp: 80, cost: { wood: 3, stone: 0, gold: 0 }, work: 5, housing: 0, minPop: 4 },
   { key: 'storage', size: 2, hp: 300, cost: { wood: 12, stone: 4, gold: 0 }, work: 10, housing: 0, minPop: 9 },
   { key: 'tower', size: 1, hp: 450, cost: { wood: 8, stone: 14, gold: 0 }, work: 14, housing: 0, minPop: 14 },
   { key: 'temple', size: 3, hp: 600, cost: { wood: 15, stone: 25, gold: 6 }, work: 26, housing: 0, minPop: 22 },

@@ -106,6 +106,9 @@ export class World {
     return true;
   }
 
+  /** Buildings that units may walk through (fields, ruins). Set by the sim. */
+  bldPassable: (t: number) => boolean = () => false;
+
   walkCost(t: number): number {
     let c = MATS[this.mat[t]].walkCost;
     const f = this.feat[t];

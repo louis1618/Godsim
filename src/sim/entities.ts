@@ -1,0 +1,141 @@
+import { Sp, Bk } from './defs';
+
+export const enum Job { None = 0, Gatherer = 1, Farmer = 2, Woodcutter = 3, Miner = 4, Builder = 5, Warrior = 6, Hunter = 7 }
+export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9 }
+export const enum Emote { None = 0, Heart = 1, Angry = 2, Alert = 3, Sad = 4, Zzz = 5, Music = 6, Skull = 7, Crown = 8, Sick = 9, Star = 10, Food = 11, Swords = 12 }
+export const enum UF {
+  King = 1 << 0, Hero = 1 << 1, Sick = 1 << 2, Mad = 1 << 3, Settler = 1 << 4, Leader = 1 << 5,
+  Burning = 1 << 6, Ragdoll = 1 << 7, Held = 1 << 8, Dead = 1 << 9, Blessed = 1 << 10, Cursed = 1 << 11,
+}
+export const enum Res { None = 0, Food = 1, Wood = 2, Stone = 3, Gold = 4 }
+
+export type Task =
+  | { k: 'idle'; t: number; plant?: number }
+  | { k: 'wander'; tx: number; tz: number }
+  | { k: 'move'; tx: number; tz: number; then?: Task }
+  | { k: 'gather'; tile: number; res: Res; work: number }
+  | { k: 'deliver' }
+  | { k: 'build'; b: number }
+  | { k: 'farm'; b: number; tile: number; work: number }
+  | { k: 'attack'; u: number }
+  | { k: 'raze'; b: number }
+  | { k: 'flee'; tx: number; tz: number }
+  | { k: 'eat' }
+  | { k: 'graze'; work: number }
+  | { k: 'hunt'; u: number }
+  | { k: 'settle'; tx: number; tz: number }
+  | { k: 'march'; v: number }
+  | { k: 'rally'; tx: number; tz: number }
+  | { k: 'love'; u: number; t: number }
+  | { k: 'chat'; u: number; t: number };
+
+export interface Unit {
+  id: number;
+  sp: Sp;
+  x: number; z: number;     // position in tiles (continuous)
+  px: number; pz: number;   // previous tick position (render interpolation)
+  y: number;                // height offset above ground (jumps / flung)
+  dir: number;
+  hp: number; maxHp: number;
+  age: number; maxAge: number;
+  hunger: number;
+  name: string;
+  female: boolean;
+  kingdom: number; village: number;
+  job: Job;
+  task: Task | null;
+  path: Int32Array | null; pathI: number;
+  carry: Res; carryAmt: number;
+  traits: number;
+  kills: number; xp: number; level: number;
+  flags: number;
+  cd: number;               // attack cooldown (ticks)
+  anim: Anim; animT: number;
+  emote: Emote; emoteT: number;
+  home: number;
+  born: number;             // tick
+  think: number;            // ticks until next decision
+  look: number;             // appearance seed
+  stuck: number;
+  lastHit: number;          // attacker unit id
+  breedT: number;           // animals: ticks until can breed
+  hitT: number;             // flash timer for render
+  speedMul: number; dmgMul: number;
+  item: number;             // held tool/weapon id for rendering
+  vx: number; vz: number; vy: number; // flung velocity (when airborne)
+  spin: number;
+}
+
+export interface Building {
+  id: number;
+  kind: Bk;
+  race: Sp;
+  village: number;
+  x: number; z: number;     // top-left tile
+  size: number;
+  rot: number;              // 0..3 quarter turns
+  progress: number;         // 0..1 constructed
+  hp: number; maxHp: number;
+  fire: number;             // burning ticks remaining
+  level: number;            // town hall tier etc.
+  alive: boolean;
+  born: number;
+  look: number;
+}
+
+export interface Village {
+  id: number;
+  name: string;
+  kingdom: number;
+  race: Sp;
+  cx: number; cz: number;   // centre tile coords
+  buildings: number[];
+  residents: number[];
+  food: number; wood: number; stone: number; gold: number;
+  level: number;
+  radius: number;
+  loyalty: number;
+  happiness: number;
+  planT: number;
+  founded: number;
+  alive: boolean;
+  hall: number;             // town hall building id
+  rallyT: number;
+  captureT: number;
+  blessT: number;
+  lastAttacked: number;
+}
+
+export interface Banner { symbol: number; pattern: number; c1: number; c2: number; }
+
+export interface Kingdom {
+  id: number;
+  name: string;
+  race: Sp;
+  color: number;            // index into KINGDOM_COLORS
+  banner: Banner;
+  capital: number;
+  king: number;
+  villages: number[];
+  opinion: Record<number, number>;
+  wars: number[];
+  allies: number[];
+  warStart: Record<number, number>;
+  peaceT: Record<number, number>; // tick of last peace with
+  founded: number;
+  alive: boolean;
+  target: number;           // current war target village
+  kills: number; deaths: number;
+  aggression: number;
+  rebelOf: number;
+}
+
+export interface HistoryEntry {
+  tick: number;
+  type: string;
+  a?: number; b?: number;   // kingdom ids
+  u?: number;               // unit id
+  v?: number;               // village id
+  x?: number; z?: number;
+  text: string;             // short label (names)
+}
