@@ -8,7 +8,7 @@ const MAX = 9000;
 
 function tuftGeometry(): THREE.BufferGeometry {
   const pos: number[] = [], col: number[] = [], leaf: number[] = [];
-  const base = new THREE.Color(0x4a8a34), tip = new THREE.Color(0xc8ee80);
+  const base = new THREE.Color(0x7ab84a), tip = new THREE.Color(0xe4f8a0);
   const n = 9;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + i * 0.7;
@@ -44,7 +44,7 @@ function tuftGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-const TINT: Record<number, [number, number]> = { [Mat.Grass]: [0xa8e070, 0x6fb843], [Mat.Lush]: [0x6fb843, 0x3f8a32], [Mat.Savanna]: [0xd8d070, 0xb0a84a], [Mat.Swamp]: [0x8aa850, 0x5a7a3a], [Mat.Farmland]: [0x9ab858, 0x7a9a40], [Mat.Sand]: [0xd8c880, 0xb8a860] };
+const TINT: Record<number, [number, number]> = { [Mat.Grass]: [0xf4ffe4, 0xd8f0bc], [Mat.Lush]: [0xc8eaa8, 0xa8d890], [Mat.Savanna]: [0xfff2b0, 0xf0dc98], [Mat.Swamp]: [0xc8d8a0, 0xa8c088], [Mat.Farmland]: [0xe0f0b0, 0xc8e0a0], [Mat.Sand]: [0xfff0c8, 0xf0dcae] };
 
 /** Grass tufts scattered around the focus point; only alive in the close-up 3D view. */
 export class GrassRenderer {
@@ -57,6 +57,7 @@ export class GrassRenderer {
     this.mesh = new THREE.InstancedMesh(tuftGeometry(), mat, MAX);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
     this.mesh.frustumCulled = false; this.mesh.receiveShadow = true; this.mesh.castShadow = false;
+    this.mesh.layers.enable(0);
     this.mesh.count = 0;
     void makeInstancedDepthMaterial;
   }
@@ -102,7 +103,7 @@ export class GrassRenderer {
         m.compose(p, q, s);
         this.mesh.setMatrixAt(n, m);
         c.setHex(tint[0]).lerp(c2.setHex(tint[1]), r2);
-        col[n * 3] = c.r * 1.25; col[n * 3 + 1] = c.g * 1.25; col[n * 3 + 2] = c.b * 1.25;
+        col[n * 3] = c.r; col[n * 3 + 1] = c.g; col[n * 3 + 2] = c.b;
         n++;
       }
     }
