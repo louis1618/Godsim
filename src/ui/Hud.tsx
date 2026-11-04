@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState, useRef } from 'preact/hooks';
 import { store } from './store';
 import { useStore } from './App';
 import { t, hint } from './i18n';
-import { POWERS, POWER_MAP, CATS } from '../sim/powers';
+import { POWERS, POWER_MAP, CATS, brushDist } from '../sim/powers';
+import type { BrushShape } from './store';
 import { SPECIES, KINGDOM_COLORS, Sp, TRAIT_KEYS, BUILDINGS, isCiv, isVehicle, YEAR_TICKS, Bk, ERA_TECH } from '../sim/defs';
 import { UF, Job } from '../sim/entities';
 import { Pause, Play, Season, SEASON_BG } from './glyphs';
@@ -79,55 +80,155 @@ function Altimeter({ app }: { app: AppCtl }) {
   );
 }
 
+const HOME = ['inspect', 'hand', 'follow'];
+const HOME_TAIL = ['manual', 'stats', 'history', 'kingdoms', 'laws', 'saveload', 'audio'];
+
 function Dock({ app }: { app: AppCtl }) {
   const s = useStore();
   const ctl = app.ctl;
+  const trayRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ x: 0, left: 0, active: false, moved: false, suppress: false });
   const hover = (id: string, e: MouseEvent, above = 0) => {
+    if (drag.current.active) return;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     store.set({ hover: { id, x: r.left + r.width / 2, y: r.top - 10 - above } });
     app.hoverSound();
   };
   const unhover = () => store.set({ hover: null });
-  const powers = POWERS.filter((p) => p.cat === s.cat);
+  const ids = s.cat === 'home' ? [...HOME, ...s.recent.filter((r) => !HOME.includes(r)).slice(0, 6), ...HOME_TAIL] : POWERS.filter((p) => p.cat === s.cat).map((p) => p.id);
+  // drag (or wheel) to scroll the tray; a drag never counts as a click
+  const onDown = (e: PointerEvent) => {
+    if (e.button !== 0 || !trayRef.current) return;
+    drag.current = { x: e.clientX, left: trayRef.current.scrollLeft, active: true, moved: false, suppress: false };
+    const move = (ev: PointerEvent) => {
+      const d = drag.current; const el = trayRef.current; if (!d.active || !el) return;
+      const dx = ev.clientX - d.x;
+      if (!d.moved && Math.abs(dx) > 7) { d.moved = true; el.classList.add('dragging'); store.set({ hover: null }); }
+      if (d.moved) el.scrollLeft = d.left - dx;
+    };
+    const up = () => {
+      const d = drag.current; d.active = false;
+      trayRef.current?.classList.remove('dragging');
+      if (d.moved) { d.suppress = true; setTimeout(() => { d.suppress = false; }, 60); }
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  const pick = (id: string) => { if (drag.current.suppress) return; ctl.selectPower(id); };
   return (
     <div class="dock">
       <div class="tabs">
         {CATS.map((c) => (
           <div class={`tab ${s.cat === c ? 'on' : ''}`} style={{ '--acc': ACC[c] } as any}
-            onClick={() => { store.set({ cat: c }); app.tabSound(); }}
+            onClick={() => { store.set({ cat: s.cat === c ? 'home' : c }); app.tabSound(); }}
             onMouseEnter={(e) => hover('cat-' + c, e as any, 14)} onMouseLeave={unhover}>
             <img src={s.icons['cat-' + c]} />
           </div>
         ))}
       </div>
-      <div class="gs-panel tray">
-        <div class="tray-inner" key={s.cat}>
-          {powers.map((p, i) => (
-            <div class={`slot ${s.power === p.id ? 'on' : ''}`} style={{ '--acc': ACC[p.cat], '--acc-l': ACC_L[p.cat], animationDelay: `${i * 22}ms` } as any}
-              onClick={() => ctl.selectPower(p.id)} onMouseEnter={(e) => hover(p.id, e as any)} onMouseLeave={unhover}>
-              <img src={s.icons[p.id]} />
-              {p.key && <span class="k">{keyLabel(p.key)}</span>}
-            </div>
-          ))}
+      <div class="dock-row">
+        <BrushButton app={app} />
+        <div class={`gs-panel tray ${s.cat === 'home' ? 'home' : ''}`} ref={trayRef} onPointerDown={onDown as any}
+          onWheel={(e) => { if (trayRef.current && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { trayRef.current.scrollLeft += e.deltaY; } }}>
+          <div class="tray-inner" key={s.cat}>
+            {ids.map((id, i) => {
+              const p = POWER_MAP.get(id);
+              if (!p) return null;
+              const cat = p.cat;
+              return (
+                <div class={`slot ${s.power === id ? 'on' : ''} ${s.cat === 'home' && i >= HOME.length && i < ids.length - HOME_TAIL.length ? 'recent' : ''}`} style={{ '--acc': ACC[cat], '--acc-l': ACC_L[cat], animationDelay: `${i * 22}ms` } as any}
+                  onClick={() => pick(id)} onMouseEnter={(e) => hover(id, e as any)} onMouseLeave={unhover}>
+                  <img src={s.icons[id]} draggable={false} />
+                  {p.key && <span class="k">{keyLabel(p.key)}</span>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function BrushSize({ app }: { app: AppCtl }) {
+/** Shape glyphs shared by the brush button and the brush modal. */
+export function ShapeGlyph({ shape, size = 22 }: { shape: BrushShape; size?: number }) {
+  const c = 'var(--ink)';
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size}>
+      {shape === 'circle' && <circle cx="12" cy="12" r="9" fill={c} />}
+      {shape === 'square' && <rect x="3.5" y="3.5" width="17" height="17" rx="2" fill={c} />}
+      {shape === 'diamond' && <path d="M12 2 L22 12 L12 22 L2 12 Z" fill={c} />}
+      {shape === 'spray' && [[12, 4], [6, 8], [17, 7], [9, 13], [15, 12], [4, 15], [19, 16], [11, 19], [7, 20], [16, 20], [12, 11]].map(([x, y], i) => <circle cx={x} cy={y} r={i % 3 === 0 ? 2 : 1.5} fill={c} />)}
+    </svg>
+  );
+}
+
+/** Left of the dock: the current brush (shape + size, count for summons). Opens the brush modal. */
+function BrushButton({ app }: { app: AppCtl }) {
   const s = useStore();
   const p = POWER_MAP.get(s.power);
-  if (!p?.size) return null;
-  const [mn, , mx] = p.size;
-  const steps = [mn, Math.round(mn + (mx - mn) * 0.25), Math.round(mn + (mx - mn) * 0.5), Math.round(mn + (mx - mn) * 0.75), mx].filter((v, i, a) => a.indexOf(v) === i);
+  const active = !!p && (p.mode === 'brush' || p.mode === 'click');
   return (
-    <div class="gs-panel brush" key={s.power}>
-      {steps.map((b, i) => (
-        <button class={s.brush === b ? 'on' : ''} onClick={() => { store.set({ brush: b }); app.click(); }}>
-          <i style={{ width: 6 + i * 4 + 'px', height: 6 + i * 4 + 'px' }} />
-        </button>
-      ))}
+    <button class={`gs-panel brush-btn ${active ? '' : 'idle'}`} onClick={() => { store.set({ brushModal: true }); app.click(); }}
+      onMouseEnter={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); store.set({ hover: { id: 'brush', x: r.left + r.width / 2, y: r.top - 10 } }); }} onMouseLeave={() => store.set({ hover: null })}>
+      <div class="bshape" style={{ transform: `scale(${0.55 + Math.min(1, s.brush / 14) * 0.45})` }}><ShapeGlyph shape={s.brushShape} size={34} /></div>
+      <span class="bnum">{s.brush}</span>
+      {s.count > 1 && <span class="bcount">×{s.count}</span>}
+    </button>
+  );
+}
+
+function hashCell(x: number, z: number) { const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return h - Math.floor(h); }
+
+export function BrushModal({ app }: { app: AppCtl }) {
+  const s = useStore();
+  if (!s.brushModal) return null;
+  const p = POWER_MAP.get(s.power);
+  const [mn, , mx] = p?.size ?? [1, 3, 20];
+  const close = () => { store.set({ brushModal: false }); app.click(); };
+  const N = 31, C = 7; // preview grid
+  const cells: any[] = [];
+  const half = (N - 1) / 2;
+  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    const dx = x - half, dz = z - half;
+    const d = brushDist(s.brushShape, dx, dz);
+    let on = d <= s.brush + 0.5;
+    if (on && s.brushShape === 'spray') on = hashCell(x, z) < 0.32;
+    if (on) cells.push(<rect x={x * C + 0.5} y={z * C + 0.5} width={C - 1} height={C - 1} rx="1.5" fill={d <= s.brush * 0.5 ? '#ff9f3a' : '#ffc53d'} />);
+  }
+  return (
+    <div class="modal-bg" onPointerDown={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div class="gs-panel modal brush-modal">
+        <div class="mhead"><div class="bm-ico"><ShapeGlyph shape={s.brushShape} size={30} /></div><h2>{t('brush')}</h2><button class="gs-btn" style={{ padding: '4px 12px' }} onClick={close}>✕</button></div>
+        <div class="mbody bm-body">
+          <div class="bm-left">
+            <div class="bm-shapes">
+              {(['circle', 'square', 'diamond', 'spray'] as BrushShape[]).map((sh) => (
+                <button class={`bm-shape ${s.brushShape === sh ? 'on' : ''}`} onClick={() => { store.set({ brushShape: sh }); app.click(); }} title={t('shape-' + sh)}>
+                  <ShapeGlyph shape={sh} size={30} /><small>{t('shape-' + sh)}</small>
+                </button>
+              ))}
+            </div>
+            <label class="bm-slider">
+              <span>{t('size')}</span>
+              <input type="range" min={mn} max={Math.max(mx, 20)} value={s.brush} onInput={(e) => store.set({ brush: Number((e.target as HTMLInputElement).value) })} />
+              <b class="bm-val">{s.brush}</b>
+            </label>
+            <label class="bm-slider">
+              <span>{t('count')}</span>
+              <input type="range" min={1} max={30} value={s.count} onInput={(e) => store.set({ count: Number((e.target as HTMLInputElement).value) })} />
+              <b class="bm-val">{s.count}</b>
+            </label>
+            <small class="bm-hint">{t('countHint')}</small>
+          </div>
+          <svg class="bm-preview" viewBox={`0 0 ${N * C} ${N * C}`}>
+            <rect width={N * C} height={N * C} rx="10" fill="#e9f5d8" />
+            {Array.from({ length: N + 1 }, (_, i) => <path d={`M${i * C} 0 V${N * C} M0 ${i * C} H${N * C}`} stroke="#cfe3b8" stroke-width="0.6" />)}
+            {cells}
+            <circle cx={N * C / 2} cy={N * C / 2} r="3" fill="#2a2238" />
+          </svg>
+        </div>
+      </div>
     </div>
   );
 }
@@ -382,8 +483,8 @@ export function Hud({ app }: { app: AppCtl }) {
       <PairHint app={app} />
       {s.sel?.kind === 'unit' && <UnitCard app={app} id={s.sel.id} key={s.sel.id} />}
       {s.sel?.kind === 'village' && <VillageCard app={app} id={s.sel.id} key={s.sel.id} />}
-      <BrushSize app={app} />
       <Dock app={app} />
+      <BrushModal app={app} />
       <Tooltip />
     </>
   );

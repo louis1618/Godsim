@@ -108,19 +108,29 @@ export const POWERS: PowerDef[] = [
   { id: 'audio', cat: 'settings', mode: 'panel' },
 ];
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
+/** Single-target powers that can be repeated over an area with the count / radius settings. */
+export const MAX_COUNT: Record<string, number> = { nuke: 3, volcano: 3, dragon: 5, meteor: 8, flood: 4, drought: 4, tornado: 6, quake: 4 };
 export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'military', 'observe', 'settings'];
 
 const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll, rabbit: Sp.Rabbit, fox: Sp.Fox, boar: Sp.Boar, crocodile: Sp.Crocodile, fish: Sp.Fish, dragon: Sp.Dragon };
 
-/** Visit tiles of a circular brush with a smooth falloff weight. */
+export type BrushShape = 'circle' | 'square' | 'diamond' | 'spray';
+let shape: BrushShape = 'circle';
+/** Brush distance for the current shape (circle: round, square: box, diamond: tilted box, spray: round but patchy). */
+export function brushDist(sh: BrushShape, dx: number, dz: number) {
+  return sh === 'square' ? Math.max(Math.abs(dx), Math.abs(dz)) : sh === 'diamond' ? (Math.abs(dx) + Math.abs(dz)) * 0.72 : Math.hypot(dx, dz);
+}
+
+/** Visit tiles of the current brush shape with a smooth falloff weight. */
 function brush(sim: Sim, x: number, z: number, r: number, fn: (t: number, k: number, tx: number, tz: number) => void) {
   const w = sim.world;
-  const R = Math.ceil(r);
+  const R = Math.ceil(r / (shape === 'diamond' ? 0.72 : 1));
   for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
     const tx = Math.floor(x) + dx, tz = Math.floor(z) + dz;
     if (!w.inside(tx, tz)) continue;
-    const d = Math.hypot(tx + 0.5 - x, tz + 0.5 - z);
+    const d = brushDist(shape, tx + 0.5 - x, tz + 0.5 - z);
     if (d > r + 0.5) continue;
+    if (shape === 'spray' && sim.rng.next() > 0.28) continue;
     const k = 1 - smoothstep(r * 0.5, r + 0.5, d);
     fn(tz * w.W + tx, k, tx, tz);
   }
@@ -153,11 +163,12 @@ function afterSculpt(sim: Sim, t: number) {
   if (h > 8.5 && w.mat[t] !== Mat.Snow && w.mat[t] !== Mat.Lava) w.mat[t] = h > 11 ? Mat.Snow : Mat.Rock;
 }
 
-export interface ApplyCtx { brush: number; dt: number; first: boolean; unit?: Unit | null; }
+export interface ApplyCtx { brush: number; dt: number; first: boolean; unit?: Unit | null; shape?: BrushShape; }
 
 /** Apply a power at world coords. Returns false if nothing happened (for feedback). */
 export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: ApplyCtx): boolean {
   const w = sim.world;
+  shape = ctx.shape ?? 'circle';
   const r = ctx.brush;
   const t0 = w.tileAt(x, z);
   switch (id) {

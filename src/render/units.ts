@@ -128,6 +128,8 @@ export class UnitRenderer {
   physics = new Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
   heldId = -1;
   selectedId = -1;
+  followId = -1;
+  star: THREE.Mesh;
   private tmpM = new THREE.Matrix4();
   private tmpQ = new THREE.Quaternion();
   private tmpS = new THREE.Vector3();
@@ -185,6 +187,17 @@ export class UnitRenderer {
     this.crowns = new THREE.InstancedMesh(cg, crownMat, 64);
     this.crowns.frustumCulled = false; this.crowns.count = 0;
     this.group.add(this.crowns);
+    // a chunky golden star hovers over the creature being followed
+    const sh = new THREE.Shape();
+    for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 + Math.PI / 2, r = i % 2 ? 0.075 : 0.17; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) sh.lineTo(x, y); else sh.moveTo(x, y); }
+    const sg = new THREE.ExtrudeGeometry(sh, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.022, bevelSegments: 2 });
+    sg.center();
+    this.star = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xb07a00, emissiveIntensity: 0.55, metalness: 0.3, roughness: 0.35 }));
+    this.star.visible = false; this.star.renderOrder = 25;
+    const outline = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0x2a2238, side: THREE.BackSide }));
+    outline.scale.setScalar(1.18);
+    this.star.add(outline);
+    this.group.add(this.star);
   }
 
   private makePool(g: THREE.BufferGeometry, cap: number): Pool {
@@ -346,6 +359,18 @@ export class UnitRenderer {
     }
     this.visibleCount = total;
     this.crowns.count = Math.min(crowns, 64);
+    // follow star
+    const fu = this.followId >= 0 ? sim.getUnit(this.followId) : undefined;
+    const fp = fu ? this.unitPos(sim, fu.id, alpha, this.tmpP) : null;
+    this.star.visible = !!fp && show3D;
+    if (fp) {
+      const def = SPECIES[fu!.sp];
+      const h = (isCiv(fu!.sp) ? 0.95 : 0.6) * def.size * CREATURE_SCALE + 0.35;
+      this.star.position.set(fp.x, (fp.y + h) * U.uHeightScale.value + Math.sin(time * 3) * 0.05, fp.z);
+      this.star.rotation.set(0, time * 2.2, 0);
+      const s = 1 + Math.max(0, Math.sin(time * 6)) * 0.08;
+      this.star.scale.setScalar(s * Math.max(1, Math.min(3, viewV / 14)));
+    }
     this.crowns.instanceMatrix.needsUpdate = true;
     const g = this.markers.geometry;
     g.setDrawRange(0, mk);

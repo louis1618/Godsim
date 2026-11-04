@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Game } from './game';
 import { store } from './ui/store';
-import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, enlighten, kingdomAt } from './sim/powers';
+import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, enlighten, kingdomAt, MAX_COUNT, brushDist } from './sim/powers';
 import { heightCubic } from './sim/world';
 import { UF } from './sim/entities';
 import { SPECIES, isCiv } from './sim/defs';
@@ -22,7 +22,7 @@ export class Controller {
   private downAt = { x: 0, y: 0, t: 0 };
   private moved = false;
   private applyAcc = 0;
-  private ring: THREE.LineLoop;
+  ring: THREE.LineLoop;
   private ringFill: THREE.Mesh;
   private held: { id: number; pos: THREE.Vector3; vel: THREE.Vector3; last: THREE.Vector3 } | null = null;
   private lastMove = 0;
@@ -83,7 +83,7 @@ export class Controller {
       const p = POWER_MAP.get(store.s.power);
       if (rig.dragStart) rig.endDrag();
       if (e.button === 0) {
-        if (!this.moved && p && (p.mode === 'inspect' || p.mode === 'panel')) this.inspectClick();
+        if (!this.moved && (!p || p.mode === 'inspect' || p.mode === 'panel')) this.inspectClick();
         if (this.held) this.releaseHeld();
       }
       this.btn = -1;
@@ -106,9 +106,10 @@ export class Controller {
     const g = this.game;
     if (e.code === 'Space') { g.paused = !g.paused; store.set({ tick: store.s.tick + 1 }); audio.ui('click'); e.preventDefault(); return; }
     if (e.code === 'Escape') {
+      if (store.s.brushModal) { store.set({ brushModal: false }); return; }
       if (store.s.panel) store.set({ panel: null });
       else if (store.s.sel) store.set({ sel: null });
-      else if (store.s.power !== 'inspect') this.selectPower('inspect');
+      else if (store.s.power !== 'none') this.deselect();
       else store.set({ menu: !store.s.menu });
       g.gr.rig.follow = null;
       return;
@@ -136,11 +137,16 @@ export class Controller {
     store.set({ brush: b });
   }
 
+  /** Pressing the selected power again puts the cursor back to free movement. */
+  deselect() { store.set({ power: 'none', pairFirst: -1 }); audio.ui('close'); }
+
   selectPower(id: string) {
     const p = POWER_MAP.get(id);
     if (!p) return;
     if (p.mode === 'panel') { store.set({ panel: id }); audio.ui('open'); return; }
-    store.set({ power: id, cat: p.cat === 'observe' && store.s.cat !== 'observe' ? store.s.cat : p.cat, brush: p.size ? Math.max(p.size[0], Math.min(p.size[2], store.s.brush || p.size[1])) : store.s.brush, pairFirst: -1 });
+    if (store.s.power === id) { this.deselect(); return; }
+    if (p.cat !== 'observe') store.set({ recent: [id, ...store.s.recent.filter((r) => r !== id)].slice(0, 8) });
+    store.set({ power: id, cat: store.s.cat === 'home' || (p.cat === 'observe' && store.s.cat !== 'observe') ? store.s.cat : p.cat, brush: p.size ? Math.max(p.size[0], Math.min(p.size[2], store.s.brush || p.size[1])) : store.s.brush, pairFirst: -1 });
     audio.ui('select');
   }
 
@@ -248,6 +254,7 @@ export class Controller {
   }
 
   follow(uid: number) {
+    this.followId = uid;
     const rig = this.game.gr.rig;
     const tmp = new THREE.Vector3();
     store.set({ sel: { kind: 'unit', id: uid } });
@@ -275,7 +282,16 @@ export class Controller {
         if (sh) { g = g.clone(); g.x += sh.dx; g.z += sh.dz; this.ground = g; }
       }
     }
-    const ok = applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt, first: true });
+    let ok = false;
+    if (p.mode === 'click') {
+      // summon / strike `count` times scattered over the radius
+      const n = Math.max(1, Math.min(store.s.count, MAX_COUNT[p.id] ?? 30));
+      const R = n > 1 ? store.s.brush : 0;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * R;
+        ok = applyPower(this.game.sim, p.id, g.x + Math.cos(a) * d, g.z + Math.sin(a) * d, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape }) || ok;
+      }
+    } else ok = applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape });
     audio.play(p.id, g.x, g.z, ok);
     if (p.mode === 'click' && rate <= 1.5) this.btn = -1; // single-shot disasters
   }
@@ -292,9 +308,14 @@ export class Controller {
     }
   }
 
+  followId = -1;
+
   update(dt: number) {
     if (!this.enabled) { this.ring.visible = this.ringFill.visible = false; return; }
     const rig = this.game.gr.rig;
+    // the star marks whoever the camera is following
+    if (!rig.follow) this.followId = -1;
+    this.game.units.followId = this.followId;
     // keyboard camera
     const sp = rig.V * 1.1 * dt;
     let dx = 0, dz = 0;
@@ -327,13 +348,18 @@ export class Controller {
     const showRing = !!p && !!this.ground && (p.mode === 'brush' || p.mode === 'click' || p.mode === 'unit' || p.mode === 'pair' || p.mode === 'grab' || p.mode === 'village');
     this.ring.visible = this.ringFill.visible = showRing;
     if (showRing && this.ground) {
-      const r = p!.mode === 'brush' ? store.s.brush + 0.5 : Math.max(0.5, rig.V / 70);
+      const area = p!.mode === 'brush' || (p!.mode === 'click' && store.s.count > 1);
+      const r = area ? store.s.brush + 0.5 : Math.max(0.5, rig.V / 70);
+      const sh = p!.mode === 'brush' ? store.s.brushShape : 'circle';
       const w = this.game.sim.world;
       const hs = U.uHeightScale.value;
       const pos = this.ring.geometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < pos.count; i++) {
         const a = (i / pos.count) * Math.PI * 2;
-        const x = this.ground.x + Math.cos(a) * r, z = this.ground.z + Math.sin(a) * r;
+        // walk the outline of the brush shape: scale the unit direction until it reaches distance r
+        const cx = Math.cos(a), cz = Math.sin(a);
+        const k = r / Math.max(1e-6, brushDist(sh, cx, cz));
+        const x = this.ground.x + cx * k, z = this.ground.z + cz * k;
         const t = w.tileAt(x, z);
         const y = Math.max(heightCubic(w.height, w.W, w.H, x, z), t >= 0 ? w.water[t] : 0) * hs + 0.06;
         pos.setXYZ(i, x, y, z);
@@ -346,6 +372,7 @@ export class Controller {
       (this.ringFill.material as THREE.MeshBasicMaterial).opacity = pulse;
       this.ringFill.position.set(this.ground.x, Math.max(this.ground.y, 0) * hs + 0.05, this.ground.z);
       this.ringFill.scale.setScalar(r);
+      this.ringFill.visible = sh === 'circle' || sh === 'spray';
     }
   }
 }

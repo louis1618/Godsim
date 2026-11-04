@@ -234,7 +234,7 @@ export class AppCtl {
     rig.flyTo(this.game.sim.world.W / 2, this.game.sim.world.H / 2, rig.vMax * 0.8, 1.2);
     this.game.speed = 1; this.game.paused = false;
     this.ctl.enabled = true;
-    store.set({ screen: 'play', cat: 'world', power: 'inspect', sel: null, panel: null, menu: false, confirm: null });
+    store.set({ screen: 'play', cat: 'home', power: 'none', sel: null, panel: null, menu: false, confirm: null });
     audio.ui('create');
   }
 
