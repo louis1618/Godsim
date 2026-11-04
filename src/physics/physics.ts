@@ -168,7 +168,9 @@ export class Physics {
       u.z = u.pz = Math.max(0.5, Math.min(this.terrain.H - 0.5, p.z));
       if (p.y < -30) { sim.killUnit(u, 'fall'); this.world.removeRigidBody(r.body); this.ragdolls.delete(id); continue; }
       if (speedNow < 0.5 && r.t > 0.5) r.still += dt; else r.still = 0;
-      if ((r.still > 0.3 || r.t > 7) && !(u.flags & UF.Dead)) {
+      const tw = this.terrain.tileAt(p.x, p.z);
+      const inWater = tw >= 0 && this.terrain.water[tw] > this.terrain.height[tw] && p.y < this.terrain.water[tw] + 0.2;
+      if ((r.still > 0.3 || r.t > 7 || (inWater && r.t > 1.2 && v.y > -2)) && !(u.flags & UF.Dead)) {
         this.world.removeRigidBody(r.body);
         this.ragdolls.delete(id);
         out.delete(id);

@@ -65,6 +65,17 @@ export class GameRenderer {
 
   setWorld(world: World) {
     this.world = world;
+    // free GPU resources of the previous world
+    const mats = new Set<THREE.Material>();
+    this.worldGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      const mm = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (mm) (Array.isArray(mm) ? mm : [mm]).forEach((x) => mats.add(x));
+      if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
+    });
+    for (const m of mats) m.dispose();
+    if (this.terrain) { this.terrain.matTex.dispose(); this.terrain.ownerTex.dispose(); this.terrain.heightTex.dispose(); }
     this.worldGroup.clear();
     this.terrain = new TerrainRenderer(world);
     this.water = new WaterRenderer(world, this.terrain.heightTex);
