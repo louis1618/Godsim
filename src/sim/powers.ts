@@ -54,6 +54,7 @@ export const POWERS: PowerDef[] = [
   { id: 'wolf', cat: 'life', mode: 'click', rate: 6 },
   { id: 'bear', cat: 'life', mode: 'click', rate: 4 },
   { id: 'skeleton', cat: 'life', mode: 'click', rate: 6 },
+  { id: 'troll', cat: 'life', mode: 'click', rate: 1.5 },
   // civilization
   { id: 'war', cat: 'civ', mode: 'pair' },
   { id: 'peace', cat: 'civ', mode: 'pair' },
@@ -91,7 +92,7 @@ export const POWERS: PowerDef[] = [
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
 export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'observe', 'settings'];
 
-const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton };
+const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll };
 
 /** Visit tiles of a circular brush with a smooth falloff weight. */
 function brush(sim: Sim, x: number, z: number, r: number, fn: (t: number, k: number, tx: number, tz: number) => void) {
@@ -164,7 +165,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     case 'snow': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Snow); }); break;
     case 'swamp': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Swamp); }); break;
     case 'lava': brush(sim, x, z, r, (t, k) => { if (k > 0.4) { setMat(sim, t, Mat.Lava); if (w.height[t] < 0.3) w.height[t] = 0.3; } }); break;
-    case 'human': case 'elf': case 'dwarf': case 'orc': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': case 'skeleton': {
+    case 'human': case 'elf': case 'dwarf': case 'orc': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': case 'skeleton': case 'troll': {
       if (t0 < 0 || !w.walkable(t0)) return false;
       const u = sim.spawnUnit(SPAWN[id], x + sim.rng.range(-0.3, 0.3), z + sim.rng.range(-0.3, 0.3));
       if (isCiv(u.sp)) { u.female = sim.rng.chance(0.5); u.born = sim.tick - 20; }

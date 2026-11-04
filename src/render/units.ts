@@ -90,7 +90,7 @@ interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribut
 /** Characters are drawn a bit larger than their simulation footprint so they read well. */
 export const CREATURE_SCALE = 1.4;
 
-const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0 };
+const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0, [Sp.Troll]: 0x5f7a78 };
 
 /** Renders every creature: animated 3D instances up close, coloured map pins from afar. */
 export class UnitRenderer {
@@ -219,11 +219,14 @@ export class UnitRenderer {
     return out.set(x, y + u.y, z);
   }
 
+  orbit = 0;
+
   update(sim: Sim, alpha: number, camPos: THREE.Vector3, focus: THREE.Vector3, viewV: number, z01: number, pixelScale: number, dt: number) {
-    const show3D = z01 < 0.86;
+    const show3D = z01 < 0.86 || this.orbit > 0.5;
+    const radiusMul = this.orbit > 0.5 ? 4 : 1;
     const counts = new Array(SPECIES_COUNT).fill(0);
     const w = sim.world;
-    const radius = Math.max(30, viewV * 1.4);
+    const radius = Math.max(30, viewV * 1.4) * radiusMul;
     let mk = 0, crowns = 0;
     this.ensureMarkers(sim.units.length + 8);
     const time = U.uTime.value;
@@ -258,7 +261,7 @@ export class UnitRenderer {
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
         this.markerCol[o] = this.c.r; this.markerCol[o + 1] = this.c.g; this.markerCol[o + 2] = this.c.b;
-        const base = isCiv(u.sp) ? 8 : u.sp === Sp.Skeleton ? 7 : 3.6;
+        const base = isCiv(u.sp) ? 8 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : 3.6;
         this.markerSize[mk] = base * (u.flags & UF.King ? 1.7 : u.flags & UF.Hero ? 1.35 : 1) * (u.age < def.adultAge ? 0.75 : 1) * (u.sp === Sp.Bear ? 1.3 : 1);
         mk++;
       }
@@ -276,7 +279,7 @@ export class UnitRenderer {
       this.yawCache.set(u.id, ry);
       const child = u.age < def.adultAge;
       let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
-      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
       // a little pop when born
       const age = sim.tick - u.born;
       if (age < 8) sc *= 0.5 + 0.5 * Math.min(1, (age + alpha) / 8) + Math.sin(Math.min(1, (age + alpha) / 8) * Math.PI) * 0.25;
@@ -297,7 +300,7 @@ export class UnitRenderer {
       if (ph || u.id === this.heldId) anim = Anim.Fly;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if (anim === Anim.Walk && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
-      const item = child || !isCiv(u.sp) ? 0 : u.item;
+      const item = u.sp === Sp.Troll ? 8 : child || !isCiv(u.sp) ? 0 : u.item;
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, item, u.hitT > 0 ? u.hitT / 6 : 0);
       if (u.flags & UF.King) {
         const hh = (u.sp === Sp.Dwarf ? 0.55 : 0.72) * sc;
@@ -324,7 +327,7 @@ export class UnitRenderer {
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (g.attributes.aColor as THREE.BufferAttribute).needsUpdate = true;
     (g.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
-    this.markerMat.uniforms.uOpacity.value = THREE.MathUtils.smoothstep(z01, 0.55, 0.8);
+    this.markerMat.uniforms.uOpacity.value = THREE.MathUtils.smoothstep(z01, 0.55, 0.8) * (1 - this.orbit);
     this.markerMat.uniforms.uScale.value = pixelScale;
     void time;
   }

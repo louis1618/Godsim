@@ -76,6 +76,7 @@ export class Game {
     // physics: ragdolls + debris
     if (!sim.world.dirtyTerrain.empty) this.physics.markGroundDirty();
     this.physics.step(sim, this.paused ? 0 : dt, this.speed, this.units.physics);
+    this.units.orbit = rig.orbit;
     this.units.update(sim, this.alpha, rig.camera.position, rig.focus, rig.V, rig.z01, pxScale, dt);
     this.buildings.update(sim);
     // fx hand-off

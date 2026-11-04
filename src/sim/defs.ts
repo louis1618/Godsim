@@ -34,9 +34,9 @@ export const MATS: MatDef[] = [
 ];
 
 export const enum Sp {
-  Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9,
+  Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9, Troll = 10,
 }
-export const SPECIES_COUNT = 10;
+export const SPECIES_COUNT = 11;
 export type Race = Sp.Human | Sp.Elf | Sp.Dwarf | Sp.Orc;
 export const RACES: Race[] = [Sp.Human, Sp.Elf, Sp.Dwarf, Sp.Orc];
 
@@ -73,6 +73,7 @@ export const SPECIES: SpeciesDef[] = [
   { key: 'bear', civ: false, speed: 1.5, hp: 220, dmg: 22, attackRate: 1.3, range: 1.0, lifespan: [20, 30], adultAge: 4, size: 1.35, diet: 'omni', aggressive: true, breedEvery: 5.5, litter: 1, biomes: [Mat.Lush, Mat.Snow], fertility: 1, buildSpeed: 0 },
   { key: 'skeleton', civ: false, speed: 1.35, hp: 70, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Ash, Mat.Desert], fertility: 0, buildSpeed: 0, undead: true },
   { key: 'chicken', civ: false, speed: 1.1, hp: 15, dmg: 1, attackRate: 2, range: 0.5, lifespan: [6, 9], adultAge: 1, size: 0.55, diet: 'plant', aggressive: false, breedEvery: 1.0, litter: 2, biomes: [Mat.Grass, Mat.Savanna], fertility: 1, buildSpeed: 0 },
+  { key: 'troll', civ: false, speed: 1.2, hp: 520, dmg: 34, attackRate: 1.6, range: 1.3, lifespan: [9999, 9999], adultAge: 0, size: 1.9, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Rock, Mat.Lush], fertility: 0, buildSpeed: 0, undead: true },
 ];
 export const isCiv = (sp: number) => sp <= Sp.Orc;
 

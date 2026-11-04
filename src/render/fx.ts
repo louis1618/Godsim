@@ -384,6 +384,11 @@ export class FxRenderer {
         if (e.t === 'found') for (let i = 0; i < 20; i++) this.add.spawn(e.x, y + i * 0.4, e.z, 0, 2, 0, { life: 1.2, size: 0.9, size1: 0.3, color: 0xfff2c0, frame: PF.Dot, alpha: 0.35 });
         break;
       }
+      case 'quakelet':
+        if (!close) return;
+        this.burst(e.x, y + 0.1, e.z, 6, { color: 0xa89a84, frame: PF.Smoke, speed: 1.4, up: 0.3, life: 0.8, size: 0.3, size1: 0.7, drag: 2, alpha: 0.7 });
+        this.rig.shake = Math.max(this.rig.shake, 0.15);
+        break;
       case 'rise':
         this.burst(e.x, y + 0.3, e.z, 12, { color: 0x3a2e48, frame: PF.Smoke, speed: 0.8, up: 0.8, life: 1.5, size: 0.4, size1: 0.8, alpha: 0.8 });
         break;

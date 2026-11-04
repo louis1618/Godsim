@@ -154,7 +154,7 @@ class AudioEngine {
       case 'forest': case 'bloom': if (this.rate(id, 120)) this.tone(r(800, 1400), { type: 'sine', d: 0.15, g: 0.06 * big, to: r(1500, 2200), pan, verb: 0.3 }); break;
       case 'heat': if (this.rate(id, 150)) this.burst({ type: 'bandpass', f: 1200, q: 0.6, a: 0.1, d: 0.3, g: 0.08 * big, pan }); break;
       case 'frost': if (this.rate(id, 150)) { this.tone(r(2000, 2600), { type: 'triangle', d: 0.2, g: 0.04 * big, pan, verb: 0.5 }); this.burst({ type: 'highpass', f: 5000, d: 0.1, g: 0.05 * big, pan }); } break;
-      case 'human': case 'elf': case 'dwarf': case 'orc': case 'skeleton': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': this.spawnVoice(id, pan, big); break;
+      case 'human': case 'elf': case 'dwarf': case 'orc': case 'skeleton': case 'troll': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': this.spawnVoice(id, pan, big); break;
       case 'rain': case 'storm': this.burst({ type: 'bandpass', f: 1800, q: 0.5, a: 0.3, d: 1.2, g: 0.15, pan }); break;
       case 'lightning': case 'smite': this.thunder(big, pan); break;
       case 'fire': if (this.rate(id, 80)) this.burst({ type: 'bandpass', f: r(1500, 3000), q: 3, a: 0.002, d: 0.05, g: 0.12 * big, pan }); break;
@@ -177,7 +177,7 @@ class AudioEngine {
 
   private spawnVoice(id: string, pan: number, g: number) {
     const t = this.ctx!.currentTime;
-    const base = id === 'dwarf' ? 280 : id === 'orc' ? 180 : id === 'elf' ? 560 : id === 'human' ? 400 : id === 'skeleton' ? 150 : id === 'bear' ? 110 : id === 'wolf' ? 520 : id === 'chicken' ? 900 : id === 'sheep' ? 330 : 450;
+    const base = id === 'troll' ? 90 : id === 'dwarf' ? 280 : id === 'orc' ? 180 : id === 'elf' ? 560 : id === 'human' ? 400 : id === 'skeleton' ? 150 : id === 'bear' ? 110 : id === 'wolf' ? 520 : id === 'chicken' ? 900 : id === 'sheep' ? 330 : 450;
     // a little "poof" + creature chirp
     this.burst({ type: 'bandpass', f: 1200, to: 3000, q: 1, a: 0.01, d: 0.18, g: 0.08 * g, pan });
     if (id === 'sheep') { this.tone(base, { type: 'sawtooth', d: 0.35, g: 0.05 * g, t: t + 0.05, pan, to: base * 0.95 }); this.tone(base * 1.01, { type: 'square', d: 0.35, g: 0.02 * g, t: t + 0.05, pan }); }
@@ -231,6 +231,7 @@ class AudioEngine {
       case 'found': case 'capture': [67, 71, 74, 79].forEach((m, i) => this.tone(mtof(m), { type: 'triangle', d: 0.5, g: 0.06 * Math.max(0.4, g), t: this.ctx!.currentTime + i * 0.1, pan, verb: 0.5 })); break;
       case 'quake': this.play('quake', x, z); break;
       case 'meteorStart': this.play('meteor', x, z); break;
+      case 'quakelet': if (g > 0.15 && this.rate('quakelet', 200)) this.burst({ f: 300, to: 60, a: 0.01, d: 0.4, g: 0.2 * g, pan }); break;
       case 'land': if (g > 0.1 && this.rate('land', 80)) this.tone(r(140, 200), { type: 'sine', to: 70, d: 0.15, g: 0.12 * g, pan }); break;
     }
   }

@@ -51,7 +51,7 @@ function creature(models: Record<number, THREE.BufferGeometry>, sp: Sp, cloth: n
   }
   const m = std(src);
   m.rotation.y = -0.35;
-  if (sp <= Sp.Orc || sp === Sp.Skeleton) {
+  if (sp <= Sp.Orc || sp === Sp.Skeleton || sp === Sp.Troll) {
     const h = sp === Sp.Dwarf ? 0.5 : sp === Sp.Elf ? 0.68 : sp === Sp.Orc ? 0.66 : 0.62;
     m.userData.frame = { y: h * 0.66, r: h * 0.42 };
   }
@@ -206,6 +206,7 @@ function makeIcons(): Record<string, Maker> {
   m['wolf'] = () => creature(models, Sp.Wolf, 0xffffff, 0xffffff, 0xffffff);
   m['bear'] = () => creature(models, Sp.Bear, 0xffffff, 0xffffff, 0xffffff);
   m['skeleton'] = () => creature(models, Sp.Skeleton, 0xffffff, 0xffffff, 0xffffff, 4);
+  m['troll'] = () => creature(models, Sp.Troll, 0xffffff, 0x7f9a98, 0xffffff, 8);
   // ---------------- civ
   m['war'] = () => { const b = new ModelBuilder(1); sword(b, 0.75); sword(b, -0.75); return std(b.build()); };
   m['peace'] = () => {

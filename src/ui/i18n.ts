@@ -13,7 +13,7 @@ const S: Record<string, Entry> = {
   grass: ['초원', 'Grassland'], sand: ['모래', 'Sand'], desert: ['사막', 'Desert'], snow: ['설원', 'Snow'], swamp: ['늪', 'Swamp'], lava: ['용암', 'Lava'],
   // life
   human: ['인간', 'Humans'], elf: ['엘프', 'Elves'], dwarf: ['드워프', 'Dwarves'], orc: ['오크', 'Orcs'], sheep: ['양', 'Sheep'], chicken: ['닭', 'Chicken'],
-  deer: ['사슴', 'Deer'], wolf: ['늑대', 'Wolf'], bear: ['곰', 'Bear'], skeleton: ['해골병사', 'Skeleton'],
+  deer: ['사슴', 'Deer'], wolf: ['늑대', 'Wolf'], bear: ['곰', 'Bear'], skeleton: ['해골병사', 'Skeleton'], troll: ['트롤', 'Troll', '건물도 부숩니다', 'Smashes buildings too'],
   // civ
   war: ['전쟁 선포', 'Declare War', '두 왕국을 차례로', 'Pick two kingdoms'], peace: ['평화 협정', 'Make Peace', '두 왕국을 차례로', 'Pick two kingdoms'],
   alliance: ['동맹', 'Alliance', '두 왕국을 차례로', 'Pick two kingdoms'], rebel: ['반란 선동', 'Incite Rebellion', '마을 클릭', 'Click a village'],

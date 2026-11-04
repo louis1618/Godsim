@@ -79,6 +79,13 @@ function decide(sim: Sim, u: Unit) {
   const civ = isCiv(u.sp);
   const adult = u.age >= def.adultAge;
 
+  // trolls keep smashing once they have picked a building, unless they get hurt
+  if (u.sp === Sp.Troll && u.task?.k === 'raze' && sim.buildings.get(u.task.b)?.alive && u.hitT === 0) return;
+  if (u.sp === Sp.Troll && sim.rng.chance(0.5)) {
+    let bb = -1, bbd = 14 * 14;
+    for (const b of sim.buildings.values()) { if (!b.alive || b.kind === Bk.Ruin || b.kind === Bk.Farm) continue; const d = (b.x - u.x) ** 2 + (b.z - u.z) ** 2; if (d < bbd) { bbd = d; bb = b.id; } }
+    if (bb >= 0) { setTask(sim, u, { k: 'raze', b: bb }); return; }
+  }
   // 1. threats & targets
   const threat = scanThreat(sim, u);
   if (threat) {
@@ -162,6 +169,12 @@ function decideAnimal(sim: Sim, u: Unit) {
     let best: Unit | null = null, bd = 1e9;
     sim.near(u.x, u.z, 14, (o, d2) => { if (!SPECIES[o.sp].undead && d2 < bd) { bd = d2; best = o; } });
     if (best) { setTask(sim, u, { k: 'attack', u: (best as Unit).id }); return; }
+    // trolls also go smashing buildings
+    if (u.sp === Sp.Troll) {
+      let bb = -1, bbd = 18 * 18;
+      for (const b of sim.buildings.values()) { if (!b.alive || b.kind === Bk.Ruin) continue; const d = (b.x - u.x) ** 2 + (b.z - u.z) ** 2; if (d < bbd) { bbd = d; bb = b.id; } }
+      if (bb >= 0) { setTask(sim, u, { k: 'raze', b: bb }); return; }
+    }
     wanderNear(sim, u, u.x, u.z, 8);
     return;
   }
@@ -527,7 +540,8 @@ function run(sim: Sim, u: Unit, t: Task) {
         if (u.cd <= 0) {
           u.anim = Anim.Attack; u.animT = 6;
           u.cd = Math.round(SPECIES[u.sp].attackRate * 10);
-          sim.damageBuilding(b, SPECIES[u.sp].dmg * u.dmgMul * (u.job === Job.Warrior ? 2.4 : 1), u);
+          sim.damageBuilding(b, SPECIES[u.sp].dmg * u.dmgMul * (u.job === Job.Warrior ? 2.4 : u.sp === Sp.Troll ? 3 : 1), u);
+          if (u.sp === Sp.Troll) sim.fx.push({ t: 'quakelet', x: ex, z: ez });
           sim.fx.push({ t: 'bhit', x: ex, z: ez, u: u.id, tx: cx, tz: cz });
           if (sim.rng.chance(0.07) && b.fire === 0) { b.fire = 160; sim.fx.push({ t: 'ignite', x: cx, z: cz }); }
         }

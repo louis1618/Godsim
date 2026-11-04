@@ -52,7 +52,7 @@ function items(b: ModelBuilder, hx: number, hy: number, hz: number, s = 1) {
 
 interface HumanoidOpts {
   height: number; width: number; headR: number; skinDefault: number;
-  style: 'human' | 'elf' | 'dwarf' | 'orc' | 'skeleton';
+  style: 'human' | 'elf' | 'dwarf' | 'orc' | 'skeleton' | 'troll';
 }
 
 function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
@@ -61,6 +61,7 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
   const legH = H * 0.16, bodyH = H * 0.36, headY = legH + bodyH + o.headR * 0.78;
   const hipY = legH;
   const skel = o.style === 'skeleton';
+  const troll = o.style === 'troll';
   // legs (stubby) + feet
   for (const side of [-1, 1]) {
     const part = side < 0 ? P.LLeg : P.RLeg;
@@ -73,7 +74,8 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     b.add(geo.capsule(Wd * 0.18, bodyH * 0.5, 3, 8), { color: 0xe6e1d2 }, T(0, hipY + bodyH * 0.5, 0, 0, 0, 0, 1, 1, 0.8));
     for (let i = 0; i < 3; i++) b.add(geo.torus(Wd * 0.2, 0.012, 4, 10), { color: 0xd5cfbd }, T(0, hipY + bodyH * (0.35 + i * 0.18), 0, Math.PI / 2, 0, 0, 1, 1, 0.75));
   } else {
-    b.add(geo.lathe([[0, 0], [Wd * 0.34, 0.01], [Wd * 0.4, bodyH * 0.35], [Wd * 0.36, bodyH * 0.8], [Wd * 0.22, bodyH], [0, bodyH]], 14), { color: W, slot: 1, ao: [hipY, hipY + bodyH, 0.82] }, T(0, hipY, 0));
+    b.add(geo.lathe(troll ? [[0, 0], [Wd * 0.4, 0.01], [Wd * 0.5, bodyH * 0.4], [Wd * 0.46, bodyH * 0.85], [Wd * 0.3, bodyH], [0, bodyH]] : [[0, 0], [Wd * 0.34, 0.01], [Wd * 0.4, bodyH * 0.35], [Wd * 0.36, bodyH * 0.8], [Wd * 0.22, bodyH], [0, bodyH]], 14), { color: troll ? 0x7f9a98 : W, slot: troll ? 0 : 1, ao: [hipY, hipY + bodyH, 0.82] }, T(0, hipY, 0));
+    if (troll) b.add(geo.cyl(Wd * 0.42, Wd * 0.48, bodyH * 0.35, 12), { color: 0x6b4a2e }, T(0, hipY + bodyH * 0.18, 0));
     // belt + collar trim
     b.add(geo.torus(Wd * 0.385, Wd * 0.04, 5, 14), { color: 0x5b3b24 }, T(0, hipY + bodyH * 0.3, 0, Math.PI / 2));
     b.add(geo.torus(Wd * 0.24, Wd * 0.04, 5, 12), { color: W, slot: 5 }, T(0, hipY + bodyH * 0.95, 0, Math.PI / 2));
@@ -127,6 +129,14 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
       break;
     case 'skeleton':
       b.add(geo.box(hr * 0.9, hr * 0.25, hr * 0.5), { color: 0xe6e1d2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.75, hr * 0.32));
+      break;
+    case 'troll':
+      // heavy brow, underbite with tusks, warty nose, tuft of moss hair
+      b.add(geo.box(hr * 1.5, hr * 0.28, hr * 0.5), { color: 0x6f8a8a, part: P.Head, pivot: headPiv }, T(0, hy + hr * 0.3, hr * 0.62, 0.35));
+      b.add(geo.sphere(hr * 0.55, 10, 8), { color: 0x7f9a98, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.5, hr * 0.42, 0, 0, 0, 1.6, 0.9, 1));
+      for (const side of [-1, 1]) b.add(geo.cone(hr * 0.12, hr * 0.5, 5), { color: 0xf3ecd8, part: P.Head, pivot: headPiv }, T(side * hr * 0.42, hy - hr * 0.15, hr * 0.8, -0.15, 0, side * 0.2));
+      b.add(geo.sphere(hr * 0.24, 8, 6), { color: 0x8aa6a2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.02, hr * 1.02, 0, 0, 0, 1, 1.2, 1));
+      b.add(geo.ico(hr * 0.45, 1), { color: 0x4f7a3a, part: P.HeadAtt, pivot: headPiv, jitter: 0.03 }, T(0, hy + hr * 0.85, -hr * 0.1, 0, 0, 0, 1.3, 0.6, 1.1));
       break;
   }
   // hands
@@ -220,6 +230,7 @@ export function buildCreatureModels(): Record<number, THREE.BufferGeometry> {
     [Sp.Dwarf]: humanoid({ height: 0.5, width: 0.25, headR: 0.125, skinDefault: 0xe8b590, style: 'dwarf' }),
     [Sp.Orc]: humanoid({ height: 0.66, width: 0.25, headR: 0.13, skinDefault: 0x7fae5a, style: 'orc' }),
     [Sp.Skeleton]: humanoid({ height: 0.62, width: 0.18, headR: 0.12, skinDefault: 0xeeeeee, style: 'skeleton' }),
+    [Sp.Troll]: humanoid({ height: 0.62, width: 0.26, headR: 0.11, skinDefault: 0x7f9a98, style: 'troll' }),
     [Sp.Sheep]: quadruped(Sp.Sheep),
     [Sp.Wolf]: quadruped(Sp.Wolf),
     [Sp.Deer]: quadruped(Sp.Deer),
@@ -233,6 +244,7 @@ export const SKIN_TONES: Record<number, number[]> = {
   [Sp.Elf]: [0xfbe6d4, 0xf3d9c2, 0xe9cfb7],
   [Sp.Dwarf]: [0xf0c3a0, 0xe0a882, 0xc78e68],
   [Sp.Orc]: [0x7fae5a, 0x6d9b4e, 0x8fb565, 0x5f8a49],
+  [Sp.Troll]: [0x7f9a98, 0x6f8a8a, 0x8aa6a2],
 };
 export const HAIR_TONES: Record<number, number[]> = {
   [Sp.Human]: [0x3a2618, 0x5b3920, 0x8a5a2e, 0xd9b05a, 0x1f1a1a, 0xb54a22],
