@@ -98,13 +98,20 @@ export class FloraRenderer {
         if (f === Feat.Crop) sc = 0.25 + 0.75 * Math.min(1, amt / 255);
         if (f === Feat.Boulder || f === Feat.Ore) sc *= 0.6 + 0.4 * Math.min(1, amt / 160);
         const born = this.growth.get(t);
+        let stretch = 1;
         if (born !== undefined) {
-          const k = Math.min(1, (time - born) / 0.7);
+          // springy pop: overshoot, wobble, settle (squash & stretch on the way)
+          const k = Math.min(1, (time - born) / 0.95);
           if (k >= 1) this.growth.delete(t);
-          else { sc *= 1 - Math.pow(1 - k, 3) + Math.sin(k * Math.PI) * 0.15; this.dirty = true; }
+          else {
+            const el = k === 0 ? 0 : Math.pow(2, -9 * k) * Math.sin((k * 9 - 0.75) * ((2 * Math.PI) / 3)) + 1;
+            sc *= Math.max(0.01, el);
+            stretch = 1 + Math.sin(k * Math.PI * 3) * 0.22 * (1 - k);
+            this.dirty = true;
+          }
         }
         q.setFromAxisAngle(up, f === Feat.Crop ? 0 : r2 * Math.PI * 2);
-        s.set(sc, sc * (0.9 + r3 * 0.25), sc);
+        s.set(sc / Math.sqrt(stretch), sc * (0.9 + r3 * 0.25) * stretch, sc / Math.sqrt(stretch));
         p.set(px, py, pz);
         m.compose(p, q, s);
         const L = lists[pi];

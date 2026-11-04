@@ -13,12 +13,30 @@ function trunk(b: ModelBuilder, h: number, r0: number, r1: number, col = BARK, s
 }
 
 function canopyColor(base: number, top: number, y0: number, y1: number) {
-  const a = hex(base), c = hex(top);
+  const a = hex(base), c = hex(top), deep = hex(base).multiplyScalar(0.55);
   return (p: THREE.Vector3, n: THREE.Vector3) => {
     const t = Math.min(1, Math.max(0, (p.y - y0) / (y1 - y0)));
     const col = a.clone().lerp(c, t * 0.8 + Math.max(0, n.y) * 0.25);
-    return col;
+    // leaves facing down sit in the crown's own shade; a little per-vertex variation breaks flat areas
+    if (n.y < -0.1) col.lerp(deep, Math.min(0.6, -n.y * 0.7));
+    const v = Math.sin(p.x * 37.1 + p.y * 19.3 + p.z * 23.7) * 0.5 + 0.5;
+    return col.multiplyScalar(0.94 + v * 0.1);
   };
+}
+
+/** A leafy crown of many soft lumps (high detail): reads as foliage rather than a single ball. */
+function crown(b: ModelBuilder, cc: (p: THREE.Vector3, n: THREE.Vector3) => THREE.Color, blobs: [number, number, number, number][], seed: number, squash = 1) {
+  let k = seed * 13.7;
+  const rnd = () => { k = (k * 9301 + 49297) % 233280; return k / 233280; };
+  for (const [x, y, z, r] of blobs) {
+    b.add(geo.ico(r, 1), { color: cc, leaf: 1, jitter: r * 0.12 }, T(x, y, z, 0, rnd() * 6, 0, 1, squash, 1));
+    // small tufts on the surface give the crown a broken, leafy silhouette
+    for (let i = 0; i < 2; i++) {
+      const a = rnd() * Math.PI * 2, e = rnd() * 1.2 - 0.2;
+      const tr = r * (0.32 + rnd() * 0.18);
+      b.add(geo.ico(tr, 0), { color: cc, leaf: 1, jitter: tr * 0.12 }, T(x + Math.cos(a) * Math.cos(e) * r * 0.92, y + Math.sin(e) * r * 0.85 * squash, z + Math.sin(a) * Math.cos(e) * r * 0.92));
+    }
+  }
 }
 
 export function oak(seed: number): LodPair {
@@ -27,8 +45,8 @@ export function oak(seed: number): LodPair {
   trunk(hi, h, 0.11, 0.07);
   hi.add(geo.cyl(0.035, 0.05, 0.35, 5), { color: BARK }, T(0.12, h * 0.85, 0, 0, 0, -0.8));
   const cc = canopyColor(0x3f8a32, 0x8fd055, 0.55, 1.45);
-  const blobs: [number, number, number, number][] = [[0, 1.0, 0, 0.5], [0.3, 0.88, 0.12, 0.36], [-0.26, 0.9, -0.1, 0.38], [0.05, 1.28, -0.05, 0.36], [-0.08, 0.92, 0.3, 0.32]];
-  for (const [x, y, z, r] of blobs) hi.add(geo.ico(r, 1), { color: cc, leaf: 1, jitter: 0.06 }, T(x, y, z));
+  const blobs: [number, number, number, number][] = [[0, 1.0, 0, 0.48], [0.3, 0.88, 0.12, 0.34], [-0.26, 0.9, -0.1, 0.36], [0.05, 1.28, -0.05, 0.34], [-0.08, 0.92, 0.3, 0.3], [0.18, 1.12, -0.24, 0.28]];
+  crown(hi, cc, blobs, seed);
   trunk(lo, h, 0.11, 0.07, BARK, 5);
   lo.add(geo.ico(0.62, 0), { color: cc, leaf: 1, jitter: 0.05 }, T(0, 1.05, 0, 0, 0, 0, 1, 0.85, 1));
   return [hi.build(), lo.build()];
@@ -46,7 +64,8 @@ export function pine(seed: number, snow = false): LodPair {
     return c;
   };
   for (const [y, r, h] of tiers) {
-    hi.add(geo.cone(r, h, 9), { color: snowCol, leaf: snow ? 0 : 0.3, jitter: 0.025 }, T(0, y + h / 2, 0, 0, seed * 0.7));
+    hi.add(geo.cone(r, h, 11), { color: snowCol, leaf: snow ? 0 : 0.3, jitter: 0.03 }, T(0, y + h / 2, 0, 0, seed * 0.7));
+    hi.add(geo.cone(r * 1.06, h * 0.32, 11), { color: snowCol, leaf: snow ? 0 : 0.3, jitter: 0.035 }, T(0, y + h * 0.12, 0, 0, seed * 0.7 + 0.2));
   }
   lo.add(geo.cone(0.55, 1.5, 6), { color: snowCol, leaf: 0.3 }, T(0, 1.2, 0));
   return [hi.build(), lo.build()];
@@ -57,8 +76,7 @@ export function birch(seed: number): LodPair {
   const bark = (p: THREE.Vector3) => (Math.sin(p.y * 31 + Math.atan2(p.z, p.x) * 2) > 0.82 ? hex(0x3b3631) : hex(0xeeeae0));
   hi.add(geo.cyl(0.045, 0.075, 1.0, 7, 6), { color: bark }, T(0, 0.5, 0));
   const cc = canopyColor(0x7fae3c, 0xd2e66a, 0.7, 1.75);
-  hi.add(geo.ico(0.38, 1), { color: cc, leaf: 1, jitter: 0.05 }, T(0, 1.25, 0, 0, 0, 0, 1, 1.35, 1));
-  hi.add(geo.ico(0.26, 1), { color: cc, leaf: 1, jitter: 0.05 }, T(0.2, 1.0, 0.1, 0, 0, 0, 1, 1.2, 1));
+  crown(hi, cc, [[0, 1.25, 0, 0.36], [0.2, 1.0, 0.1, 0.25], [-0.15, 1.45, -0.05, 0.22]], seed, 1.3);
   lo.add(geo.cyl(0.045, 0.075, 1.0, 5), { color: 0xeeeae0 }, T(0, 0.5, 0));
   lo.add(geo.ico(0.4, 1), { color: cc, leaf: 1 }, T(0, 1.2, 0, 0, 0, 0, 1, 1.4, 1));
   return [hi.build(), lo.build()];
@@ -118,6 +136,7 @@ export function acacia(seed: number): LodPair {
   const cc = canopyColor(0x6f8f2c, 0xb8c95a, 0.95, 1.2);
   hi.add(geo.ico(0.6, 1), { color: cc, leaf: 1, jitter: 0.05 }, T(0.05, 1.08, 0, 0, 0, 0, 1, 0.26, 0.85));
   hi.add(geo.ico(0.35, 1), { color: cc, leaf: 1, jitter: 0.04 }, T(0.38, 1.0, 0.1, 0, 0, 0, 1, 0.28, 1));
+  for (let i = 0; i < 4; i++) { const a = i * 1.3 + seed; hi.add(geo.ico(0.16, 0), { color: cc, leaf: 1, jitter: 0.03 }, T(0.05 + Math.cos(a) * 0.45, 1.13, Math.sin(a) * 0.38, 0, 0, 0, 1, 0.45, 1)); }
   lo.add(geo.cyl(0.05, 0.08, 1.0, 5), { color: BARK }, T(0, 0.5, 0));
   lo.add(geo.ico(0.62, 1), { color: cc, leaf: 1 }, T(0.05, 1.06, 0, 0, 0, 0, 1, 0.28, 0.9));
   return [hi.build(), lo.build()];

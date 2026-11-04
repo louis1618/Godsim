@@ -91,6 +91,17 @@ export class WaterRenderer {
           col += vec3(1.0, 0.95, 0.85) * spec * (1.0 - uRain * 0.8);
           // diffuse ripple shading
           col *= 0.92 + 0.12 * (n0 - 0.6);
+          // caustics dancing over the shallows: two drifting noise fields, bright where their crests meet
+          float cz = 1.0 - smoothstep(0.0, 1.6, depth);
+          if (cz > 0.01) {
+            vec2 cp = p * 2.4;
+            float c1 = gsNoise(cp + vec2(t * 0.35, t * 0.21));
+            float c2 = gsNoise(cp * 1.3 - vec2(t * 0.27, -t * 0.31) + 3.7);
+            float caus = pow(1.0 - abs(c1 - c2), 7.0);
+            col += vec3(0.85, 1.0, 0.95) * caus * cz * 0.35 * (1.0 - uMapMode) * (1.0 - uRain * 0.6);
+          }
+          // light glowing through the crest of shallow water toward the sun
+          col += vec3(0.1, 0.32, 0.28) * (1.0 - smoothstep(0.2, 2.5, depth)) * max(0.0, dot(uSunDir, V) * 0.5 + 0.2) * (1.0 - uMapMode);
           // shoreline foam
           float sea = 1.0 - smoothstep(0.05, 0.3, vLevel);
           float foamEdge = (0.2 + 0.1 * sin(t * 1.6 + gsNoise(p * 0.8) * 6.28)) * mix(0.6, 1.0, sea);

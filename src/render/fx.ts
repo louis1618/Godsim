@@ -152,7 +152,7 @@ export class FxRenderer {
   private flashT = 0;
   private rings: { mesh: THREE.Mesh; t: number; max: number; r: number }[] = [];
   private clouds: THREE.InstancedMesh;
-  private cloudData: { x: number; z: number; y: number; s: number; v: number }[] = [];
+  private cloudData: { x: number; z: number; y: number; s: number; v: number; r: number; k: number }[] = [];
   private rainClouds: THREE.InstancedMesh;
   screenFlash = 0;
   private fireAcc = 0;
@@ -244,8 +244,9 @@ export class FxRenderer {
     this.group.add(this.flash);
     // clouds
     const cb = new ModelBuilder(9);
-    for (const [x, y, z, r] of [[0, 0, 0, 1.6], [1.5, -0.3, 0.2, 1.2], [-1.5, -0.35, -0.1, 1.15], [0.6, 0.5, -0.5, 1.1], [-0.5, 0.35, 0.7, 1.0], [2.6, -0.6, 0, 0.8], [-2.6, -0.6, 0.3, 0.75]] as const)
-      cb.add(geo.ico(r, 2), { color: (p) => new THREE.Color(0xffffff).multiplyScalar(0.82 + 0.18 * Math.min(1, Math.max(0, (p.y + 1) / 2))) }, T(x, y, z, 0, 0, 0, 1, 0.7, 1));
+    for (const [x, y, z, r] of [[0, 0, 0, 1.6], [1.5, -0.3, 0.2, 1.2], [-1.5, -0.35, -0.1, 1.15], [0.6, 0.5, -0.5, 1.1], [-0.5, 0.35, 0.7, 1.0], [2.6, -0.6, 0, 0.8], [-2.6, -0.6, 0.3, 0.75],
+      [0.9, 0.85, 0.3, 0.75], [-0.9, 0.7, -0.4, 0.7], [0.2, 1.1, 0.0, 0.6], [1.9, 0.1, -0.6, 0.7], [-1.9, 0.0, 0.6, 0.65], [0.3, -0.45, 1.0, 0.8], [-0.4, -0.45, -1.0, 0.8]] as const)
+      cb.add(geo.ico(r, 2), { color: (p, n) => new THREE.Color(0xffffff).multiplyScalar(0.74 + 0.2 * Math.min(1, Math.max(0, (p.y + 1) / 2)) + 0.08 * Math.max(0, n.y)).lerp(new THREE.Color(0xc8d4ec), Math.max(0, -n.y) * 0.35) }, T(x, y, z, 0, 0, 0, 1, 0.72, 1));
     const cloudGeo = cb.build();
     const cmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, opacity: 0.9, depthWrite: false });
     this.clouds = new THREE.InstancedMesh(cloudGeo, cmat, 40);
@@ -260,7 +261,7 @@ export class FxRenderer {
   initClouds(W: number, H: number) {
     this.cloudData = [];
     const n = Math.round(9 * (W * H) / (192 * 192));
-    for (let i = 0; i < Math.min(40, n); i++) this.cloudData.push({ x: Math.random() * W * 1.4 - W * 0.2, z: Math.random() * H * 1.4 - H * 0.2, y: 38 + Math.random() * 14, s: 2 + Math.random() * 2.4, v: 0.6 + Math.random() * 0.6 });
+    for (let i = 0; i < Math.min(40, n); i++) this.cloudData.push({ x: Math.random() * W * 1.4 - W * 0.2, z: Math.random() * H * 1.4 - H * 0.2, y: 38 + Math.random() * 14, s: 2 + Math.random() * 2.4, v: 0.6 + Math.random() * 0.6, r: Math.random() * Math.PI * 2, k: 0.75 + Math.random() * 0.6 });
   }
 
   // ---------------------------------------------------------------- event handling
@@ -348,8 +349,11 @@ export class FxRenderer {
         this.burst(e.x, y + 0.2, e.z, 8, { color: 0x9a948c, frame: PF.Chip, speed: 1.5, up: 2.5, life: 0.8, size: 0.08, grav: -9 });
         break;
       case 'sprout':
-        if (!close || this.rig.z01 > 0.5) return;
-        this.burst(e.x, y + 0.15, e.z, 2, { color: 0xa8e070, frame: PF.Spark, speed: 0.2, up: 0.6, life: 0.6, size: 0.06, add: true });
+        if (!close || this.rig.z01 > 0.6) return;
+        // a little burst of life: leaves, sparkle and a puff of soil
+        this.burst(e.x, y + 0.3, e.z, 4, { color: 0x8fd055, frame: PF.Leaf, speed: 1.1, up: 2.6, life: 0.9, size: 0.09, grav: -5, drag: 1.2 });
+        this.burst(e.x, y + 0.2, e.z, 3, { color: 0xeaffb0, frame: PF.Spark, speed: 0.6, up: 1.4, life: 0.5, size: 0.08, add: true });
+        if (Math.random() < 0.5) this.burst(e.x, y + 0.05, e.z, 2, { color: 0x9a7a5a, frame: PF.Smoke, speed: 0.6, up: 0.2, life: 0.6, size: 0.12, size1: 0.3, drag: 3, alpha: 0.6 });
         break;
       case 'arrow':
         if (!close) return;
@@ -411,7 +415,8 @@ export class FxRenderer {
           if (close) {
             this.burst(e.x, y0, e.z, big ? 10 : 6, { color: 0xffd27a, frame: PF.Flame, speed: 1.4, up: 0.6, life: 0.25, size: big ? 0.5 : 0.3, size1: 0.05, add: true, drag: 4 });
             this.burst(e.x, y0, e.z, big ? 12 : 6, { color: 0xd8d0c4, frame: PF.Smoke, speed: 1.2, up: 0.5, life: 1.4, size: 0.3, size1: big ? 1.1 : 0.7, drag: 2, alpha: 0.75 });
-            this.flashAt(e.x, y0 + 0.5, e.z, 8, 6);
+            this.flashAt(e.x, y0 + 0.5, e.z, big ? 14 : 8, big ? 9 : 6);
+            this.rig.shake = Math.max(this.rig.shake, big ? 0.16 : 0.09);
           }
         } else this.shells.push({ x0: e.x, z0: e.z, x1: e.tx!, z1: e.tz!, y0, y1: gy1, t: 0, dur, arc: 0 });
         break;
@@ -724,7 +729,7 @@ export class FxRenderer {
       c.x += c.v * dt; c.z += c.v * 0.3 * dt;
       if (c.x > W * 1.25) c.x = -W * 0.25;
       if (c.z > H * 1.25) c.z = -H * 0.25;
-      p.set(c.x, c.y, c.z); q.identity(); s.set(c.s, c.s * 0.8, c.s);
+      p.set(c.x, c.y, c.z); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), c.r); s.set(c.s * c.k, c.s * 0.8, c.s / c.k);
       m.compose(p, q, s);
       this.clouds.setMatrixAt(nc++, m);
     }

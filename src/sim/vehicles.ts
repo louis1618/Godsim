@@ -255,6 +255,7 @@ export function overseasSite(sim: Sim, v: Village, siteOk: (x: number, z: number
 export function vehicleTick(sim: Sim, u: Unit) {
   if (u.cd > 0) u.cd--;
   if (u.hitT > 0) u.hitT--;
+  if (u.animT > 0) u.animT--;
   if (u.emoteT > 0) u.emoteT--;
   // an owner kingdom that fell leaves the machine rogue
   if (u.kingdom >= 0 && !sim.kingdoms.get(u.kingdom)?.alive) u.kingdom = -1;

@@ -25,6 +25,7 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
     off = vec3(0.0, A == 11.0 ? sin(t * 1.7) * 0.02 : A == 10.0 ? sin(t * 40.0) * 0.003 : 0.0, 0.0);
     if (A == 11.0) lean = sin(t * 1.1) * 0.05;
     if (part == 7 && A == 12.0) R = gsRotZ(t * 45.0);
+    if (A == 13.0) off.z -= 0.07; // gun recoil
     return;
   }
   bool walk = A == 1.0 || A == 4.0;
@@ -95,7 +96,10 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vFlash;')
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.35, 0.3), vFlash * 0.75);')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.4, 0.3) * vFlash * 0.6;');
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+totalEmissiveRadiance += vec3(1.0, 0.4, 0.3) * vFlash * 0.6;
+// soft rim light: rounded silhouettes catch the sky, like plush toys under studio light
+{ float rim = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 3.0); totalEmissiveRadiance += diffuseColor.rgb * rim * 0.32 + vec3(0.9, 0.95, 1.0) * rim * 0.08; }`);
     }
   };
   mat.customProgramCacheKey = () => (depth ? 'gs-char-depth' : 'gs-char');
@@ -332,7 +336,7 @@ export class UnitRenderer {
       if (hairs && u.age > def.lifespan[0] * 0.75) this.c.lerp(new THREE.Color(0xdddddd), 0.7);
       pool.hair.setXYZ(i, this.c.r, this.c.g, this.c.b);
       let anim: number = u.anim;
-      if (isVehicle(u.sp)) anim = u.sp === Sp.Boat ? Anim.Float : u.sp === Sp.Plane ? Anim.Soar : Anim.Drive;
+      if (isVehicle(u.sp)) anim = u.sp === Sp.Boat ? Anim.Float : u.sp === Sp.Plane ? Anim.Soar : u.animT > 0 ? 13 : Anim.Drive;
       else if (ph || u.id === this.heldId) anim = Anim.Fly;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
