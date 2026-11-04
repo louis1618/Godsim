@@ -12,6 +12,13 @@ const GRAVITY = -16;
 interface Ragdoll { body: RAPIER.RigidBody; unit: number; t: number; still: number; lastVy: number; offset: number; prev: THREE.Vector3; prevQ: THREE.Quaternion; cur: THREE.Vector3; curQ: THREE.Quaternion; }
 export interface Debris { body: RAPIER.RigidBody; color: THREE.Color; size: THREE.Vector3; life: number; max: number; }
 
+// Collision groups (membership << 16 | filter): the simulation's ragdolls must never feel the purely
+// cosmetic debris, whose spawning depends on what the camera sees.
+const G_GROUND = 0x0001, G_RAGDOLL = 0x0002, G_DEBRIS = 0x0004;
+const GROUPS_GROUND = (G_GROUND << 16) | 0xffff;
+const GROUPS_RAGDOLL = (G_RAGDOLL << 16) | (G_GROUND | G_RAGDOLL);
+const GROUPS_DEBRIS = (G_DEBRIS << 16) | (G_GROUND | G_DEBRIS);
+
 /**
  * Rapier-backed physics for the comedic bits: creatures flung by explosions, tornadoes and the
  * god hand tumble, bounce and get up dizzy; collapsing buildings and meteors scatter debris.
@@ -53,7 +60,7 @@ export class Physics {
     for (let x = 0; x < w.W; x++) for (let z = 0; z < w.H; z++) heights[z + x * w.H] = w.height[z * w.W + x];
     const desc = RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, { x: w.W - 1, y: 1, z: w.H - 1 })
       .setTranslation(w.W / 2, 0, w.H / 2).setFriction(0.8).setRestitution(0.35);
-    this.ground = this.world.createCollider(desc);
+    this.ground = this.world.createCollider(desc.setCollisionGroups(GROUPS_GROUND));
     this.groundDirty = false;
   }
 
@@ -66,7 +73,7 @@ export class Physics {
     if (!r) {
       const y = Math.max(this.terrain.heightAt(u.x, u.z), this.terrain.water[this.terrain.tileAt(u.x, u.z)] ?? 0);
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(u.x, y + off + 0.05, u.z).setLinearDamping(0.15).setAngularDamping(0.6).setCcdEnabled(true));
-      this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45), body);
+      this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45).setCollisionGroups(GROUPS_RAGDOLL), body);
       r = { body, unit: u.id, t: 0, still: 0, lastVy: 0, offset: off, prev: new THREE.Vector3(u.x, y, u.z), prevQ: new THREE.Quaternion(), cur: new THREE.Vector3(u.x, y, u.z), curQ: new THREE.Quaternion() };
       this.ragdolls.set(u.id, r);
     }
@@ -101,7 +108,7 @@ export class Physics {
     const ground = this.terrain.heightAt(pos.x, pos.z);
     const size = SPECIES[u.sp].size;
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, Math.max(pos.y, ground + 0.4), pos.z).setLinearDamping(0.1).setAngularDamping(0.5).setCcdEnabled(true));
-    this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45), body);
+    this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45).setCollisionGroups(GROUPS_RAGDOLL), body);
     body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
     body.setAngvel({ x: (sim.rng.next() - 0.5) * 8, y: (sim.rng.next() - 0.5) * 4, z: (sim.rng.next() - 0.5) * 8 }, true);
     const p0 = new THREE.Vector3(pos.x, Math.max(pos.y, ground + 0.4), pos.z);
@@ -115,7 +122,7 @@ export class Physics {
     // purely cosmetic: render-side randomness is fine here
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinearDamping(0.2).setAngularDamping(0.3));
     const sx = size * (0.6 + Math.random() * 0.8), sy = size * (0.5 + Math.random() * 0.8), sz = size * (0.6 + Math.random() * 0.8);
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2).setDensity(2).setRestitution(0.3).setFriction(0.8), body);
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2).setDensity(2).setRestitution(0.3).setFriction(0.8).setCollisionGroups(GROUPS_DEBRIS), body);
     body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
     body.setAngvel({ x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10, z: (Math.random() - 0.5) * 10 }, true);
     this.debris.push({ body, color: new THREE.Color(color), size: new THREE.Vector3(sx, sy, sz), life, max: life });

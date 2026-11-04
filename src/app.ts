@@ -44,6 +44,7 @@ export class AppCtl {
   labels: MapLabels;
   /** true once the current world has been played (it then deserves protection) */
   played = false;
+  private autoAt = 0;
   private autoT = 0;
   private saving = false;
   static AUTOSAVE_SECONDS = 90;
@@ -120,7 +121,7 @@ export class AppCtl {
       const ok = await saveSlot('auto', this.game.sim, this.thumbnail());
       if (ok) store.set({ continueMeta: await autosaveMeta(), lastAutosave: Date.now() });
       return ok;
-    } finally { this.saving = false; this.autoT = 0; }
+    } finally { this.saving = false; this.autoT = 0; this.autoAt = performance.now(); }
   }
 
   thumbnail(): string {
@@ -330,10 +331,12 @@ export class AppCtl {
     }
     this.ctl.update(dt);
     this.labels.update(dt);
+    // autosave on the wall clock: slow frames (and their clamped dt) must not stretch the interval
     if (store.s.screen === 'play' && this.played && !this.game.paused) {
-      this.autoT += dt;
-      if (this.autoT > AppCtl.AUTOSAVE_SECONDS) this.autosave();
-    }
+      const now = performance.now();
+      if (!this.autoAt) this.autoAt = now;
+      if (now - this.autoAt > AppCtl.AUTOSAVE_SECONDS * 1000) { this.autoAt = now; this.autosave(); }
+    } else this.autoAt = 0;
     // audio listener + ambience estimate around the view
     const rig = this.gr.rig;
     audio.listener.x = rig.focus.x; audio.listener.z = rig.focus.z; audio.listener.span = rig.V; audio.listener.z01 = rig.z01; audio.listener.yaw = rig.yaw;
