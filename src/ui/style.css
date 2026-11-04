@@ -268,3 +268,19 @@
 @keyframes battle-pulse { from { filter: brightness(1); } to { filter: brightness(1.35); } }
 .plate.mini .pname { display: none; }
 .plate.mini { padding: 2px 4px; }
+
+.card .name.editable { cursor: text; }
+.card .name .pen { font-size: 13px; margin-left: 6px; opacity: 0; transition: opacity .15s; font-family: var(--font-body); }
+.card .name.editable:hover .pen { opacity: .8; }
+.name-input { font-family: var(--font-display); font-size: 20px; width: 160px; border: 3px solid var(--ink); border-radius: 10px; padding: 2px 8px; color: var(--ink); background: #fff; outline: none; }
+.state-row { display: flex; align-items: center; gap: 10px; }
+.moodface { width: 40px; height: 40px; flex: 0 0 auto; }
+.state b { font-family: var(--font-display); font-weight: normal; font-size: 18px; display: block; line-height: 1.1; }
+.state small { font-size: 12px; opacity: .7; }
+.needs { display: grid; gap: 4px; }
+.need { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.need span { width: 54px; opacity: .75; }
+.meter.blue i { background: linear-gradient(180deg, #9fdcff, #3a8ae0); }
+.meter.pink i { background: linear-gradient(180deg, #ffc2da, #ff6a9a); }
+.pill.rel { cursor: pointer; }
+.pill.rel.dead { opacity: .45; text-decoration: line-through; cursor: default; }

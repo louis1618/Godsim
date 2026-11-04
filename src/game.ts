@@ -39,6 +39,7 @@ export class Game {
 
   setSim(world: World, sim: Sim) {
     this.sim = sim;
+    sim.physics = this.physics.ready ? this.physics : null;
     this.gr.setWorld(world);
     this.gr.terrain.ownerColor = (vid) => {
       const v = sim.villages.get(vid);
@@ -75,9 +76,8 @@ export class Game {
     U.uSnow.value = damp(U.uSnow.value, snow, 2, dt);
     const rig = this.gr.rig;
     const pxScale = this.gr.renderer.getPixelRatio();
-    // physics: ragdolls + debris
-    if (!sim.world.dirtyTerrain.empty) this.physics.markGroundDirty();
-    this.physics.step(sim, this.paused ? 0 : dt, this.speed, this.units.physics);
+    // physics runs inside sim ticks; here we only interpolate ragdolls for drawing
+    this.physics.interpolate(this.alpha, this.units.physics, this.units.heldId);
     this.units.orbit = rig.orbit;
     this.units.update(sim, this.alpha, rig.camera.position, rig.focus, rig.V, rig.z01, pxScale, dt);
     this.buildings.update(sim);

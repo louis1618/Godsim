@@ -1,11 +1,12 @@
 import { Sp, Bk } from './defs';
 
-export const enum Job { None = 0, Gatherer = 1, Farmer = 2, Woodcutter = 3, Miner = 4, Builder = 5, Warrior = 6, Hunter = 7 }
+export const enum Job { None = 0, Gatherer = 1, Farmer = 2, Woodcutter = 3, Miner = 4, Builder = 5, Warrior = 6, Hunter = 7, Guard = 8, Trader = 9, Fisher = 10, Scholar = 11, Worker = 12 }
 export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9 }
 export const enum Emote { None = 0, Heart = 1, Angry = 2, Alert = 3, Sad = 4, Zzz = 5, Music = 6, Skull = 7, Crown = 8, Sick = 9, Star = 10, Food = 11, Swords = 12 }
 export const enum UF {
   King = 1 << 0, Hero = 1 << 1, Sick = 1 << 2, Mad = 1 << 3, Settler = 1 << 4, Leader = 1 << 5,
   Burning = 1 << 6, Ragdoll = 1 << 7, Held = 1 << 8, Dead = 1 << 9, Blessed = 1 << 10, Cursed = 1 << 11,
+  Jailed = 1 << 12, Aboard = 1 << 13, Escorted = 1 << 14,
 }
 export const enum Res { None = 0, Food = 1, Wood = 2, Stone = 3, Gold = 4 }
 
@@ -27,7 +28,10 @@ export type Task =
   | { k: 'march'; v: number }
   | { k: 'rally'; tx: number; tz: number }
   | { k: 'love'; u: number; t: number }
-  | { k: 'chat'; u: number; t: number };
+  | { k: 'chat'; u: number; t: number }
+  | { k: 'sleep'; t: number; sx?: number; sz?: number }
+  | { k: 'dance'; t: number }
+  | { k: 'steal'; v: number; sx?: number; sz?: number };
 
 export interface Unit {
   id: number;
@@ -65,8 +69,22 @@ export interface Unit {
   vx: number; vz: number; vy: number; // flung velocity (when airborne)
   spin: number;
   pathNav: number;          // nav version the current path was planned against
-  mood: number;             // 0..100 (see needs)
+  mood: number;             // 0..100, derived from needs + memories + surroundings
+  energy: number;           // 0 exhausted .. 100 rested
+  social: number;           // 0 lonely .. 100 fulfilled
+  mems: Memory[];           // timed mood modifiers (grief, wedding, victory, ...)
+  partner: number;          // unit id or -1
+  parents: number[];        // [mother, father] unit ids (may be dead)
+  friend: number;           // best friend unit id or -1
+  rival: number;            // grudge unit id or -1
+  crimes: number;           // crimes committed (police / prison)
+  jailUntil: number;        // tick until release when imprisoned (-1 free)
+  mother: number;           // convenience: mother id or -1
+  blocked?: number;         // consecutive blocked re-plans
 }
+
+export const enum Mem { Grief = 1, Wedding = 2, NewBaby = 3, Victory = 4, Defeat = 5, Injured = 6, Blessed = 7, Famine = 8, Homeless = 9, Jailed = 10, Robbed = 11, Party = 12, Fire = 13, Disaster = 14, Trade = 15 }
+export interface Memory { k: Mem; v: number; until: number; }
 
 export interface Building {
   id: number;
@@ -103,6 +121,13 @@ export interface Village {
   alive: boolean;
   hall: number;             // town hall building id
   rallyT: number;
+  avgMood: number;          // mean resident mood (drives output, births, loyalty)
+  forest: number;           // share of wooded land around (elves care)
+  homeless: boolean;        // more people than beds
+  famineT: number;          // last tick a famine was felt
+  crime?: number;           // thefts / fights recently (police respond)
+  coastal: boolean;         // could host a dock (false once a search failed)
+  wanted: number[];         // criminals the guards are after
   captureT: number;
   blessT: number;
   lastAttacked: number;
@@ -130,6 +155,10 @@ export interface Kingdom {
   kills: number; deaths: number;
   aggression: number;
   rebelOf: number;
+  lastKing: number;         // for succession by heirs
+  era: number;              // Era
+  tech: number;             // accumulated knowledge
+  tradeBoost?: number;      // knowledge multiplier from recent trade
 }
 
 export interface HistoryEntry {

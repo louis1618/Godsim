@@ -8,6 +8,7 @@ import { SPECIES, isCiv } from './sim/defs';
 import { U } from './render/shared';
 import { audio } from './audio/audio';
 
+const EXPANDERS = new Set(['land', 'raise', 'mountain', 'grass', 'sand', 'desert', 'snow', 'swamp', 'lava']);
 const ACCENT: Record<string, number> = { world: 0x6cc04a, life: 0xff7a8a, civ: 0xffc53d, nature: 0x33c2a6, disaster: 0xff6a3a, observe: 0x8f7cf2, settings: 0x9aa7bd };
 
 /** Turns mouse + keyboard into camera motion and god powers. */
@@ -26,6 +27,8 @@ export class Controller {
   private held: { id: number; pos: THREE.Vector3; vel: THREE.Vector3; last: THREE.Vector3 } | null = null;
   private lastMove = 0;
   private raycaster = new THREE.Raycaster();
+  /** asked when a land-making brush reaches the edge of the world; returns the shift applied */
+  expandHook: ((x: number, z: number, r: number) => { dx: number; dz: number } | null) | null = null;
 
   constructor(private game: Game, private el: HTMLElement) {
     const n = 64;
@@ -261,8 +264,16 @@ export class Controller {
     this.applyAcc += dt * rate;
     if (this.applyAcc < 1) return;
     this.applyAcc = Math.min(this.applyAcc - 1, 1);
-    const g = this.ground;
+    let g = this.ground;
     if (!g) return;
+    // painting land past the edge grows the world (infinite canvas)
+    if (EXPANDERS.has(p.id) && this.expandHook) {
+      const w = this.game.sim.world, r = store.s.brush + 2;
+      if (g.x - r < 4 || g.z - r < 4 || g.x + r > w.W - 4 || g.z + r > w.H - 4) {
+        const sh = this.expandHook(g.x, g.z, r);
+        if (sh) { g = g.clone(); g.x += sh.dx; g.z += sh.dz; this.ground = g; }
+      }
+    }
     const ok = applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt, first: true });
     audio.play(p.id, g.x, g.z, ok);
     if (p.mode === 'click' && rate <= 1.5) this.btn = -1; // single-shot disasters

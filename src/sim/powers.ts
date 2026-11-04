@@ -153,7 +153,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     }
     case 'ocean': brush(sim, x, z, r, (t, k) => { w.height[t] += (-3.2 - w.height[t]) * 0.4 * k; w.water[t] = Math.max(0, Math.min(w.water[t], 0)); if (w.height[t] < 0) { w.mat[t] = Mat.Sand; } afterSculpt(sim, t); }); break;
     case 'land': brush(sim, x, z, r, (t, k) => {
-      if (w.height[t] < 0.6) w.height[t] += (0.7 - w.height[t]) * 0.45 * k;
+      if (w.height[t] < 0.6) w.height[t] += (0.7 - w.height[t]) * 0.75 * k;
       if (k > 0.3 && w.height[t] > 0.3 && (w.mat[t] === Mat.Sand || w.mat[t] === Mat.Lava)) { w.mat[t] = w.height[t] > 0.55 ? Mat.Grass : Mat.Sand; w.grass[t] = 150; }
       if (w.water[t] > 0 && w.height[t] > 0.3) w.water[t] = 0;
       afterSculpt(sim, t);

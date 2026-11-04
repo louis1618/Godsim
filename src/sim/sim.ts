@@ -9,6 +9,7 @@ import { villageThink, kingdomThink, diplomacyThink, onBuildingDestroyed } from 
 import { natureTick } from './nature';
 import { disasterTick } from './disasters';
 import { resolveInside } from './nav';
+import { onDeath } from './mind';
 
 export interface FxEvent {
   t: string;
@@ -24,6 +25,12 @@ export interface Laws {
 }
 
 export const CELL = 4;
+
+/** Engine-agnostic physics hook: the sim asks it to launch bodies and advances it once per tick. */
+export interface PhysicsPort {
+  fling(sim: Sim, u: Unit, vx: number, vy: number, vz: number, spin: number): void;
+  tick(sim: Sim): void;
+}
 
 /** The whole simulation state + fixed-step update. No rendering code here. */
 export class Sim {
@@ -50,12 +57,31 @@ export class Sim {
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
   stats = { births: 0, deaths: 0, wars: 0, kills: 0 };
+  deathCauses: Record<string, number> = {};
   onHistory: ((h: HistoryEntry) => void) | null = null;
+  physics: PhysicsPort | null = null;
+
+  /** Throw a creature (explosions, tornadoes, quakes). Without a physics engine it just staggers. */
+  fling(u: Unit, vx: number, vy: number, vz: number, spin = 8) {
+    this.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, a: vy });
+    if (this.physics) { this.physics.fling(this, u, vx, vy, vz, spin); return; }
+    const nx = u.x + vx * 0.15, nz = u.z + vz * 0.15;
+    const t = this.world.tileAt(nx, nz);
+    if (t >= 0 && this.world.walkable(t)) { u.x = nx; u.z = nz; }
+  }
   usedColors = new Set<number>();
 
   constructor(world: World, seed: number) {
     this.world = world;
     this.rng = new Rng(seed ^ 0x5eed);
+    this.pf = new PathFinder(world);
+    this.cw = 0; this.ch = 0; this.cellHead = new Int32Array(0);
+    this.bindWorld(world);
+  }
+
+  /** (Re)attach a world: used at creation and when the world grows. */
+  bindWorld(world: World) {
+    this.world = world;
     this.pf = new PathFinder(world);
     world.bldPassable = (t) => {
       const b = this.buildings.get(world.bld[t]);
@@ -88,6 +114,7 @@ export class Sim {
       anim: Anim.Idle, animT: 0, emote: Emote.None, emoteT: 0, home: -1, born: this.tick,
       think: r.int(1, 10), look: r.int(0, 1 << 20), stuck: 0, lastHit: -1, breedT: Math.floor(def.breedEvery * YEAR_TICKS * r.range(0.5, 1.2)),
       hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60,
+      energy: r.range(60, 100), social: r.range(50, 90), mems: [], partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1,
       ...opts,
     };
     if (isCiv(sp) && opts.traits === undefined) {
@@ -129,6 +156,7 @@ export class Sim {
     u.flags |= UF.Dead;
     u.hp = 0;
     this.stats.deaths++;
+    if (isCiv(u.sp)) this.deathCauses[cause] = (this.deathCauses[cause] ?? 0) + 1;
     this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : 0 });
     if (by) {
       by.kills++; by.xp += 10 + u.level * 5;
@@ -146,6 +174,7 @@ export class Sim {
     }
     const v = this.villages.get(u.village);
     if (v) { const i = v.residents.indexOf(u.id); if (i >= 0) v.residents.splice(i, 1); }
+    onDeath(this, u, by);
     // undead rising from plague victims
     if (cause === 'plague' && this.laws.plague && this.rng.chance(0.25) && isCiv(u.sp)) {
       const x = u.x, z = u.z;
@@ -282,6 +311,7 @@ export class Sim {
     }
     natureTick(this);
     disasterTick(this);
+    this.physics?.tick(this);
     if (this.scheduled.length) {
       const due = this.scheduled.filter((s) => s.at <= this.tick);
       if (due.length) { this.scheduled = this.scheduled.filter((s) => s.at > this.tick); for (const s of due) s.fn(); }

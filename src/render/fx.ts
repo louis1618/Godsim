@@ -392,11 +392,7 @@ export class FxRenderer {
       case 'rise':
         this.burst(e.x, y + 0.3, e.z, 12, { color: 0x3a2e48, frame: PF.Smoke, speed: 0.8, up: 0.8, life: 1.5, size: 0.4, size1: 0.8, alpha: 0.8 });
         break;
-      case 'fling': {
-        const u = sim.getUnit(e.u ?? -1) ?? sim.unitMap.get(e.u ?? -1);
-        if (u) this.physics.fling(sim, u, e.tx ?? 0, e.a ?? 5, e.tz ?? 0, 8);
-        break;
-      }
+      case 'fling': break; // physics already launched it inside the simulation tick
       case 'deliver':
         if (!close || this.rig.z01 > 0.45) return;
         this.burst(e.x, y + 0.4, e.z, 2, { color: 0xffe9a0, frame: PF.Spark, speed: 0.3, up: 0.8, life: 0.4, size: 0.06, add: true });

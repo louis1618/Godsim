@@ -18,6 +18,7 @@ import { saveSlot, loadSlot, autosaveMeta, SlotKey } from './sim/save';
 import { fireTiles } from './sim/nature';
 import { damp } from './core/math';
 import { MapLabels } from './ui/maplabels';
+import { growWorld, MAX_WORLD } from './sim/expand';
 
 interface FeedItem { key: number; t: number; icon: string; title: string; text: string; colors: string[]; x?: number; z?: number; }
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -51,6 +52,7 @@ export class AppCtl {
     this.ctl = new Controller(this.game, canvas);
     this.setQuality(this.quality);
     this.labels = new MapLabels(this.game, uiRoot.parentElement!);
+    this.ctl.expandHook = (x, z, r) => this.expandAt(x, z, r);
     mountUI(uiRoot, this);
     this.gr.onFrame.push((dt) => this.frame(dt));
     const unlock = () => { audio.start(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
@@ -140,6 +142,27 @@ export class AppCtl {
     this.genAnim = 0; U.uGenesis.value = 0;
     this.enterPlay();
   }
+
+  /** Grow the world so a brush at (x,z) with radius r fits, keeping the camera where it is. */
+  expandAt(x: number, z: number, r: number): { dx: number; dz: number } | null {
+    const sim = this.game.sim, w = sim.world, m = 8;
+    const left = x - r < m ? m - (x - r) : 0, top = z - r < m ? m - (z - r) : 0;
+    const right = x + r > w.W - m ? x + r - (w.W - m) : 0, bottom = z + r > w.H - m ? z + r - (w.H - m) : 0;
+    const rig = this.gr.rig;
+    const keep = { f: rig.focus.clone(), tf: rig.tFocus.clone(), V: rig.V, tV: rig.tV, yaw: rig.yaw, tYaw: rig.tYaw, tilt: rig.tilt, tTilt: rig.tTilt };
+    const sh = growWorld(sim, left, top, right, bottom);
+    if (!sh) { if (this.rate('maxworld', 3000)) this.toast('cat-world', t('worldMax') + ` (${MAX_WORLD})`); return null; }
+    this.game.setSim(sim.world, sim);
+    rig.focus.copy(keep.f).add(new THREE.Vector3(sh.dx, 0, sh.dz)); rig.tFocus.copy(keep.tf).add(new THREE.Vector3(sh.dx, 0, sh.dz));
+    rig.V = keep.V; rig.tV = keep.tV; rig.yaw = keep.yaw; rig.tYaw = keep.tYaw; rig.tilt = keep.tilt; rig.tTilt = keep.tTilt;
+    rig.apply();
+    this.labels.clear();
+    audio.ui('whoosh');
+    this.toast('cat-world', `${t('worldGrew')} ${sim.world.W}×${sim.world.H}`);
+    return sh;
+  }
+  private rates = new Map<string, number>();
+  private rate(k: string, ms: number) { const n = performance.now(); if ((this.rates.get(k) ?? 0) + ms > n) return false; this.rates.set(k, n); return true; }
 
   toast(icon: string, text: string) { store.set({ toast: { icon, text, t: performance.now() } }); }
 

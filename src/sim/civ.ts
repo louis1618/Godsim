@@ -1,9 +1,10 @@
 import { Sim, setTimeout0 } from './sim';
-import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res } from './entities';
-import { SPECIES, Sp, Bk, BUILDINGS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS } from './defs';
+import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res, Mem } from './entities';
+import { SPECIES, Sp, Bk, BUILDINGS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
 import { kingdomName, villageName } from './names';
 import { findFeature, setTask } from './ai';
 import { resolveInside, standAtBuilding } from './nav';
+import { remember, forestAround } from './mind';
 import { hash2 } from '../core/rng';
 
 export function villageOf(sim: Sim, u: Unit): Village | undefined {
@@ -87,6 +88,33 @@ export function placeBuilding(sim: Sim, v: Village | null, kind: Bk, x: number, 
   return b;
 }
 
+/** A 2x2 pad on the shore with open water next to it. */
+function findDockSite(sim: Sim, v: Village): [number, number] | null {
+  const w = sim.world;
+  let best: [number, number] | null = null, bd = 1e9;
+  const R = v.radius + 6;
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const x = v.cx + dx, z = v.cz + dz;
+    if (x < 2 || z < 2 || x + 3 >= w.W || z + 3 >= w.H) continue;
+    let ok = true, hmin = 99, hmax = -99, waterNext = 0, deep = false;
+    for (let j = 0; j < 2 && ok; j++) for (let i = 0; i < 2; i++) {
+      const t = w.idx(x + i, z + j);
+      if (!w.walkable(t) || w.bld[t] >= 0 || (w.owner[t] >= 0 && w.owner[t] !== v.id)) { ok = false; break; }
+      hmin = Math.min(hmin, w.height[t]); hmax = Math.max(hmax, w.height[t]);
+    }
+    if (!ok || hmax - hmin > 0.8) continue;
+    for (let j = -1; j <= 2; j++) for (let i = -1; i <= 2; i++) {
+      const t = w.idx(x + i, z + j);
+      if (w.isWater(t)) waterNext++;
+    }
+    for (let j = -3; j <= 4 && !deep; j++) for (let i = -3; i <= 4; i++) { const xx = x + i, zz = z + j; if (w.inside(xx, zz) && w.waterDepth(w.idx(xx, zz)) > 0.8) { deep = true; break; } }
+    if (waterNext < 2 || !deep) continue;
+    const d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = [x, z]; }
+  }
+  return best;
+}
+
 function findSite(sim: Sim, v: Village, kind: Bk): [number, number] | null {
   const size = BUILDINGS[kind].size;
   const margin = kind === Bk.Farm ? 0 : 1;
@@ -95,7 +123,7 @@ function findSite(sim: Sim, v: Village, kind: Bk): [number, number] | null {
   const tries = 70;
   for (let i = 0; i < tries; i++) {
     const a = sim.rng.range(0, Math.PI * 2);
-    const minR = kind === Bk.Farm ? Math.min(R - 1, 4 + v.level) : kind === Bk.Tower ? R * 0.7 : 2.5;
+    const minR = kind === Bk.Farm ? Math.min(R - 1, 4 + v.level) : kind === Bk.Tower || kind === Bk.Cannon ? R * 0.72 : kind === Bk.Factory ? R * 0.5 : 2.5;
     const d = sim.rng.range(minR, R);
     const x = Math.round(v.cx + 0.5 + Math.cos(a) * d - size / 2), z = Math.round(v.cz + 0.5 + Math.sin(a) * d - size / 2);
     if (!siteOk(sim, x, z, size, v.id, margin)) continue;
@@ -170,7 +198,7 @@ export function createKingdom(sim: Sim, race: Sp, rebelOf = -1): Kingdom {
     id: sim.id(), name: kingdomName(sim.rng, race), race, color: pickColor(sim),
     banner: { symbol: sim.rng.int(0, 11), pattern: sim.rng.int(0, 5), c1: 0, c2: 0 },
     capital: -1, king: -1, villages: [], opinion: {}, wars: [], allies: [], warStart: {}, peaceT: {},
-    founded: sim.tick, alive: true, target: -1, kills: 0, deaths: 0, aggression: 0.5, rebelOf,
+    founded: sim.tick, alive: true, target: -1, kills: 0, deaths: 0, aggression: 0.5, rebelOf, lastKing: -1, era: 0, tech: 0,
   };
   k.banner.c1 = k.color;
   k.banner.c2 = sim.rng.int(0, KINGDOM_COLORS.length - 1);
@@ -201,7 +229,7 @@ export function tryFoundVillage(sim: Sim, u: Unit, settling = false): boolean {
     id: sim.id(), name: villageName(sim.rng, u.sp), kingdom: k!.id, race: u.sp,
     cx: site[0] + 1, cz: site[1] + 1, buildings: [], residents: [], food: 14, wood: 16, stone: 0, gold: 0,
     level: 0, radius: 6, loyalty: 100, happiness: 60, planT: 0, founded: sim.tick, alive: true, hall: -1,
-    rallyT: 0, captureT: 0, blessT: 0, lastAttacked: -9999,
+    rallyT: 0, captureT: 0, blessT: 0, lastAttacked: -9999, avgMood: 60, forest: 0.2, homeless: false, famineT: -9999, coastal: true, wanted: [],
   };
   sim.villages.set(v.id, v);
   k!.villages.push(v.id);
@@ -226,7 +254,7 @@ export function tryFoundVillage(sim: Sim, u: Unit, settling = false): boolean {
 function crown(sim: Sim, k: Kingdom, u: Unit) {
   const old = sim.getUnit(k.king);
   if (old) old.flags &= ~UF.King;
-  k.king = u.id;
+  k.king = u.id; k.lastKing = u.id;
   u.flags |= UF.King;
   sim.emote(u, Emote.Crown, 50);
   const b = u.traits;
@@ -304,22 +332,36 @@ export function villageThink(sim: Sim, v: Village) {
   if (R !== v.radius) { v.radius = R; claimTerritory(sim, v); }
 
   const atWar = !!k && k.wars.length > 0;
-  // births
-  if (sim.laws.births && pop < housing && v.food >= 4 && adults.length >= 2) {
-    const fert = def.fertility * (adults.some((a) => a.traits & Trait.Fertile) ? 1.3 : 1) * (v.blessT > sim.tick ? 1.6 : 1);
-    if (sim.rng.chance(0.2 * fert * Math.min(1.4, v.food / 18))) {
-      const mom = sim.rng.pick(adults.filter((a) => a.female) as Unit[]) as Unit | undefined;
-      const dad = sim.rng.pick(adults.filter((a) => !a.female) as Unit[]) as Unit | undefined;
-      if (mom && dad) {
-        sim.emote(mom, Emote.Heart, 30); sim.emote(dad, Emote.Heart, 30);
-        const baby = sim.spawnUnit(v.race, mom.x + 0.3, mom.z + 0.3, { age: 0, kingdom: v.kingdom });
-        baby.traits |= (mom.traits | dad.traits) & sim.rng.int(0, 0xfff) & ~(Trait.Immortal | Trait.Blessed);
-        sim.applyTraits(baby); baby.hp = baby.maxHp;
-        addResident(sim, v, baby);
-        v.food -= 3;
-        sim.stats.births++;
-        sim.fx.push({ t: 'birth', x: baby.x, z: baby.z, u: baby.id });
-      }
+  // collective state
+  let moodSum = 0, hungry = 0;
+  for (const u of res) { moodSum += u.mood; if (u.hunger > 70) hungry++; }
+  v.avgMood = moodSum / pop;
+  v.homeless = pop > housing;
+  if ((sim.tick + v.id) % 100 === 0) v.forest = forestAround(sim, v.cx + 0.5, v.cz + 0.5, v.radius + 6);
+  if (hungry > pop * 0.4 && v.food < 2 && sim.tick - v.famineT > YEAR_TICKS) {
+    v.famineT = sim.tick;
+    for (const u of res) remember(sim, u, Mem.Famine, -12, 0.8);
+    sim.log('famine', { a: v.kingdom, v: v.id, x: v.cx, z: v.cz, text: v.name });
+  }
+  // births need a couple; happy, fed villages have more children
+  if (sim.laws.births && pop < housing && v.food >= 4) {
+    const couples = adults.filter((a) => a.female && a.partner >= 0 && a.age < a.maxAge * 0.7 && sim.getUnit(a.partner)?.village === v.id);
+    const kids = pop - adults.length;
+    const dependency = Math.max(0.15, Math.min(1, adults.length / Math.max(1, kids * 1.2)));
+    const fert = def.fertility * (adults.some((a) => a.traits & Trait.Fertile) ? 1.3 : 1) * (v.blessT > sim.tick ? 1.6 : 1) * (0.45 + v.avgMood / 100) * dependency;
+    if (couples.length && sim.rng.chance(Math.min(0.6, 0.2 * fert * Math.min(1.4, v.food / 18) * Math.min(2.2, 0.6 + couples.length * 0.25)))) {
+      const mom = sim.rng.pick(couples);
+      const dad = sim.getUnit(mom.partner)!;
+      sim.emote(mom, Emote.Heart, 30); sim.emote(dad, Emote.Heart, 30);
+      const baby = sim.spawnUnit(v.race, mom.x + 0.3, mom.z + 0.3, { age: 0, kingdom: v.kingdom });
+      baby.traits |= (mom.traits | dad.traits) & sim.rng.int(0, 0xfff) & ~(Trait.Immortal | Trait.Blessed);
+      baby.parents = [mom.id, dad.id]; baby.mother = mom.id;
+      sim.applyTraits(baby); baby.hp = baby.maxHp;
+      addResident(sim, v, baby);
+      remember(sim, mom, Mem.NewBaby, 12, 0.6); remember(sim, dad, Mem.NewBaby, 12, 0.6);
+      v.food -= 3;
+      sim.stats.births++;
+      sim.fx.push({ t: 'birth', x: baby.x, z: baby.z, u: baby.id });
     }
   }
 
@@ -332,9 +374,15 @@ export function villageThink(sim: Sim, v: Village) {
   const woodNeed = v.wood < 25 + v.level * 12;
   want[Job.Woodcutter] = Math.ceil(nA * (woodNeed ? 0.28 : 0.12));
   want[Job.Miner] = v.level >= 1 && v.stone < 30 + v.level * 10 ? Math.ceil(nA * 0.12) : 0;
+  const era = k?.era ?? 0;
+  want[Job.Guard] = era >= 1 && nA >= 8 ? Math.max(1, Math.floor(nA / 14)) + Math.min(2, Math.floor((v.crime ?? 0) / 3)) : 0;
+  want[Job.Trader] = counts[Bk.Market] > 0 ? Math.min(2, counts[Bk.Market] * 1 + (v.level >= 2 ? 1 : 0)) : 0;
+  want[Job.Fisher] = counts[Bk.Dock] > 0 ? Math.min(3, 1 + Math.floor(nA / 18)) : 0;
+  want[Job.Scholar] = counts[Bk.Library] > 0 ? counts[Bk.Library] * 2 : 0;
+  want[Job.Worker] = counts[Bk.Factory] > 0 ? counts[Bk.Factory] * 3 : 0;
   const assigned: Record<number, number> = {};
   for (const u of adults) assigned[u.job] = (assigned[u.job] ?? 0) + 1;
-  const order = [Job.Warrior, Job.Builder, Job.Farmer, Job.Woodcutter, Job.Miner];
+  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Fisher, Job.Woodcutter, Job.Miner, Job.Trader, Job.Scholar, Job.Worker];
   for (const u of adults) {
     if (u.flags & UF.King && u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; continue; }
     const cur = u.job;
@@ -344,14 +392,14 @@ export function villageThink(sim: Sim, v: Village) {
         if (j === Job.Warrior && u.traits & Trait.Peaceful) continue;
         if (cur !== Job.None) assigned[cur]--;
         u.job = j; assigned[j] = (assigned[j] ?? 0) + 1;
-        u.item = jobItem(u);
+        u.item = jobItem(u, era);
         break;
       }
     }
     if (u.job === Job.None || ((assigned[u.job] ?? 0) > (want[u.job] ?? 0) + 1)) {
       if (u.job !== Job.None) assigned[u.job]--;
       u.job = Job.Gatherer; assigned[Job.Gatherer] = (assigned[Job.Gatherer] ?? 0) + 1;
-      u.item = jobItem(u);
+      u.item = jobItem(u, era);
     }
   }
 
@@ -364,11 +412,20 @@ export function villageThink(sim: Sim, v: Village) {
     else if (counts[Bk.Windmill] < 1 && farms >= 2 && pop >= BUILDINGS[Bk.Windmill].minPop) kind = Bk.Windmill;
     else if (counts[Bk.Tower] < (atWar ? 3 : 1) + Math.floor(pop / 30) && pop >= BUILDINGS[Bk.Tower].minPop) kind = Bk.Tower;
     else if (counts[Bk.Temple] < 1 && pop >= BUILDINGS[Bk.Temple].minPop) kind = Bk.Temple;
-    else if (pop >= housing - 3 && counts[Bk.House] < 14) kind = Bk.House;
+    else if (era >= 1 && counts[Bk.Market] < 1 && pop >= BUILDINGS[Bk.Market].minPop) kind = Bk.Market;
+    else if (era >= 1 && counts[Bk.Library] < (v.level >= 3 ? 2 : 1) && pop >= BUILDINGS[Bk.Library].minPop) kind = Bk.Library;
+    else if (era >= 1 && counts[Bk.Prison] < 1 && pop >= BUILDINGS[Bk.Prison].minPop) kind = Bk.Prison;
+    else if (era >= 1 && counts[Bk.Dock] < 1 && pop >= BUILDINGS[Bk.Dock].minPop && v.coastal) kind = Bk.Dock;
+    else if (era >= 2 && counts[Bk.Cannon] < (atWar ? 4 : 2) + v.level && pop >= BUILDINGS[Bk.Cannon].minPop) kind = Bk.Cannon;
+    else if (era >= 3 && counts[Bk.Factory] < 1 && pop >= BUILDINGS[Bk.Factory].minPop) kind = Bk.Factory;
+    else if (pop >= housing - 3 && counts[Bk.House] + counts[Bk.Apartment] < 14) kind = Bk.House;
+    // the modern age builds upward
+    if (kind === Bk.House && era >= 4 && pop >= BUILDINGS[Bk.Apartment].minPop) kind = Bk.Apartment;
     if ((kind as number) >= 0) {
       const c = BUILDINGS[kind].cost;
       if (v.wood >= c.wood && v.stone >= c.stone && v.gold >= c.gold) {
-        const site = findSite(sim, v, kind);
+        const site = kind === Bk.Dock ? findDockSite(sim, v) : findSite(sim, v, kind);
+        if (kind === Bk.Dock && !site) v.coastal = false;
         if (site) {
           v.wood -= c.wood; v.stone -= c.stone; v.gold -= c.gold;
           placeBuilding(sim, v, kind, site[0], site[1], v.race, 0.02);
@@ -390,18 +447,24 @@ export function villageThink(sim: Sim, v: Village) {
     const cap = sim.villages.get(k.capital);
     const dist = cap ? Math.hypot(cap.cx - v.cx, cap.cz - v.cz) : 50;
     const king = sim.getUnit(k.king);
-    v.loyalty = 92 - dist * 1.35 - k.villages.length * 7 - (atWar ? 15 : 0) + (king ? (king.traits & Trait.Wise ? 15 : 0) - (king.traits & Trait.Greedy ? 10 : 0) : -30) + (v.blessT > sim.tick ? 40 : 0) + Math.min(20, v.food * 0.5);
+    v.loyalty = 92 - dist * 1.35 - k.villages.length * 7 - (atWar ? 15 : 0) + (v.avgMood - 50) * 0.5 + (king ? (king.traits & Trait.Wise ? 15 : 0) - (king.traits & Trait.Greedy ? 10 : 0) : -30) + (v.blessT > sim.tick ? 40 : 0) + Math.min(20, v.food * 0.5);
   } else v.loyalty = 100;
 }
 
-function jobItem(u: Unit): number {
+/** Tool/weapon for a job; soldiers re-arm as their kingdom advances (musket, then rifle). */
+export function jobItem(u: Unit, era = 0): number {
   switch (u.job) {
     case Job.Woodcutter: return 1;   // axe
     case Job.Miner: return 2;        // pickaxe
     case Job.Builder: return 3;      // hammer
     case Job.Farmer: return 6;       // hoe
-    case Job.Warrior: return u.sp === Sp.Elf ? 5 : u.sp === Sp.Orc ? 7 : u.sp === Sp.Dwarf ? 8 : 4; // bow / cleaver / warhammer / sword
+    case Job.Warrior: return era >= 3 ? 13 : era >= 2 ? 12 : u.sp === Sp.Elf ? 5 : u.sp === Sp.Orc ? 7 : u.sp === Sp.Dwarf ? 8 : 4;
     case Job.Gatherer: return 9;     // basket
+    case Job.Guard: return era >= 3 ? 15 : 10; // baton / spear
+    case Job.Trader: return 14;      // satchel
+    case Job.Fisher: return 16;      // fishing rod
+    case Job.Scholar: return 17;     // book
+    case Job.Worker: return 3;
     default: return 0;
   }
 }
@@ -425,9 +488,16 @@ function sendSettlers(sim: Sim, v: Village, adults: Unit[]) {
   }
   if (!site) return;
   sim.rng.shuffle(cands);
-  const n = Math.min(cands.length - 2, sim.rng.int(4, 6));
-  for (let i = 0; i < n; i++) {
-    const u = cands[i];
+  // couples travel together
+  const chosen: Unit[] = [];
+  for (const c of cands) {
+    if (chosen.length >= Math.min(cands.length - 2, 6) || chosen.includes(c)) continue;
+    chosen.push(c);
+    const p = sim.getUnit(c.partner);
+    if (p && p.village === v.id && !chosen.includes(p) && cands.includes(p)) chosen.push(p);
+  }
+  for (let i = 0; i < chosen.length; i++) {
+    const u = chosen[i];
     const idx = v.residents.indexOf(u.id); if (idx >= 0) v.residents.splice(idx, 1);
     u.village = -1; u.flags |= UF.Settler; u.job = Job.None; u.item = 0;
     if (u.carryAmt > 0) { u.carry = Res.None; u.carryAmt = 0; }
@@ -583,6 +653,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
   return null;
 }
 const claimedFarm = new Map<number, number>();
+export function clearFarmClaims() { claimedFarm.clear(); }
 
 /** Nearest rock-face tile to quarry (infinite stone, slow). */
 function findQuarry(sim: Sim, v: Village): number {
@@ -612,8 +683,12 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
   if (!king || king.kingdom !== k.id) {
     const cap = sim.villages.get(k.capital)!;
     let best: Unit | null = null;
+    // heirs first: the late king's grown children
+    if (k.lastKing >= 0) for (const u of sim.units) if (u.parents.includes(k.lastKing) && u.kingdom === k.id && u.age >= SPECIES[u.sp].adultAge && !(u.flags & UF.Dead)) { if (!best || u.age > best.age) best = u; }
+    if (!best)
     for (const id of cap.residents) {
       const u = sim.getUnit(id);
+      if (best && best.parents.includes(k.lastKing)) break;
       const score = (x: Unit) => x.level * 10 + x.kills - Math.abs(x.age - (SPECIES[x.sp].lifespan[0] * 0.35 + SPECIES[x.sp].adultAge)) * 0.6;
       if (u && u.age >= SPECIES[u.sp].adultAge && u.age < u.maxAge * 0.8 && (!best || score(u) > score(best))) best = u;
     }
@@ -621,6 +696,29 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
       const wasKing = k.king >= 0;
       crown(sim, k, best);
       if (wasKing || sim.tick - k.founded > 50) sim.log('newKing', { a: k.id, u: best.id, x: best.x, z: best.z, text: best.name });
+    }
+  }
+  // knowledge grows with people, libraries, trade and contentment; an era also needs a big town
+  {
+    let gain = 0, maxLevel = 0;
+    for (const vid of k.villages) {
+      const v = sim.villages.get(vid)!;
+      let libs = 0, markets = 0;
+      for (const id of v.buildings) { const b = sim.buildings.get(id); if (b && b.alive && b.progress >= 1) { if (b.kind === Bk.Library) libs++; if (b.kind === Bk.Market) markets++; } }
+      const scholars = v.residents.filter((id) => sim.getUnit(id)?.job === Job.Scholar).length;
+      gain += (v.residents.length * 0.007 + libs * 0.22 + scholars * 0.12 + markets * 0.08) * (0.6 + v.avgMood / 100);
+      maxLevel = Math.max(maxLevel, v.level);
+    }
+    k.tech += gain * (k.tradeBoost ?? 1);
+    k.tradeBoost = 1;
+    const next = k.era + 1;
+    if (next < ERA_TECH.length && k.tech >= ERA_TECH[next] && maxLevel >= ERA_MIN_LEVEL[next]) {
+      k.era = next;
+      const cap = sim.villages.get(k.capital);
+      sim.log('era', { a: k.id, x: cap?.cx, z: cap?.cz, text: `${k.name}|${next}` });
+      if (cap) sim.fx.push({ t: 'era', x: cap.cx + 0.5, z: cap.cz + 0.5, a: k.id, b: next });
+      // soldiers re-arm with the new age's weapons
+      for (const vid of k.villages) for (const id of sim.villages.get(vid)!.residents) { const u = sim.getUnit(id); if (u) u.item = jobItem(u, k.era); }
     }
   }
   // war target: nearest enemy village

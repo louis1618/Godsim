@@ -43,6 +43,8 @@ export class World {
   islandsDirty = true;
   /** bumps whenever walkability changes (terrain edits, buildings placed/removed) */
   navVersion = 0;
+  /** bumps on height edits (physics collider rebuilds follow it) */
+  terrainVersion = 0;
   readonly CW: number;
   readonly CH: number;
 
@@ -124,6 +126,7 @@ export class World {
     this.dirtyMat.add(x0, z0, x1, z1);
     this.islandsDirty = true;
     this.navVersion++;
+    this.terrainVersion++;
     this.markFeat(x0, z0, x1, z1);
   }
   markMat(x0: number, z0: number, x1: number, z1: number) { this.dirtyMat.add(x0, z0, x1, z1); }

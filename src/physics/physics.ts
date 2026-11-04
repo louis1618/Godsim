@@ -9,7 +9,7 @@ import { resolveInside } from '../sim/nav';
 
 const GRAVITY = -16;
 
-interface Ragdoll { body: RAPIER.RigidBody; unit: number; t: number; still: number; lastVy: number; offset: number; }
+interface Ragdoll { body: RAPIER.RigidBody; unit: number; t: number; still: number; lastVy: number; offset: number; prev: THREE.Vector3; prevQ: THREE.Quaternion; cur: THREE.Vector3; curQ: THREE.Quaternion; }
 export interface Debris { body: RAPIER.RigidBody; color: THREE.Color; size: THREE.Vector3; life: number; max: number; }
 
 /**
@@ -23,9 +23,8 @@ export class Physics {
   private terrain!: World;
   ragdolls = new Map<number, Ragdoll>();
   debris: Debris[] = [];
-  private acc = 0;
   private groundDirty = false;
-  private groundT = 0;
+  private terrainSeen = -1;
   onLand: ((u: Unit, speed: number) => void) | null = null;
 
   async init() {
@@ -68,11 +67,12 @@ export class Physics {
       const y = Math.max(this.terrain.heightAt(u.x, u.z), this.terrain.water[this.terrain.tileAt(u.x, u.z)] ?? 0);
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(u.x, y + off + 0.05, u.z).setLinearDamping(0.15).setAngularDamping(0.6).setCcdEnabled(true));
       this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45), body);
-      r = { body, unit: u.id, t: 0, still: 0, lastVy: 0, offset: off };
+      r = { body, unit: u.id, t: 0, still: 0, lastVy: 0, offset: off, prev: new THREE.Vector3(u.x, y, u.z), prevQ: new THREE.Quaternion(), cur: new THREE.Vector3(u.x, y, u.z), curQ: new THREE.Quaternion() };
       this.ragdolls.set(u.id, r);
     }
     r.body.setLinvel({ x: vx, y: vy, z: vz }, true);
-    r.body.setAngvel({ x: (Math.random() - 0.5) * spin * 2, y: (Math.random() - 0.5) * spin, z: (Math.random() - 0.5) * spin * 2 }, true);
+    const rr = sim.rng;
+    r.body.setAngvel({ x: (rr.next() - 0.5) * spin * 2, y: (rr.next() - 0.5) * spin, z: (rr.next() - 0.5) * spin * 2 }, true);
     r.t = 0; r.still = 0;
     u.flags |= UF.Ragdoll;
     u.anim = Anim.Fly;
@@ -103,14 +103,16 @@ export class Physics {
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, Math.max(pos.y, ground + 0.4), pos.z).setLinearDamping(0.1).setAngularDamping(0.5).setCcdEnabled(true));
     this.world.createCollider(RAPIER.ColliderDesc.capsule(0.14 * size, 0.12 * size).setDensity(1).setFriction(0.9).setRestitution(0.45), body);
     body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
-    body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 4, z: (Math.random() - 0.5) * 8 }, true);
-    this.ragdolls.set(u.id, { body, unit: u.id, t: 0, still: 0, lastVy: vel.y, offset: 0.28 * size });
+    body.setAngvel({ x: (sim.rng.next() - 0.5) * 8, y: (sim.rng.next() - 0.5) * 4, z: (sim.rng.next() - 0.5) * 8 }, true);
+    const p0 = new THREE.Vector3(pos.x, Math.max(pos.y, ground + 0.4), pos.z);
+    this.ragdolls.set(u.id, { body, unit: u.id, t: 0, still: 0, lastVy: vel.y, offset: 0.28 * size, prev: p0.clone(), prevQ: new THREE.Quaternion(), cur: p0.clone(), curQ: new THREE.Quaternion() });
     u.flags |= UF.Ragdoll;
     void sim;
   }
 
   spawnDebris(pos: THREE.Vector3, vel: THREE.Vector3, color: number, size = 0.15, life = 4) {
     if (!this.ready || this.debris.length > 220) return;
+    // purely cosmetic: render-side randomness is fine here
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinearDamping(0.2).setAngularDamping(0.3));
     const sx = size * (0.6 + Math.random() * 0.8), sy = size * (0.5 + Math.random() * 0.8), sz = size * (0.6 + Math.random() * 0.8);
     this.world.createCollider(RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2).setDensity(2).setRestitution(0.3).setFriction(0.8), body);
@@ -119,14 +121,13 @@ export class Physics {
     this.debris.push({ body, color: new THREE.Color(color), size: new THREE.Vector3(sx, sy, sz), life, max: life });
   }
 
-  step(sim: Sim, dt: number, speed: number, out: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>) {
+  /** Advance one simulation tick (0.1 s) in six fixed substeps: physics lives in sim time. */
+  tick(sim: Sim) {
     if (!this.ready) return;
-    this.groundT -= dt;
-    if (this.groundDirty && this.groundT <= 0) { this.rebuildGround(); this.groundT = 0.5; }
-    this.acc += dt * Math.min(speed, 3);
-    const h = 1 / 60;
-    let n = 0;
-    while (this.acc >= h && n < 4) {
+    if (sim.world.terrainVersion !== this.terrainSeen && sim.tick % 5 === 0) { this.terrainSeen = sim.world.terrainVersion; this.rebuildGround(); }
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const r of this.ragdolls.values()) { r.prev.copy(r.cur); r.prevQ.copy(r.curQ); }
+    for (let n = 0; n < 6; n++) {
       // water drag / buoyancy
       for (const r of this.ragdolls.values()) {
         const p = r.body.translation();
@@ -137,11 +138,8 @@ export class Physics {
         }
       }
       this.world.step();
-      this.acc -= h; n++;
     }
-    if (n >= 4) this.acc = 0;
-    out.clear();
-    const up = new THREE.Vector3(0, 1, 0);
+    const dt = 0.1;
     for (const [id, r] of this.ragdolls) {
       const u = sim.unitMap.get(id);
       const p = r.body.translation();
@@ -149,32 +147,30 @@ export class Physics {
       r.t += dt;
       const v = r.body.linvel();
       const speedNow = Math.hypot(v.x, v.y, v.z);
-      // landing impact: big change in vertical speed
       if (r.lastVy < -7 && v.y > r.lastVy * 0.4) {
         const impact = -r.lastVy;
         if (!(u.flags & UF.Dead)) hurt(sim, u, Math.max(0, impact - 7) * 9, undefined, 'fall');
+        sim.fx.push({ t: 'land', x: p.x, z: p.z, a: impact });
         this.onLand?.(u, impact);
       }
       r.lastVy = v.y;
       const q = r.body.rotation();
-      const quat = new THREE.Quaternion(q.x, q.y, q.z, q.w);
-      // feet origin = body centre - rotated offset
-      const off = up.clone().multiplyScalar(r.offset).applyQuaternion(quat);
-      const pos = new THREE.Vector3(p.x - off.x, p.y - off.y, p.z - off.z);
+      r.curQ.set(q.x, q.y, q.z, q.w);
+      const off = up.clone().multiplyScalar(r.offset).applyQuaternion(r.curQ);
+      r.cur.set(p.x - off.x, p.y - off.y, p.z - off.z);
       if (u.flags & UF.Dead) {
-        if (r.t > 1.2) { this.world.removeRigidBody(r.body); this.ragdolls.delete(id); continue; }
+        if (r.t > 1.2) { this.world.removeRigidBody(r.body); this.ragdolls.delete(id); }
+        continue;
       }
-      out.set(id, { pos, quat });
       u.x = u.px = Math.max(0.5, Math.min(this.terrain.W - 0.5, p.x));
       u.z = u.pz = Math.max(0.5, Math.min(this.terrain.H - 0.5, p.z));
       if (p.y < -30) { sim.killUnit(u, 'fall'); this.world.removeRigidBody(r.body); this.ragdolls.delete(id); continue; }
       if (speedNow < 0.5 && r.t > 0.5) r.still += dt; else r.still = 0;
       const tw = this.terrain.tileAt(p.x, p.z);
       const inWater = tw >= 0 && this.terrain.water[tw] > this.terrain.height[tw] && p.y < this.terrain.water[tw] + 0.2;
-      if ((r.still > 0.3 || r.t > 7 || (inWater && r.t > 1.2 && v.y > -2)) && !(u.flags & UF.Dead)) {
+      if (r.still > 0.3 || r.t > 7 || (inWater && r.t > 1.2 && v.y > -2)) {
         this.world.removeRigidBody(r.body);
         this.ragdolls.delete(id);
-        out.delete(id);
         u.flags &= ~UF.Ragdoll;
         resolveInside(sim, u);
         u.anim = Anim.Idle;
@@ -187,5 +183,17 @@ export class Physics {
     const dead = this.debris.filter((d) => d.life <= 0);
     for (const d of dead) this.world.removeRigidBody(d.body);
     if (dead.length) this.debris = this.debris.filter((d) => d.life > 0);
+  }
+
+  /** Render-time interpolation between the last two ticks (no simulation happens here). */
+  interpolate(alpha: number, out: Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>, keep: number) {
+    for (const id of [...out.keys()]) if (id !== keep && !this.ragdolls.has(id)) out.delete(id);
+    const a = Math.max(0, Math.min(1, alpha));
+    for (const [id, r] of this.ragdolls) {
+      const e = out.get(id) ?? { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
+      e.pos.copy(r.prev).lerp(r.cur, a);
+      e.quat.copy(r.prevQ).slerp(r.curQ, a);
+      out.set(id, e);
+    }
   }
 }

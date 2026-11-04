@@ -4,7 +4,6 @@ import { MAT_COUNT } from '../sim/defs';
 import { U, GLSL_NOISE } from './shared';
 import { matPaletteUniform } from './palette';
 
-const R = 2; // vertices per tile edge
 
 /**
  * Chunked heightfield terrain. Colours come from per-tile data textures so painting is cheap,
@@ -26,8 +25,12 @@ export class TerrainRenderer {
   ownerColor: (villageId: number) => number = () => 0xffffff;
   ownerKingdom: (villageId: number) => number = () => -1;
 
+  /** vertices per tile edge: 2 for normal maps, 1 for very large ones */
+  readonly R: number;
+
   constructor(private world: World) {
     const { W, H } = world;
+    const R = this.R = W * H > 260000 ? 1 : 2;
     this.VW = W * R + 1; this.VH = H * R + 1;
     this.vh = new Float32Array(this.VW * this.VH);
     this.matData = new Uint8Array(W * H * 4);
@@ -184,6 +187,7 @@ diffuseColor.rgb = col;
   /** Recompute vertex heights for tiles in [x0,x1]x[z0,z1] and rebuild touched chunks. */
   rebuildHeights(x0: number, z0: number, x1: number, z1: number) {
     const { W, H, height } = this.world;
+    const R = this.R;
     const VW = this.VW;
     const vx0 = Math.max(0, (x0 - 3) * R), vz0 = Math.max(0, (z0 - 3) * R);
     const vx1 = Math.min(this.VW - 1, (x1 + 4) * R), vz1 = Math.min(this.VH - 1, (z1 + 4) * R);
@@ -210,6 +214,7 @@ diffuseColor.rgb = col;
     const nor = geo.attributes.normal as THREE.BufferAttribute;
     const P = pos.array as Float32Array, Nn = nor.array as Float32Array;
     const VW = this.VW, VH = this.VH, vh = this.vh;
+    const R = this.R;
     const inv = 1 / R;
     let k = 0;
     for (let j = 0; j <= ch; j++) {

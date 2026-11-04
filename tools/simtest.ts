@@ -24,6 +24,9 @@ for (let y = 0; y < years; y++) {
   const jobs: Record<number, number> = {}; const tasks: Record<string, number> = {};
   for (const u of sim.units) if (u.sp <= 3) { jobs[u.job] = (jobs[u.job] ?? 0) + 1; tasks[u.task?.k ?? 'none'] = (tasks[u.task?.k ?? 'none'] ?? 0) + 1; }
   console.log('   jobs', JSON.stringify(jobs), 'tasks', JSON.stringify(tasks));
+  { let civ = 0, mood = 0, energy = 0, social = 0, couples = 0, adults = 0, hungry = 0;
+    for (const u of sim.units) if (u.sp <= 3) { civ++; mood += u.mood; energy += u.energy; social += u.social; if (u.partner >= 0) couples++; if (u.age >= 6) adults++; if (u.hunger > 60) hungry++; }
+    console.log(`   mind: mood ${(mood / civ).toFixed(0)} energy ${(energy / civ).toFixed(0)} social ${(social / civ).toFixed(0)} partnered ${couples}/${adults} adults, hungry ${hungry}, births ${sim.stats.births} deaths ${sim.stats.deaths} causes ${JSON.stringify(sim.deathCauses)}`); }
   maxTick = 0;
 }
 console.log('total s', ((performance.now() - t0) / 1000).toFixed(1));

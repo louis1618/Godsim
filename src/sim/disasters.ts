@@ -16,7 +16,7 @@ export function explode(sim: Sim, x: number, z: number, radius: number, power: n
     if (opts.fling !== false && !(u.flags & UF.Dead) || (u.flags & UF.Dead)) {
       const dx = (u.x - x) / (d || 1), dz = (u.z - z) / (d || 1);
       const s = (0.5 + f) * Math.min(1.6, power / 60);
-      sim.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, tx: dx * s * 6, tz: dz * s * 6, a: s * 9 });
+      sim.fling(u, dx * s * 6, s * 9, dz * s * 6);
     }
     if (!(u.flags & UF.Dead)) panic(sim, u, x, z);
   });
@@ -69,7 +69,7 @@ export function earthquake(sim: Sim, x: number, z: number, r: number) {
     if (w.feat[t] && sim.rng.chance(0.08)) w.setFeat(t, Feat.None, 0);
   }
   w.markTerrain(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
-  sim.near(x, z, r, (u) => { if (sim.rng.chance(0.4)) { hurt(sim, u, 10, undefined, 'quake'); sim.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, tx: 0, tz: 0, a: 3 + sim.rng.next() * 3 }); } panic(sim, u, u.x, u.z); });
+  sim.near(x, z, r, (u) => { if (sim.rng.chance(0.4)) { hurt(sim, u, 10, undefined, 'quake'); sim.fling(u, 0, 3 + sim.rng.next() * 3, 0); } panic(sim, u, u.x, u.z); });
 }
 
 export function infect(sim: Sim, x: number, z: number, r: number) {
@@ -116,7 +116,7 @@ export function disasterTick(sim: Sim) {
     if (sim.tick % 3 === 0) {
       sim.near(tn.x, tn.z, 2.6, (u) => {
         if (u.flags & (UF.Ragdoll | UF.Held)) return;
-        sim.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, tx: -tn.vz * 30 + (u.x - tn.x), tz: tn.vx * 30 + (u.z - tn.z), a: 6 + sim.rng.next() * 5, b: 1 });
+        sim.fling(u, -tn.vz * 30 + (u.x - tn.x), 6 + sim.rng.next() * 5, tn.vx * 30 + (u.z - tn.z));
         hurt(sim, u, 8, undefined, 'tornado');
       });
       const R = 2;

@@ -145,6 +145,32 @@ function Tooltip() {
   );
 }
 
+/** Click a name to rename it (creatures, villages, kingdoms). */
+function EditName({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [edit, setEdit] = useState(false);
+  if (!edit) return <div class="name editable" title="✎" onClick={() => setEdit(true)}>{value}<span class="pen">✎</span></div>;
+  return (
+    <input class="name-input" value={value} maxLength={20} ref={(el) => { if (el) setTimeout(() => el.focus(), 0); }}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { const v = (e.target as HTMLInputElement).value.trim(); if (v) onSave(v); setEdit(false); } if (e.key === 'Escape') setEdit(false); }}
+      onBlur={(e) => { const v = (e.target as HTMLInputElement).value.trim(); if (v) onSave(v); setEdit(false); }} />
+  );
+}
+
+function MoodFace({ mood }: { mood: number }) {
+  const m = mood / 100;
+  const col = m > 0.7 ? '#8fe06a' : m > 0.45 ? '#ffd65a' : m > 0.25 ? '#ffab5a' : '#ff6a5a';
+  const curve = (m - 0.5) * 16;
+  return (
+    <svg viewBox="0 0 40 40" class="moodface">
+      <circle cx="20" cy="20" r="16" fill={col} stroke="#2a2238" stroke-width="3" />
+      <circle cx="14" cy="16" r="2.4" fill="#2a2238" /><circle cx="26" cy="16" r="2.4" fill="#2a2238" />
+      <path d={`M12 ${26 - curve * 0.3} Q20 ${26 + curve} 28 ${26 - curve * 0.3}`} stroke="#2a2238" stroke-width="3" fill="none" stroke-linecap="round" />
+    </svg>
+  );
+}
+
+const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed' };
+
 function UnitCard({ app, id }: { app: AppCtl; id: number }) {
   usePulse(250);
   const s = useStore();
@@ -171,13 +197,22 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
       <div class="head">
         <img src={s.icons[iconId]} />
         <div>
-          <div class="name">{title}</div>
+          {isCiv(u.sp) ? <EditName value={u.name} onSave={(n) => { u.name = n; store.set({ tick: store.s.tick + 1 }); }} /> : <EditName value={u.name || title} onSave={(n) => { u.name = n; }} />}
           <div class="sub">{t(iconId)}{k ? ` · ${k.name}` : ''}{v ? ` · ${v.name}` : ''}</div>
         </div>
       </div>
       <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
       <div class="body">
+        <div class="state-row">
+          <MoodFace mood={u.mood} />
+          <div class="state"><b>{t(ACTION_KEY[u.task?.k ?? 'idle'] ?? 'act-idle')}</b><small>{t('mood')} {Math.round(u.mood)}</small></div>
+        </div>
         <div class="stat"><span class="lbl">{t('hp')}</span><div class={`meter ${u.hp / u.maxHp < 0.35 ? 'red' : ''}`}><i style={{ width: `${(u.hp / u.maxHp) * 100}%` }} /></div></div>
+        {!SPECIES[u.sp].undead && <div class="needs">
+          <div class="need" title={t('need-food')}><span>{t('need-food')}</span><div class={`meter ${u.hunger > 70 ? 'red' : ''}`}><i style={{ width: `${100 - u.hunger}%` }} /></div></div>
+          <div class="need" title={t('need-energy')}><span>{t('need-energy')}</span><div class={`meter blue ${u.energy < 25 ? 'red' : ''}`}><i style={{ width: `${u.energy}%` }} /></div></div>
+          {isCiv(u.sp) && <div class="need" title={t('need-social')}><span>{t('need-social')}</span><div class={`meter pink ${u.social < 20 ? 'red' : ''}`}><i style={{ width: `${u.social}%` }} /></div></div>}
+        </div>}
         <div class="grid4">
           <div class="mini"><b>{Math.floor(u.age)}</b><small>{t('age')}</small></div>
           <div class="mini"><b>{u.level}</b><small>{t('level')}</small></div>
@@ -191,6 +226,7 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
           {u.flags & UF.Mad ? <span class="pill bad">{t('madness')}</span> : null}
           {traits.map(([, key]) => <span class={`pill ${good.has(key) ? 'good' : 'bad'}`}>{t('t-' + key)}</span>)}
         </div>
+        <Relations app={app} u={u} />
       </div>
       <div class="actions">
         <button class="gs-btn" onClick={() => app.ctl.follow(u.id)}><img src={s.icons['follow']} style={{ width: '24px', height: '24px' }} />{t('follow')}</button>
@@ -198,6 +234,25 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
       </div>
     </div>
   );
+}
+
+function Relations({ app, u }: { app: AppCtl; u: import('../sim/entities').Unit }) {
+  const sim = app.game.sim;
+  const chip = (id: number, label: string, cls: string) => {
+    const o = sim.unitMap.get(id);
+    if (!o) return null;
+    const dead = !!(o.flags & UF.Dead);
+    return <span class={`pill rel ${cls} ${dead ? 'dead' : ''}`} onClick={() => !dead && store.set({ sel: { kind: 'unit', id } })}>{label} {o.name}</span>;
+  };
+  const kids = sim.units.filter((c) => c.parents.includes(u.id) && !(c.flags & UF.Dead)).length;
+  const items = [
+    u.partner >= 0 && chip(u.partner, t('rel-partner'), 'good'),
+    ...u.parents.map((p, i) => chip(p, t(i === 0 ? 'rel-mother' : 'rel-father'), '')),
+    u.friend >= 0 && chip(u.friend, t('rel-friend'), 'good'),
+    u.rival >= 0 && chip(u.rival, t('rel-rival'), 'bad'),
+  ].filter(Boolean);
+  if (!items.length && !kids) return null;
+  return <div class="pills">{items}{kids > 0 && <span class="pill">{t('rel-children')} {kids}</span>}</div>;
 }
 
 function VillageCard({ app, id }: { app: AppCtl; id: number }) {
@@ -215,7 +270,7 @@ function VillageCard({ app, id }: { app: AppCtl; id: number }) {
       <div class="head">
         <img src={s.icons['cat-civ']} />
         <div>
-          <div class="name">{v.name}</div>
+          <EditName value={v.name} onSave={(n) => { v.name = n; }} />
           <div class="sub">{k?.name}{k && k.capital === v.id ? ' ★' : ''} · {'★'.repeat(v.level + 1)}</div>
         </div>
       </div>
@@ -233,6 +288,8 @@ function VillageCard({ app, id }: { app: AppCtl; id: number }) {
           <div class="mini"><b>{Math.floor(v.stone)}</b><small>{t('stone')}</small></div>
           <div class="mini"><b>{Math.floor(v.gold)}</b><small>{t('gold')}</small></div>
         </div>
+        <div class="stat"><span class="lbl">{t('mood')}</span><div class={`meter ${v.avgMood < 35 ? 'red' : ''}`}><i style={{ width: `${v.avgMood}%` }} /></div></div>
+        {k && <div class="stat"><span class="lbl">{t('kingdom')}</span><EditName value={k.name} onSave={(n) => { k.name = n; }} /></div>}
         <div class="stat"><span class="lbl">{t('loyalty')}</span><div class={`meter ${v.loyalty < 20 ? 'red' : ''}`}><i style={{ width: `${Math.max(0, Math.min(100, v.loyalty))}%` }} /></div></div>
         {k && k.wars.length > 0 && <div class="pills"><span class="pill bad"><img src={s.icons['war']} class="pi" />{t('atWar')}</span>{k.wars.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill" style={{ background: hex(KINGDOM_COLORS[e.color][0]), color: '#fff', textShadow: '0 1px 0 #2a2238' }}>{e.name}</span>; })}</div>}
       </div>

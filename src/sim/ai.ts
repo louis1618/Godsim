@@ -1,8 +1,9 @@
 import { Sim, setTimeout0 } from './sim';
-import { Unit, Task, Job, Anim, Emote, UF, Res } from './entities';
+import { Unit, Task, Job, Anim, Emote, UF, Res, Mem } from './entities';
 import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
 import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf } from './civ';
 import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free } from './nav';
+import { mindTick, socialise, remember } from './mind';
 
 const AGE_STEP = 10 / YEAR_TICKS;
 
@@ -17,6 +18,7 @@ export function unitTick(sim: Sim, u: Unit) {
   if ((sim.tick + u.id) % 10 === 0) {
     metabolism(sim, u);
     if (u.flags & UF.Dead) return;
+    mindTick(sim, u);
   }
   // standing in fire / lava / deep water
   const w = sim.world;
@@ -48,7 +50,7 @@ function metabolism(sim: Sim, u: Unit) {
   u.age += AGE_STEP;
   if (!def.undead) {
     const winter = sim.season === 3 ? 1.3 : 1;
-    u.hunger += (isCiv(u.sp) ? 0.62 : 0.7) * winter;
+    u.hunger += (isCiv(u.sp) ? 0.62 : 0.7) * winter * (u.age < def.adultAge ? 0.6 : 1);
     if (u.hunger >= 100) { u.hunger = 100; hurt(sim, u, 3, undefined, 'hunger'); }
     if (u.age > u.maxAge) { sim.killUnit(u, 'age'); return; }
     if (u.hp < u.maxHp && u.hunger < 70 && !(u.flags & UF.Sick)) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.015);
@@ -111,6 +113,9 @@ function decide(sim: Sim, u: Unit) {
       return;
     }
   }
+  // urgent needs break into anything that is not life-or-death
+  const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
+  if (urgent) u.task = null;
   // keep committed work going; only idle/wander are re-decided
   if (u.task && u.task.k !== 'idle' && u.task.k !== 'wander' && taskValid(sim, u, u.task)) return;
 
@@ -138,11 +143,47 @@ function decide(sim: Sim, u: Unit) {
     if (berry >= 0) { setTask(sim, u, { k: 'gather', tile: berry, res: Res.Food, work: 0 }); return; }
   }
 
-  // 5. children play
+  // 4b. needs & mood
+  if (u.energy < 20 || (!adult && u.energy < 35)) { setTask(sim, u, { k: 'sleep', t: 200 }); return; }
+  if (adult && u.job === Job.Warrior && u.mood < 12 && sim.rng.chance(0.2)) {
+    // morale breaks: the soldier throws down their weapon
+    u.job = Job.Gatherer; u.item = 9; sim.emote(u, Emote.Sad, 40);
+    sim.fx.push({ t: 'desert', x: u.x, z: u.z, u: u.id });
+  }
+  if (adult && u.mood < 18 && (u.hunger > 65 || u.traits & Trait.Greedy) && v.food >= 2 && sim.rng.chance(0.25)) {
+    setTask(sim, u, { k: 'steal', v: v.id }); return;
+  }
+  const single = adult && u.partner < 0;
+  if ((u.social < 25 || (single && u.social < 60)) && sim.rng.chance(0.5)) {
+    const near = sim.unitsNear(u.x, u.z, single ? 14 : 8).filter((o) => o !== u && o.village === u.village && o.sp === u.sp && o.task?.k !== 'sleep');
+    const mate = single ? near.find((o) => o.partner < 0 && o.female !== u.female && o.age >= SPECIES[o.sp].adultAge) : undefined;
+    const pick = mate ?? [u.partner, u.friend].map((id) => sim.getUnit(id)).find((o) => o && Math.hypot(o.x - u.x, o.z - u.z) < 16) ?? near[0];
+    if (pick) {
+      const t = 30 + sim.rng.int(0, 20);
+      setTask(sim, u, { k: 'chat', u: pick.id, t });
+      if (!pick.task || pick.task.k === 'idle' || pick.task.k === 'wander') setTask(sim, pick, { k: 'chat', u: u.id, t });
+      sim.emote(u, pick.id === u.partner ? Emote.Heart : Emote.Music, 20);
+      return;
+    }
+  }
+  if (adult && u.mood > 82 && sim.rng.chance(0.06)) {
+    setTask(sim, u, { k: 'dance', t: 40 });
+    sim.emote(u, Emote.Music, 30);
+    // joy is contagious
+    sim.near(u.x, u.z, 4, (o) => { if (o !== u && o.village === u.village && o.mood > 55 && (!o.task || o.task.k === 'idle' || o.task.k === 'wander')) { setTask(sim, o, { k: 'dance', t: 35 }); remember(sim, o, Mem.Party, 6, 0.3); } });
+    remember(sim, u, Mem.Party, 6, 0.3);
+    return;
+  }
+
+  // 5. children play (older ones help pick berries)
+  if (!adult && u.age >= SPECIES[u.sp].adultAge * 0.55 && sim.rng.chance(0.35)) {
+    const berry = findFeature(sim, u.x, u.z, 10, (f) => f === Feat.Berry);
+    if (berry >= 0) { setTask(sim, u, { k: 'gather', tile: berry, res: Res.Food, work: 0 }); return; }
+  }
   if (!adult) {
     if (sim.rng.chance(0.3)) {
       const pal = sim.unitsNear(u.x, u.z, 6).find((o) => o !== u && o.village === u.village && o.age < SPECIES[o.sp].adultAge);
-      if (pal) { setTask(sim, u, { k: 'move', tx: pal.x + sim.rng.range(-1, 1), tz: pal.z + sim.rng.range(-1, 1) }); return; }
+      if (pal) { setTask(sim, u, { k: 'wander', tx: pal.x + sim.rng.range(-1, 1), tz: pal.z + sim.rng.range(-1, 1) }); return; }
     }
     wanderNear(sim, u, v.cx + 0.5, v.cz + 0.5, 6);
     return;
@@ -341,6 +382,7 @@ export function findFeature(sim: Sim, x: number, z: number, r: number, pred: (f:
   return best;
 }
 const claimed = new Map<number, number>();
+export function clearClaims() { claimed.clear(); }
 export function releaseClaim(t: number) { claimed.delete(t); }
 
 function findGrass(sim: Sim, x: number, z: number, r: number) {
@@ -404,10 +446,12 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   sp *= moodSpeed(u);
   const moved = stepToward(w, u, wx, wz, sp, true);
   if (moved <= 1e-5) {
-    // blocked: try again with a fresh path next tick
-    if (++u.stuck > 6) { u.path = null; u.stuck = 0; }
+    // blocked: re-plan a few times, then give up on this errand
+    if (++u.stuck > 6) { u.path = null; u.blocked = (u.blocked ?? 0) + 1; u.stuck = 0; }
+    if ((u.blocked ?? 0) > 3) { u.blocked = 0; u.task = null; u.think = 0; }
     return false;
   }
+  u.blocked = 0;
   if (d <= sp + 1e-4) {
     if (!last) u.pathI++;
     else { u.path = null; return Math.hypot(tx - u.x, tz - u.z) <= arriveDist + 0.05; }
@@ -523,10 +567,11 @@ function run(sim: Sim, u: Unit, t: Task) {
       const tx = (t.tile % w.W) + 0.5, tz = ((t.tile / w.W) | 0) + 0.5;
       if (moveTo(sim, u, tx, tz, 0.45)) {
         u.anim = Anim.Work;
-        if (++t.work >= 25) {
+        t.work += workRate(u);
+        if (t.work >= 25) {
           if (w.feat[t.tile] === Feat.Crop && w.featAmt[t.tile] >= 230) {
             w.featAmt[t.tile] = 10; w.markFeatTile(t.tile);
-            u.carry = Res.Food; u.carryAmt = 3;
+            u.carry = Res.Food; u.carryAmt = 4;
             sim.fx.push({ t: 'harvest', x: tx, z: tz, u: u.id });
             setTask(sim, u, { k: 'deliver' });
           } else if (w.feat[t.tile] !== Feat.Crop) {
@@ -595,8 +640,50 @@ function run(sim: Sim, u: Unit, t: Task) {
       const o = sim.getUnit(t.u);
       if (!o) { u.task = null; break; }
       if (Math.hypot(o.x - u.x, o.z - u.z) > 0.9) moveTo(sim, u, o.x, o.z, 0.8, 0.7);
-      else { face(u, o.x, o.z); u.anim = Anim.Idle; }
+      else { face(u, o.x, o.z); u.anim = Anim.Idle; u.social = Math.min(100, u.social + 1.2); }
+      if (--t.t <= 0) {
+        if (u.id < o.id && Math.hypot(o.x - u.x, o.z - u.z) < 1.4) socialise(sim, u, o);
+        u.task = null; u.think = 0;
+      }
+      break;
+    }
+    case 'sleep': {
+      const v = villageOf(sim, u);
+      if (t.sx === undefined || t.sz === undefined) {
+        // head home: the nearest finished house, otherwise the hall, otherwise right here
+        let home: { x: number; z: number; size: number } | undefined;
+        let bd = 1e9;
+        if (v) for (const id of v.buildings) { const b = sim.buildings.get(id); if (!b || !b.alive || b.progress < 1 || (b.kind !== Bk.House && b.kind !== Bk.TownHall)) continue; const d = (b.x - u.x) ** 2 + (b.z - u.z) ** 2; if (d < bd) { bd = d; home = b; } }
+        [t.sx, t.sz] = home ? standAtBuilding(sim, home, u, 2) : [u.x, u.z];
+      }
+      if (moveTo(sim, u, t.sx, t.sz!, 0.25)) {
+        u.anim = Anim.Sleep;
+        if (sim.tick % 40 === u.id % 40) sim.emote(u, Emote.Zzz, 30);
+        if (--t.t <= 0 || u.energy >= 96) { u.task = null; u.think = 0; u.anim = Anim.Idle; }
+      }
+      break;
+    }
+    case 'dance':
+      u.anim = Anim.Cheer;
+      u.dir += 0.12;
+      u.social = Math.min(100, u.social + 0.8);
       if (--t.t <= 0) { u.task = null; u.think = 0; }
+      break;
+    case 'steal': {
+      const v = sim.villages.get(t.v);
+      const tgt = deliverTarget(sim, u);
+      if (!v || !tgt) { u.task = null; break; }
+      if (t.sx === undefined) { t.sx = tgt[0]; t.sz = tgt[1]; }
+      if (moveTo(sim, u, t.sx, t.sz!, 0.5)) {
+        const took = Math.min(v.food, 2 + sim.rng.int(0, 3));
+        v.food -= took; u.hunger = 0; u.crimes++;
+        v.crime = (v.crime ?? 0) + 1;
+        sim.emote(u, Emote.Food, 20);
+        sim.fx.push({ t: 'crime', x: u.x, z: u.z, u: u.id });
+        // the neighbours notice
+        sim.near(u.x, u.z, 5, (o) => { if (o !== u && o.village === v.id) { sim.emote(o, Emote.Angry, 20); remember(sim, o, Mem.Robbed, -4, 0.3); if (sim.rng.chance(0.3)) o.rival = u.id; } });
+        u.task = { k: 'flee', tx: u.x + sim.rng.range(-6, 6), tz: u.z + sim.rng.range(-6, 6) };
+      }
       break;
     }
   }
@@ -616,9 +703,9 @@ function runGather(sim: Sim, u: Unit, t: Extract<Task, { k: 'gather' }>) {
   const [tx, tz] = quarry ? [(t.tile % w.W) + 0.5, ((t.tile / w.W) | 0) + 0.5] : featureOffset(t.tile % w.W, (t.tile / w.W) | 0, f);
   face(u, tx, tz);
   u.anim = Anim.Work;
-  t.work++;
+  t.work += workRate(u);
   const workT = t.res === Res.Food ? 22 : t.res === Res.Wood ? 34 : 44;
-  if (t.work % 8 === 0) sim.fx.push({ t: t.res === Res.Wood ? 'chop' : t.res === Res.Food ? 'pick' : 'mine', x: tx, z: tz, u: u.id });
+  if (Math.floor(t.work) % 8 === 0 && Math.floor(t.work) !== Math.floor(t.work - workRate(u))) sim.fx.push({ t: t.res === Res.Wood ? 'chop' : t.res === Res.Food ? 'pick' : 'mine', x: tx, z: tz, u: u.id });
   if (t.work >= workT) {
     let amt = 0;
     if (t.res === Res.Wood) {

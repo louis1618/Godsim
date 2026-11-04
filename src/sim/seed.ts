@@ -54,5 +54,7 @@ export function spawnGroup(sim: Sim, race: Sp, x: number, z: number, n: number) 
     u.female = i % 2 === 0;
     out.push(u);
   }
+  // founders arrive as couples
+  for (let i = 0; i + 1 < out.length; i += 2) { out[i].partner = out[i + 1].id; out[i + 1].partner = out[i].id; }
   return out;
 }

@@ -9,7 +9,7 @@ import { U } from './shared';
 
 const ANIM_GLSL = /* glsl */ `
 attribute float aSlot; attribute float aPart; attribute vec3 aPivot; attribute float aItem;
-attribute vec3 iCloth; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iMisc;
+attribute vec3 iCloth; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iMisc; attribute float iMood;
 uniform float uAnimTime;
 varying float vFlash;
 mat3 gsRotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
@@ -33,6 +33,11 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   if (A == 7.0) { bob = -0.2; lhA = s * 1.3; rhA = -s * 1.3; legA = s * 0.5; }
   if (A == 8.0) { lhZ = -1.4 - sin(t * 25.0) * 0.9; rhZ = 1.4 + sin(t * 23.0) * 0.9; legA = sin(t * 30.0) * 0.9; headX = sin(t * 13.0) * 0.4; }
   if (A == 9.0) { headX = 0.75 + sin(t * 9.0) * 0.15; lhA = -0.6; rhA = -0.6; }
+  // mood colours every pose: gloomy creatures hang their heads, cheerful ones bounce
+  float md = iMood;
+  if (md < 0.3 && A != 5.0) { float g = (0.3 - md) / 0.3; headX += 0.45 * g; bob *= 1.0 - 0.5 * g; lhZ *= 0.3; rhZ *= 0.3; lean += 0.1 * g; }
+  if (md > 0.75 && (A == 0.0 || walk)) { float j = (md - 0.75) / 0.25; bob += abs(sin(t * (walk ? spd : 5.0))) * 0.035 * j; headY += sin(t * 3.0) * 0.15 * j; }
+  if (A == 5.0) { lhZ = -0.4; rhZ = 0.4; headY = 0.0; headX = -0.1 + sin(t * 1.2) * 0.04; legA = 0.0; }
   R = mat3(1.0); piv = aPivot; off = vec3(0.0, bob, 0.0);
   if (part == 4) R = gsRotX(legA);
   else if (part == 5) R = gsRotX(-legA);
@@ -57,6 +62,8 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   transformed = R * (transformed - piv) + piv;
   if (int(aPart + 0.5) == 6 && abs(aItem - iMisc.z) > 0.5) transformed = piv;
   transformed = gsRotX(lean) * transformed + off;
+  // asleep: lie on the back, breathing gently
+  if (iMisc.x == 5.0) transformed = gsRotX(-1.48) * transformed + vec3(0.0, 0.1 + sin(uAnimTime * 1.5 + iMisc.y) * 0.005, 0.0);
 }`);
     if (!depth) {
       shader.vertexShader = shader.vertexShader
@@ -65,6 +72,7 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   mat3 R; vec3 piv; vec3 off; float lean;
   gsAnim(R, piv, off, lean);
   objectNormal = gsRotX(lean) * (R * objectNormal);
+  if (iMisc.x == 5.0) objectNormal = gsRotX(-1.48) * objectNormal;
 }`)
         .replace('#include <color_vertex>', `#include <color_vertex>
 {
@@ -87,7 +95,7 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   return mat;
 }
 
-interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribute; skin: THREE.InstancedBufferAttribute; hair: THREE.InstancedBufferAttribute; misc: THREE.InstancedBufferAttribute; cap: number; }
+interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribute; skin: THREE.InstancedBufferAttribute; hair: THREE.InstancedBufferAttribute; misc: THREE.InstancedBufferAttribute; mood: THREE.InstancedBufferAttribute; cap: number; }
 
 /** Characters are drawn a bit larger than their simulation footprint so they read well. */
 export const CREATURE_SCALE = 1.4;
@@ -177,11 +185,11 @@ export class UnitRenderer {
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const mk = (n: number) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * n), n); a.setUsage(THREE.DynamicDrawUsage); return a; };
-    const cloth = mk(3), skin = mk(3), hair = mk(3), misc = mk(4);
-    g.setAttribute('iCloth', cloth); g.setAttribute('iSkin', skin); g.setAttribute('iHair', hair); g.setAttribute('iMisc', misc);
+    const cloth = mk(3), skin = mk(3), hair = mk(3), misc = mk(4), mood = mk(1);
+    g.setAttribute('iCloth', cloth); g.setAttribute('iSkin', skin); g.setAttribute('iHair', hair); g.setAttribute('iMisc', misc); g.setAttribute('iMood', mood);
     mesh.count = 0;
     this.group.add(mesh);
-    return { mesh, cloth, skin, hair, misc, cap };
+    return { mesh, cloth, skin, hair, misc, mood, cap };
   }
 
   private grow(sp: number, need: number) {
@@ -303,7 +311,8 @@ export class UnitRenderer {
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
       const item = u.sp === Sp.Troll ? 8 : child || !isCiv(u.sp) ? 0 : u.item;
-      pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, item, u.hitT > 0 ? u.hitT / 6 : 0);
+      pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, u.hitT > 0 ? u.hitT / 6 : 0);
+      pool.mood.setX(i, (u.mood ?? 60) / 100);
       if (u.flags & UF.King) {
         const hh = (u.sp === Sp.Dwarf ? 0.55 : 0.72) * sc;
         this.tmpP.set(x, y + hh, z);
@@ -319,7 +328,7 @@ export class UnitRenderer {
       p.mesh.count = show3D ? counts[sp] : 0;
       total += p.mesh.count;
       p.mesh.instanceMatrix.needsUpdate = true;
-      p.cloth.needsUpdate = p.skin.needsUpdate = p.hair.needsUpdate = p.misc.needsUpdate = true;
+      p.cloth.needsUpdate = p.skin.needsUpdate = p.hair.needsUpdate = p.misc.needsUpdate = p.mood.needsUpdate = true;
     }
     this.visibleCount = total;
     this.crowns.count = Math.min(crowns, 64);

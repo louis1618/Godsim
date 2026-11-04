@@ -35,8 +35,11 @@ export const MATS: MatDef[] = [
 
 export const enum Sp {
   Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9, Troll = 10,
+  Boat = 11, Tank = 12, Plane = 13,
 }
-export const SPECIES_COUNT = 11;
+export const SPECIES_COUNT = 14;
+/** Machines: no hunger, no mood, no ageing; they belong to a kingdom. */
+export const isVehicle = (sp: number) => sp >= 11 && sp <= 13;
 export type Race = Sp.Human | Sp.Elf | Sp.Dwarf | Sp.Orc;
 export const RACES: Race[] = [Sp.Human, Sp.Elf, Sp.Dwarf, Sp.Orc];
 
@@ -74,13 +77,22 @@ export const SPECIES: SpeciesDef[] = [
   { key: 'skeleton', civ: false, speed: 1.35, hp: 70, dmg: 12, attackRate: 1.0, range: 0.9, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Ash, Mat.Desert], fertility: 0, buildSpeed: 0, undead: true },
   { key: 'chicken', civ: false, speed: 1.1, hp: 15, dmg: 1, attackRate: 2, range: 0.5, lifespan: [6, 9], adultAge: 1, size: 0.55, diet: 'plant', aggressive: false, breedEvery: 1.0, litter: 2, biomes: [Mat.Grass, Mat.Savanna], fertility: 1, buildSpeed: 0 },
   { key: 'troll', civ: false, speed: 1.2, hp: 520, dmg: 34, attackRate: 1.6, range: 1.3, lifespan: [9999, 9999], adultAge: 0, size: 1.9, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Rock, Mat.Lush], fertility: 0, buildSpeed: 0, undead: true },
+  { key: 'boat', civ: false, speed: 1.6, hp: 220, dmg: 30, attackRate: 2.5, range: 6, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'tank', civ: false, speed: 1.5, hp: 700, dmg: 55, attackRate: 2.2, range: 8, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'plane', civ: false, speed: 4.5, hp: 200, dmg: 70, attackRate: 0.6, range: 1, lifespan: [9999, 9999], adultAge: 0, size: 1, diet: 'plant', aggressive: false, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
 ];
 export const isCiv = (sp: number) => sp <= Sp.Orc;
 
 export const enum Bk {
   TownHall = 0, House = 1, Farm = 2, Storage = 3, Tower = 4, Temple = 5, Windmill = 6, Ruin = 7,
+  Library = 8, Market = 9, Prison = 10, Dock = 11, Cannon = 12, Factory = 13, Apartment = 14,
 }
-export const BUILDING_KINDS = 8;
+export const BUILDING_KINDS = 15;
+
+/** Ages of civilisation. Knowledge (tech) accumulates per kingdom; an era also needs a big enough town. */
+export const enum Era { Tribal = 0, Medieval = 1, Gunpowder = 2, Industrial = 3, Modern = 4 }
+export const ERA_TECH = [0, 30, 110, 280, 600];
+export const ERA_MIN_LEVEL = [0, 1, 2, 2, 3];
 
 export interface BuildingDef {
   key: string;
@@ -90,6 +102,7 @@ export interface BuildingDef {
   work: number;       // builder-seconds
   housing: number;
   minPop: number;     // village population required
+  era?: number;       // minimum era
 }
 export const BUILDINGS: BuildingDef[] = [
   { key: 'townhall', size: 3, hp: 900, cost: { wood: 10, stone: 0, gold: 0 }, work: 14, housing: 4, minPop: 0 },
@@ -100,6 +113,13 @@ export const BUILDINGS: BuildingDef[] = [
   { key: 'temple', size: 3, hp: 600, cost: { wood: 15, stone: 25, gold: 6 }, work: 26, housing: 0, minPop: 22 },
   { key: 'windmill', size: 2, hp: 280, cost: { wood: 18, stone: 6, gold: 0 }, work: 14, housing: 0, minPop: 16 },
   { key: 'ruin', size: 2, hp: 1, cost: { wood: 0, stone: 0, gold: 0 }, work: 0, housing: 0, minPop: 0 },
+  { key: 'library', size: 2, hp: 300, cost: { wood: 20, stone: 15, gold: 4 }, work: 16, housing: 0, minPop: 14, era: 1 },
+  { key: 'market', size: 2, hp: 240, cost: { wood: 18, stone: 6, gold: 0 }, work: 12, housing: 0, minPop: 12, era: 1 },
+  { key: 'prison', size: 2, hp: 700, cost: { wood: 10, stone: 30, gold: 0 }, work: 18, housing: 0, minPop: 18, era: 1 },
+  { key: 'dock', size: 2, hp: 260, cost: { wood: 24, stone: 0, gold: 0 }, work: 12, housing: 0, minPop: 10, era: 1 },
+  { key: 'cannon', size: 1, hp: 380, cost: { wood: 6, stone: 12, gold: 4 }, work: 10, housing: 0, minPop: 16, era: 2 },
+  { key: 'factory', size: 3, hp: 900, cost: { wood: 30, stone: 40, gold: 10 }, work: 30, housing: 0, minPop: 24, era: 3 },
+  { key: 'apartment', size: 2, hp: 700, cost: { wood: 16, stone: 26, gold: 2 }, work: 22, housing: 10, minPop: 20, era: 4 },
 ];
 
 /** Unit traits (bit flags). */
