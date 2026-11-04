@@ -42,6 +42,7 @@ export class GameRenderer {
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     this.rig = new CameraRig(window.innerWidth / window.innerHeight);
 
     this.fog = new THREE.FogExp2(0xcfe6f2, 0.004);
@@ -123,6 +124,7 @@ export class GameRenderer {
   }
 
   private waterT = 0;
+  private frameNo = 0;
 
   frame() {
     const dt = Math.min(this.clock.getDelta(), 0.1);
@@ -157,6 +159,9 @@ export class GameRenderer {
     this.sun.target.position.set(fx, f.y, fz);
     this.sun.position.set(fx + sd.x * 150, f.y + sd.y * 150, fz + sd.z * 150);
     this.sky.mesh.position.copy(rig.camera.position);
+    // shadows: every frame up close, every third frame from orbit/map (soft and slow-moving there)
+    this.frameNo++;
+    this.renderer.shadowMap.needsUpdate = rig.z01 < 0.6 || this.frameNo % 3 === 0;
     if (this.composer) {
       // AO scales with the view; it fades out in map view where it would only muddy the map
       if (this.aoPass && this.normalPass) {
