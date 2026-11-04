@@ -347,6 +347,179 @@ function ruin(): THREE.BufferGeometry {
   return b.build();
 }
 
+// ----------------------------------------------------------------- civic & later-age buildings
+
+function library(race: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(101, true);
+  const s = STYLES[race];
+  const stone = race === Sp.Orc ? 0x9a8a72 : race === Sp.Dwarf ? 0x9a948c : 0xe9e2d2;
+  b.add(geo.rbox(1.8, 0.16, 1.7, 0.04, 1), { color: noisy(s.base, 0.05, 5) }, T(0, 0.08, 0));
+  b.add(geo.rbox(1.5, 0.95, 1.2, 0.03, 1), { color: vgrad(s.wall2, stone, 0.1, 1.0) }, T(0, 0.62, -0.18));
+  // portico: steps, columns, pediment
+  b.add(geo.box(1.5, 0.08, 0.5), { color: 0xd8d0c0 }, T(0, 0.2, 0.62));
+  for (let i = 0; i < 4; i++) b.add(geo.cyl(0.06, 0.07, 0.82, 8), { color: 0xf3eee2 }, T(-0.6 + i * 0.4, 0.64, 0.68));
+  b.add(geo.box(1.6, 0.08, 0.55), { color: 0xe8e0d0 }, T(0, 1.08, 0.58));
+  b.add(geo.prism(1.6, 0.6, 0.3), { color: 0xf0e8d8 }, T(0, 1.12, 0.6, 0, Math.PI / 2, 0));
+  // dome & lantern
+  b.add(geo.cyl(0.42, 0.45, 0.2, 14), { color: stone }, T(0, 1.2, -0.25));
+  b.add(geo.sphere(0.42, 16, 10), { ...TEAM, ao: [1.3, 1.7, 0.75] }, T(0, 1.28, -0.25, 0, 0, 0, 1, 0.85, 1));
+  b.add(geo.cyl(0.06, 0.06, 0.18, 8), { color: 0xd9b84a }, T(0, 1.72, -0.25));
+  // tall windows and a round rose window
+  for (const x of [-0.5, 0.5]) { b.add(geo.box(0.18, 0.45, 0.03), { color: s.trim }, T(x, 0.62, 0.43)); b.add(geo.box(0.13, 0.4, 0.03), { color: 0xffe2a0, part: 2, pivot: [x, 0.42, 0.45] }, T(x, 0.62, 0.445)); }
+  b.add(geo.cyl(0.13, 0.13, 0.03, 12), { color: 0x9fd4ef }, T(0, 0.82, 0.43, Math.PI / 2));
+  door(b, s, 0.43, 0.26, 0.42);
+  // a stack of books by the door
+  for (let i = 0; i < 3; i++) b.add(geo.box(0.16, 0.04, 0.11), { color: [0xb84a3a, 0x3a6ab8, 0x4a9a5a][i] }, T(0.62, 0.26 + i * 0.045, 0.82, 0, i * 0.3, 0));
+  return b.build();
+}
+
+function market(race: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(103, true);
+  const post = race === Sp.Dwarf ? 0x8d8780 : race === Sp.Orc ? 0x5a3a22 : 0x9a6a3a;
+  b.add(geo.rbox(1.85, 0.08, 1.85, 0.03, 1), { color: noisy(0xc8b89a, 0.06, 7) }, T(0, 0.04, 0));
+  for (const [cx, cz, r] of [[-0.45, -0.3, 0], [0.45, 0.35, Math.PI]] as [number, number, number][]) {
+    // stall: counter, four posts, striped awning
+    b.add(geo.rbox(0.8, 0.32, 0.36, 0.02, 1), { color: 0xb88a52 }, T(cx, 0.24, cz, 0, r, 0));
+    for (const dx of [-0.38, 0.38]) for (const dz of [-0.2, 0.2]) b.add(geo.cyl(0.025, 0.03, 0.85, 5), { color: post }, T(cx + dx, 0.45, cz + dz));
+    for (let i = 0; i < 5; i++) {
+      const stripe = i % 2 ? { ...TEAM } : { color: 0xf8f2e6 };
+      b.add(geo.box(0.17, 0.025, 0.56), stripe, T(cx - 0.34 + i * 0.17, 0.9, cz + (r ? -0.05 : 0.05), r ? 0.25 : -0.25, 0, 0));
+    }
+    // goods
+    for (let i = 0; i < 4; i++) b.add(geo.sphere(0.055, 6, 5), { color: [0xe23a3a, 0xf2b330, 0x8fd14f, 0xb86ad8][(i + (r ? 2 : 0)) % 4] }, T(cx - 0.27 + i * 0.18, 0.44, cz + (r ? -0.06 : 0.06)));
+  }
+  barrel(b, 0.7, -0.6); barrel(b, 0.55, -0.72, 0.85); crate(b, -0.75, 0.7, 1.1, 0.2); crate(b, -0.6, 0.78, 0.9, 0.6);
+  // coin sign
+  b.add(geo.cyl(0.02, 0.02, 1.0, 5), { color: post }, T(-0.85, 0.5, -0.85));
+  b.add(geo.cyl(0.13, 0.13, 0.03, 12), { color: 0xd9b84a }, T(-0.85, 1.05, -0.83, Math.PI / 2));
+  return b.build();
+}
+
+function prison(race: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(105, true);
+  const stone = race === Sp.Orc ? 0x7a6a58 : race === Sp.Elf ? 0xc9c3b4 : 0x8f8a82;
+  b.add(geo.rbox(1.95, 0.1, 1.95, 0.03, 1), { color: 0x6f6a64 }, T(0, 0.05, 0));
+  b.add(geo.box(1.6, 0.02, 1.6), { color: 0x9a8e7c }, T(0, 0.11, 0)); // yard floor
+  // perimeter walls (front is iron bars so the yard reads from outside)
+  for (const [x, z, w, d] of [[0, -0.9, 1.9, 0.16], [-0.9, 0, 0.16, 1.9], [0.9, 0, 0.16, 1.9]] as [number, number, number, number][]) {
+    b.add(geo.rbox(w, 0.62, d, 0.03, 1), { color: noisy(stone, 0.08, 6) }, T(x, 0.41, z));
+    b.add(geo.box(w + 0.04, 0.06, d + 0.04), { color: 0x6f6a64 }, T(x, 0.75, z));
+  }
+  b.add(geo.box(1.9, 0.12, 0.16), { color: noisy(stone, 0.08, 6) }, T(0, 0.16, 0.9));
+  b.add(geo.box(1.9, 0.06, 0.08), { color: 0x3a3c40 }, T(0, 0.74, 0.9));
+  for (let i = 0; i < 13; i++) b.add(geo.cyl(0.015, 0.015, 0.56, 4), { color: 0x3a3c40 }, T(-0.84 + i * 0.14, 0.46, 0.9));
+  // guard tower in the back corner
+  b.add(geo.rbox(0.5, 1.25, 0.5, 0.03, 1), { color: noisy(stone, 0.08, 5) }, T(0.68, 0.7, -0.68));
+  b.add(geo.box(0.6, 0.08, 0.6), { color: 0x6f6a64 }, T(0.68, 1.36, -0.68));
+  b.add(geo.pyramid(0.66, 0.38), { ...TEAM, flat: true }, T(0.68, 1.6, -0.68));
+  b.add(geo.box(0.12, 0.16, 0.02), { color: 0xffd27a, part: 2, pivot: [0.68, 1.0, -0.42] }, T(0.68, 1.05, -0.42));
+  // bench and a bucket in the yard
+  b.add(geo.box(0.5, 0.06, 0.14), { color: 0x7a5235 }, T(-0.45, 0.25, -0.65));
+  b.add(geo.cyl(0.06, 0.05, 0.1, 8), { color: 0x6a6e74 }, T(-0.7, 0.17, 0.5));
+  return b.build();
+}
+
+function dock(race: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(107, true);
+  const wood = race === Sp.Dwarf ? 0x8a7a6a : race === Sp.Orc ? 0x6b4a2e : 0xa8743f;
+  // boathouse on the land half
+  b.add(geo.rbox(1.6, 0.12, 0.95, 0.03, 1), { color: 0x7a6a58 }, T(0, 0.06, -0.45));
+  b.add(geo.rbox(1.3, 0.62, 0.75, 0.03, 1), { color: (p) => hex(wood).multiplyScalar(0.9 + 0.12 * Math.sin(p.y * 42)) }, T(0, 0.43, -0.5));
+  gable(b, 1.4, 0.85, 0.42, 0.74);
+  b.add(geo.box(0.42, 0.42, 0.03), { color: 0x4a3322 }, T(0, 0.33, -0.11));
+  // pier out over the water (+Z), planks on posts
+  for (let i = 0; i < 9; i++) b.add(geo.box(0.62, 0.035, 0.26), { color: i % 2 ? wood : hex(wood).multiplyScalar(0.88).getHex() }, T(0, 0.16, 0.05 + i * 0.27));
+  for (let i = 0; i < 4; i++) for (const x of [-0.3, 0.3]) b.add(geo.cyl(0.035, 0.04, 0.9, 6), { color: 0x5a3a22 }, T(x, -0.25, 0.15 + i * 0.7));
+  // bollards, rope, crane, fish crates
+  for (const x of [-0.27, 0.27]) b.add(geo.cyl(0.04, 0.05, 0.14, 8), { color: 0x4a4440 }, T(x, 0.24, 2.3));
+  b.add(geo.torus(0.06, 0.012, 4, 10), { color: 0xd8c8a0 }, T(0.27, 0.2, 2.15, Math.PI / 2));
+  b.add(geo.cyl(0.03, 0.035, 0.9, 6), { color: 0x5a3a22 }, T(-0.62, 0.55, 0.25));
+  b.add(geo.box(0.04, 0.04, 0.6), { color: 0x5a3a22 }, T(-0.62, 0.98, 0.5));
+  b.add(geo.cyl(0.004, 0.004, 0.35, 3), { color: 0xd8c8a0 }, T(-0.62, 0.8, 0.78));
+  crate(b, 0.55, 0.15, 0.9, 0.3); crate(b, 0.62, 0.32, 0.8, 0.9);
+  b.add(geo.sphere(0.06, 6, 4), { color: 0x9ac8e8 }, T(0.55, 0.3, 0.15, 0, 0, 0, 1.6, 0.6, 0.8));
+  flag(b, -0.55, 0.12, -0.95, 0.9, 0.28);
+  return b.build();
+}
+
+function cannon(): THREE.BufferGeometry {
+  const b = new ModelBuilder(109, true);
+  b.add(geo.cyl(0.46, 0.5, 0.2, 14), { color: noisy(0x9a948c, 0.07, 5) }, T(0, 0.1, 0));
+  for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; b.add(geo.box(0.16, 0.14, 0.1), { color: 0x8a847c }, T(Math.cos(a) * 0.42, 0.27, Math.sin(a) * 0.42, 0, -a, 0)); }
+  // carriage + wheels
+  b.add(geo.rbox(0.26, 0.12, 0.4, 0.02, 1), { color: 0x7a5235 }, T(0, 0.28, -0.04));
+  for (const x of [-0.17, 0.17]) { b.add(geo.cyl(0.11, 0.11, 0.04, 12), { color: 0x5a3a22 }, T(x, 0.3, 0.02, 0, 0, Math.PI / 2)); b.add(geo.cyl(0.03, 0.03, 0.05, 6), { color: 0x3a3c40 }, T(x, 0.3, 0.02, 0, 0, Math.PI / 2)); }
+  // barrel aims along +Z
+  b.add(geo.cyl(0.055, 0.08, 0.6, 12), { color: 0x2f3236 }, T(0, 0.42, 0.12, Math.PI / 2 - 0.18));
+  b.add(geo.torus(0.06, 0.015, 5, 12), { color: 0x4a4e54 }, T(0, 0.47, 0.41, -0.18));
+  b.add(geo.sphere(0.08, 8, 6), { color: 0x2f3236 }, T(0, 0.37, -0.16));
+  // cannonball pile + team pennant
+  for (const [x, z, y] of [[-0.3, -0.28, 0.25], [-0.22, -0.32, 0.25], [-0.26, -0.3, 0.32]] as [number, number, number][]) b.add(geo.sphere(0.045, 8, 6), { color: 0x2a2c30 }, T(x, y, z));
+  flag(b, 0.32, 0.2, -0.3, 0.55, 0.2);
+  return b.build();
+}
+
+function factory(race: Sp): THREE.BufferGeometry {
+  const b = new ModelBuilder(111, true);
+  const brick = race === Sp.Dwarf ? 0x8a6a5a : race === Sp.Elf ? 0xb8a890 : 0xa85a42;
+  b.add(geo.rbox(2.8, 0.14, 2.7, 0.04, 1), { color: 0x6f6a64 }, T(0, 0.07, 0));
+  b.add(geo.rbox(2.4, 1.0, 1.9, 0.03, 1), { color: (p) => hex(brick).multiplyScalar(0.9 + 0.12 * ((Math.floor(p.y * 14) + Math.floor(p.x * 7 + (Math.floor(p.y * 14) % 2) * 0.5)) % 2)) }, T(0, 0.64, -0.2));
+  // saw-tooth roof with skylights
+  for (let i = 0; i < 4; i++) {
+    const x = -0.9 + i * 0.6;
+    b.add(geo.prism(1.95, 0.6, 0.38), { ...TEAM, flat: true }, T(x, 1.14, -0.2, 0, Math.PI / 2, 0));
+    b.add(geo.box(0.02, 0.3, 1.8), { color: 0x9fd4ef }, T(x + 0.28, 1.3, -0.2, 0, 0, 0.2));
+  }
+  // chimneys (smoke comes from the fx layer)
+  for (const [x, h] of [[-0.85, 1.6], [-0.35, 1.9]] as [number, number][]) {
+    b.add(geo.cyl(0.13, 0.17, h, 10), { color: brick }, T(x, 0.14 + h / 2, -0.95));
+    b.add(geo.cyl(0.16, 0.16, 0.08, 10), { color: 0x3a3c40 }, T(x, 0.14 + h, -0.95));
+    b.add(geo.torus(0.155, 0.02, 4, 12), { color: 0xf2efe8 }, T(x, 0.14 + h * 0.75, -0.95, Math.PI / 2));
+  }
+  // loading bay with shutter, windows, gear sign
+  b.add(geo.box(0.9, 0.62, 0.03), { color: 0x6a6e74 }, T(0.45, 0.45, 0.76));
+  for (let i = 0; i < 6; i++) b.add(geo.box(0.88, 0.015, 0.035), { color: 0x4a4e54 }, T(0.45, 0.2 + i * 0.1, 0.775));
+  for (const x of [-0.85, -0.45]) { b.add(geo.box(0.26, 0.32, 0.03), { color: 0x3a3c40 }, T(x, 0.62, 0.76)); b.add(geo.box(0.2, 0.26, 0.03), { color: 0xffd27a, part: 2, pivot: [x, 0.5, 0.78] }, T(x, 0.62, 0.77)); }
+  b.add(geo.torus(0.14, 0.04, 6, 8), { color: 0xd9b84a, part: 1, pivot: [-0.65, 1.0, 0.78] }, T(-0.65, 1.0, 0.78));
+  // yard: coal heap, pipes, barrels
+  b.add(geo.sphere(0.35, 8, 6), { color: 0x2a2826, flat: true, jitter: 0.04 }, T(1.05, 0.1, 0.95, 0, 0, 0, 1, 0.45, 0.8));
+  b.add(geo.cyl(0.05, 0.05, 1.3, 6), { color: 0x6a6e74 }, T(1.25, 0.6, -0.2, Math.PI / 2));
+  barrel(b, -1.15, 0.95); barrel(b, -1.0, 1.1, 0.9);
+  return b.build();
+}
+
+function apartment(race: Sp, seed: number): THREE.BufferGeometry {
+  const b = new ModelBuilder(113 + seed, true);
+  const walls = [0xe8dcc8, 0xd8c8b4, 0xc8d4dc, 0xe8d0c0][race] ?? 0xe8dcc8;
+  const floors = 4, fh = 0.42;
+  b.add(geo.rbox(1.9, 0.12, 1.9, 0.03, 1), { color: 0x9a948c }, T(0, 0.06, 0));
+  b.add(geo.rbox(1.6, floors * fh, 1.5, 0.03, 1), { color: vgrad(walls, hex(walls).multiplyScalar(1.05).getHex(), 0, floors * fh) }, T(0, 0.12 + (floors * fh) / 2, -0.05));
+  for (let f = 0; f < floors; f++) {
+    const y = 0.12 + f * fh + fh * 0.55;
+    // band between floors
+    b.add(geo.box(1.64, 0.04, 1.54), { color: 0xb8b0a4 }, T(0, 0.12 + (f + 1) * fh - 0.02, -0.05));
+    for (let i = 0; i < 4; i++) {
+      const x = -0.57 + i * 0.38;
+      if (f === 0 && (i === 1 || i === 2)) continue;
+      const lit = ((seed * 7 + f * 3 + i) % 5) < 2;
+      for (const z of [0.705, -0.805]) {
+        b.add(geo.box(0.22, 0.24, 0.02), { color: 0x4a4e54 }, T(x, y, z));
+        b.add(geo.box(0.18, 0.2, 0.02), { color: lit ? 0xffe2a0 : 0x8fb8d8, ...(lit ? { part: 2, pivot: [x, y - 0.1, z] as [number, number, number] } : {}) }, T(x, y, z + (z > 0 ? 0.006 : -0.006)));
+      }
+      // balconies in the team colour on the upper floors
+      if (f >= 1 && i % 2 === 0) b.add(geo.box(0.32, 0.05, 0.14), { ...TEAM_L }, T(x + 0.19, 0.12 + f * fh + 0.04, 0.78));
+    }
+  }
+  // entrance, roof parapet, water tank, antenna
+  b.add(geo.box(0.5, 0.32, 0.04), { color: 0x6a5a4a }, T(0, 0.28, 0.71));
+  b.add(geo.box(0.66, 0.04, 0.22), { ...TEAM }, T(0, 0.48, 0.8));
+  const top = 0.12 + floors * fh;
+  b.add(geo.box(1.66, 0.08, 1.56), { color: 0xb8b0a4 }, T(0, top + 0.04, -0.05));
+  b.add(geo.cyl(0.16, 0.16, 0.26, 10), { color: 0x9a948c }, T(0.45, top + 0.21, -0.35));
+  b.add(geo.cyl(0.008, 0.008, 0.5, 4), { color: 0x3a3c40 }, T(-0.5, top + 0.29, -0.4));
+  return b.build();
+}
+
 export function scaffold(size: number): THREE.BufferGeometry {
   const b = new ModelBuilder(5, true);
   const h = size * 0.6 + 0.4, r = size * 0.5 - 0.05;
@@ -372,6 +545,13 @@ export function buildBuildingModels(): Map<BuildingKey, THREE.BufferGeometry> {
     out.set(bkey(Bk.Tower, race, 0), tower(race));
     out.set(bkey(Bk.Temple, race, 0), temple(race));
     out.set(bkey(Bk.Windmill, race, 0), windmill(race));
+    out.set(bkey(Bk.Library, race, 0), library(race));
+    out.set(bkey(Bk.Market, race, 0), market(race));
+    out.set(bkey(Bk.Prison, race, 0), prison(race));
+    out.set(bkey(Bk.Dock, race, 0), dock(race));
+    out.set(bkey(Bk.Cannon, race, 0), cannon());
+    out.set(bkey(Bk.Factory, race, 0), factory(race));
+    out.set(bkey(Bk.Apartment, race, 0), apartment(race, race));
   }
   out.set(bkey(Bk.Ruin, 0, 0), ruin());
   return out;

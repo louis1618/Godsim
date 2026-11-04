@@ -48,6 +48,93 @@ function items(b: ModelBuilder, hx: number, hy: number, hz: number, s = 1) {
   // spear
   add(10, geo.cyl(0.009, 0.009, 0.42, 4), wood, at(0, 0.15, 0.0));
   add(10, geo.cone(0.022, 0.07, 4), iron, at(0, 0.39, 0.0));
+  // musket: long barrel, wooden stock
+  add(12, geo.box(0.03, 0.12, 0.035), wood, at(0, 0.02, 0.0, 1.25));
+  add(12, geo.cyl(0.009, 0.009, 0.34, 6), 0x5a5e64, at(0, 0.09, 0.17, 1.25 + Math.PI / 2 - Math.PI / 2));
+  // rifle: dark, with scope and magazine
+  add(13, geo.box(0.03, 0.1, 0.035), 0x3a3a3e, at(0, 0.02, 0.0, 1.25));
+  add(13, geo.cyl(0.01, 0.01, 0.3, 6), 0x2a2c30, at(0, 0.09, 0.16, 1.25));
+  add(13, geo.cyl(0.014, 0.014, 0.08, 6), 0x1a1c20, at(0, 0.12, 0.08, 1.25));
+  add(13, geo.box(0.02, 0.05, 0.025), 0x2a2c30, at(0, 0.03, 0.08, 1.25));
+  // satchel (trader)
+  add(14, geo.rbox(0.09, 0.08, 0.05, 0.015, 1), 0x8a5a33, T(hx + 0.01, hy - 0.03, hz + 0.02, 0, 0, 0, s));
+  add(14, geo.box(0.092, 0.025, 0.052), 0xc8a23c, T(hx + 0.01, hy + 0.0, hz + 0.02, 0, 0, 0, s));
+  // baton (guard)
+  add(15, geo.cyl(0.012, 0.012, 0.2, 6), 0x22252a, at(0, 0.08, 0.02, 0.35));
+  add(15, geo.cyl(0.016, 0.016, 0.03, 6), 0x6a6e74, at(0, -0.01, -0.01, 0.35));
+  // fishing rod with line and float
+  add(16, geo.cyl(0.006, 0.01, 0.5, 4), 0x9a6a3a, at(0, 0.2, 0.08, 0.6));
+  add(16, geo.cyl(0.002, 0.002, 0.22, 3), 0xeeeeee, at(0, 0.32, 0.36));
+  add(16, geo.sphere(0.018, 6, 4), 0xe23a3a, at(0, 0.21, 0.36));
+  // book (scholar)
+  add(17, geo.box(0.09, 0.11, 0.025), 0x3a5aa8, T(hx + 0.02, hy + 0.02, hz + 0.05, -0.4, 0, 0, s));
+  add(17, geo.box(0.08, 0.1, 0.027), 0xf3ecd8, T(hx + 0.022, hy + 0.02, hz + 0.05, -0.4, 0, 0, s));
+}
+
+// ------------------------------------------------------------------ machines
+const STEEL = 0x6f757c, DARK = 0x33363b, PLANK = 0xa8743f, PLANK_D = 0x7a5235;
+
+/** Boats share one hull; variant gear is drawn as items 20 (fishing), 21 (warship), 22 (ferry). */
+function boat(): THREE.BufferGeometry {
+  const b = new ModelBuilder(41, true);
+  const it = (id: number) => ({ part: P.Item, item: id, pivot: [0, 0, 0] as [number, number, number] });
+  // hull: tapered planked shell with a keel line in kingdom colour
+  b.add(geo.lathe([[0, -0.08], [0.17, -0.05], [0.2, 0.06], [0.2, 0.12]], 12), { color: PLANK }, T(0, 0, 0, 0, 0, 0, 1, 1, 2.5));
+  b.add(geo.box(0.36, 0.03, 0.9), { color: PLANK_D }, T(0, 0.09, 0));
+  b.add(geo.torus(0.2, 0.018, 4, 16), { color: W, slot: 1 }, T(0, 0.115, 0, Math.PI / 2, 0, 0, 1, 2.5, 1));
+  b.add(geo.cone(0.03, 0.12, 5), { color: PLANK_D }, T(0, 0.08, 0.52, Math.PI / 2));
+  // fishing: mast, sail, net heap, lantern
+  b.add(geo.cyl(0.012, 0.014, 0.6, 5), { color: PLANK_D, ...it(20) }, T(0, 0.38, 0.06));
+  b.add(geo.box(0.005, 0.38, 0.26), { color: 0xf3ead8, ...it(20) }, T(0, 0.42, -0.07));
+  b.add(geo.box(0.006, 0.08, 0.27), { color: W, slot: 1, ...it(20) }, T(0, 0.62, -0.07));
+  b.add(geo.sphere(0.07, 8, 6), { color: 0x9a8a6a, ...it(20) }, T(0.05, 0.13, -0.28, 0, 0, 0, 1.3, 0.5, 1));
+  b.add(geo.sphere(0.025, 6, 4), { color: 0xffd27a, ...it(20) }, T(0, 0.68, 0.06));
+  // warship: deckhouse, funnel, gun turrets, flag
+  b.add(geo.rbox(0.26, 0.14, 0.32, 0.02, 1), { color: 0xd8d4cc, ...it(21) }, T(0, 0.17, -0.12));
+  b.add(geo.cyl(0.045, 0.05, 0.22, 8), { color: DARK, ...it(21) }, T(0, 0.33, -0.16));
+  b.add(geo.cyl(0.05, 0.05, 0.03, 8), { color: W, slot: 1, ...it(21) }, T(0, 0.41, -0.16));
+  for (const z of [0.22, -0.38]) {
+    b.add(geo.cyl(0.06, 0.07, 0.06, 10), { color: STEEL, ...it(21) }, T(0, 0.14, z));
+    b.add(geo.cyl(0.012, 0.012, 0.2, 6), { color: DARK, ...it(21) }, T(0, 0.15, z + (z > 0 ? 0.12 : -0.12), Math.PI / 2));
+  }
+  b.add(geo.cyl(0.008, 0.008, 0.3, 4), { color: DARK, ...it(21) }, T(0, 0.38, 0.0));
+  b.add(geo.box(0.005, 0.07, 0.11), { color: W, slot: 1, ...it(21) }, T(0, 0.48, -0.06));
+  // ferry: canopy over benches, a big steering oar
+  b.add(geo.box(0.34, 0.015, 0.5), { color: W, slot: 5, ...it(22) }, T(0, 0.34, -0.05));
+  for (const x of [-0.15, 0.15]) for (const z of [-0.28, 0.18]) b.add(geo.cyl(0.01, 0.01, 0.24, 4), { color: PLANK_D, ...it(22) }, T(x, 0.22, z));
+  b.add(geo.box(0.04, 0.03, 0.3), { color: PLANK_D, ...it(22) }, T(0.12, 0.1, -0.55, 0.35));
+  return b.build();
+}
+
+function tank(): THREE.BufferGeometry {
+  const b = new ModelBuilder(43, true);
+  for (const side of [-1, 1]) {
+    b.add(geo.capsule(0.07, 0.4, 3, 8), { color: 0x2c2e30 }, T(side * 0.17, 0.08, 0, Math.PI / 2));
+    for (let i = 0; i < 5; i++) b.add(geo.cyl(0.045, 0.045, 0.02, 10), { color: 0x55595e }, T(side * 0.2, 0.07, -0.2 + i * 0.1, 0, 0, Math.PI / 2));
+  }
+  b.add(geo.rbox(0.3, 0.1, 0.56, 0.02, 1), { color: 0x6d7a52 }, T(0, 0.17, 0));
+  b.add(geo.rbox(0.38, 0.03, 0.6, 0.01, 1), { color: 0x5a6644 }, T(0, 0.135, 0));
+  b.add(geo.cyl(0.13, 0.15, 0.1, 12), { color: W, slot: 1, ao: [0.2, 0.3, 0.8] }, T(0, 0.27, -0.03));
+  b.add(geo.sphere(0.12, 12, 6), { color: 0x6d7a52 }, T(0, 0.31, -0.03, 0, 0, 0, 1, 0.45, 1));
+  b.add(geo.cyl(0.022, 0.026, 0.4, 8), { color: 0x4a5238 }, T(0, 0.28, 0.3, Math.PI / 2));
+  b.add(geo.cyl(0.03, 0.03, 0.05, 8), { color: 0x2c2e30 }, T(0, 0.28, 0.5, Math.PI / 2));
+  b.add(geo.cyl(0.035, 0.035, 0.04, 8), { color: 0x4a5238 }, T(0.06, 0.36, -0.08));
+  b.add(geo.cyl(0.005, 0.005, 0.25, 4), { color: DARK }, T(-0.08, 0.45, -0.12));
+  return b.build();
+}
+
+function plane(): THREE.BufferGeometry {
+  const b = new ModelBuilder(47, true);
+  b.add(geo.capsule(0.07, 0.5, 4, 10), { color: 0xe8e4da }, T(0, 0, 0, Math.PI / 2));
+  b.add(geo.sphere(0.06, 10, 8), { color: 0x7ab8e0 }, T(0, 0.05, 0.12, 0, 0, 0, 0.8, 0.6, 1.4));
+  b.add(geo.rbox(0.9, 0.02, 0.15, 0.01, 1), { color: W, slot: 1 }, T(0, -0.01, 0.04));
+  b.add(geo.rbox(0.32, 0.015, 0.08, 0.008, 1), { color: W, slot: 1 }, T(0, 0.0, -0.3));
+  b.add(geo.box(0.015, 0.14, 0.1), { color: W, slot: 1 }, T(0, 0.07, -0.3));
+  for (const x of [-0.25, 0.25]) b.add(geo.capsule(0.025, 0.06, 3, 6), { color: DARK }, T(x, -0.05, 0.06, Math.PI / 2));
+  b.add(geo.cone(0.035, 0.06, 8), { color: 0xd8b84a }, T(0, 0, 0.33, Math.PI / 2));
+  // propeller spins (part 7)
+  b.add(geo.box(0.32, 0.03, 0.01), { color: DARK, part: P.Tail, pivot: [0, 0, 0.36] }, T(0, 0, 0.36));
+  return b.build();
 }
 
 interface HumanoidOpts {
@@ -236,6 +323,9 @@ export function buildCreatureModels(): Record<number, THREE.BufferGeometry> {
     [Sp.Deer]: quadruped(Sp.Deer),
     [Sp.Bear]: quadruped(Sp.Bear),
     [Sp.Chicken]: quadruped(Sp.Chicken),
+    [Sp.Boat]: boat(),
+    [Sp.Tank]: tank(),
+    [Sp.Plane]: plane(),
   };
 }
 

@@ -4,7 +4,20 @@ type Entry = [string, string, string?, string?]; // [ko, en, koHint, enHint]
 const S: Record<string, Entry> = {
   // categories
   'cat-world': ['대지', 'World'], 'cat-life': ['생명', 'Life'], 'cat-civ': ['문명', 'Civilization'], 'cat-nature': ['자연', 'Nature'],
-  'cat-disaster': ['재난', 'Disasters'], 'cat-observe': ['관찰', 'Observe'], 'cat-settings': ['설정', 'Settings'],
+  'cat-disaster': ['재난', 'Disasters'], 'cat-observe': ['관찰', 'Observe'], 'cat-settings': ['설정', 'Settings'], 'cat-military': ['무기', 'Weapons'],
+  // weapons & machines
+  tank: ['전차', 'Tank', '영토 안이면 그 왕국 소속', 'Joins the kingdom whose land it is on'], plane: ['폭격기', 'Bomber', '영토 안이면 그 왕국 소속', 'Joins the kingdom whose land it is on'],
+  warship: ['전함', 'Warship', '물 위에 소환', 'Spawn on water'], cannon: ['포대', 'Cannon', '마을 영토 안에 설치', 'Place inside a village'],
+  nuke: ['핵폭탄', 'Nuke', '모든 것을 지웁니다', 'Erases everything'], enlighten: ['계몽', 'Enlighten', '마을 클릭: 지식 +', 'Click a village: knowledge +'],
+  boat: ['배', 'Boat'], 'boat-0': ['어선', 'Fishing boat'], 'boat-1': ['전함', 'Warship'], 'boat-2': ['이주선', 'Settler ship'],
+  // jobs & eras
+  'job-0': ['무직', 'Idle'], 'job-1': ['채집꾼', 'Gatherer'], 'job-2': ['농부', 'Farmer'], 'job-3': ['나무꾼', 'Woodcutter'], 'job-4': ['광부', 'Miner'], 'job-5': ['건축가', 'Builder'],
+  'job-6': ['병사', 'Soldier'], 'job-7': ['사냥꾼', 'Hunter'], 'job-8': ['경비병', 'Guard'], 'job-9': ['상인', 'Trader'], 'job-10': ['어부', 'Fisher'], 'job-11': ['학자', 'Scholar'], 'job-12': ['공장 노동자', 'Worker'],
+  'era-0': ['부족 시대', 'Tribal Age'], 'era-1': ['중세', 'Medieval Age'], 'era-2': ['화약 시대', 'Gunpowder Age'], 'era-3': ['산업 시대', 'Industrial Age'], 'era-4': ['현대', 'Modern Age'],
+  era: ['시대', 'Age'], tech: ['지식', 'Knowledge'], prisoners: ['수감자', 'Prisoners'], jailed: ['수감 중', 'Imprisoned'], wanted: ['수배', 'Wanted'],
+  'act-post': ['일하는 중', 'Working'], 'act-trade': ['교역 중', 'Trading'], 'act-escort': ['호송 중', 'Escorting'], 'act-escorted': ['연행 중', 'Under arrest'], 'act-board': ['승선 중', 'Boarding'], 'act-voyage': ['항해 중', 'Sailing'],
+  'ev-era': ['새 시대', 'A new age'], 'ev-tradeRoute': ['교역로 개척', 'Trade route'], 'ev-raidWar': ['약탈 전쟁', 'War for resources'], 'ev-rebellionCrushed': ['반란 진압', 'Rebellion crushed'],
+  'ev-warship': ['전함 진수', 'Warship launched'], 'ev-voyage': ['바다 건너 이주', 'Colonists set sail'], 'ev-firstTank': ['첫 전차', 'First tank'], 'ev-firstPlane': ['첫 비행기', 'First aircraft'], 'ev-nuke': ['핵폭발', 'Nuclear blast'],
   // observe
   inspect: ['살펴보기', 'Inspect', '클릭해서 정보 보기', 'Click anything'], hand: ['신의 손', 'Divine Hand', '집어서 던지기', 'Grab & throw'],
   follow: ['따라가기', 'Follow', '주민을 따라 3D로', 'Ride along in 3D'], stats: ['세계 통계', 'World Stats'], history: ['연대기', 'Chronicle'], kingdoms: ['왕국', 'Kingdoms'],

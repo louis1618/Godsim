@@ -1,7 +1,9 @@
 import { Rng } from '../core/rng';
 import { World } from './world';
 import { PathFinder } from './path';
-import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, Mat } from './defs';
+import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, isVehicle, Mat } from './defs';
+import { enemyOf, cannonTick } from './vehicles';
+import { addWanted } from './jobs';
 import { Unit, Building, Village, Kingdom, HistoryEntry, Job, Anim, Emote, UF, Res } from './entities';
 import { unitName } from './names';
 import { unitTick } from './ai';
@@ -56,13 +58,14 @@ export class Sim {
   cw: number; ch: number;
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
-  stats = { births: 0, deaths: 0, wars: 0, kills: 0 };
+  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0 };
   deathCauses: Record<string, number> = {};
   onHistory: ((h: HistoryEntry) => void) | null = null;
   physics: PhysicsPort | null = null;
 
   /** Throw a creature (explosions, tornadoes, quakes). Without a physics engine it just staggers. */
   fling(u: Unit, vx: number, vy: number, vz: number, spin = 8) {
+    if (isVehicle(u.sp)) return;
     this.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, a: vy });
     if (this.physics) { this.physics.fling(this, u, vx, vy, vz, spin); return; }
     const nx = u.x + vx * 0.15, nz = u.z + vz * 0.15;
@@ -157,7 +160,13 @@ export class Sim {
     u.hp = 0;
     this.stats.deaths++;
     if (isCiv(u.sp)) this.deathCauses[cause] = (this.deathCauses[cause] ?? 0) + 1;
-    this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : 0 });
+    if (isVehicle(u.sp)) { this.fx.push({ t: 'explosion', x: u.x, z: u.z, a: 1.4, b: 60 }); this.fx.push({ t: 'wreck', x: u.x, z: u.z, a: u.sp, u: u.id }); }
+    else this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : 0 });
+    // murder among neighbours is a crime the guards will pursue
+    if (by && isCiv(by.sp) && isCiv(u.sp) && by.kingdom >= 0 && by.kingdom === u.kingdom && !(by.flags & UF.Mad) && !(u.flags & (UF.Jailed | UF.Escorted))) {
+      const bv = this.villages.get(by.village);
+      if (bv) { by.crimes += 2; addWanted(this, bv, by); }
+    }
     if (by) {
       by.kills++; by.xp += 10 + u.level * 5;
       this.stats.kills++;
@@ -223,6 +232,8 @@ export class Sim {
   /** Are these two parties hostile to each other? */
   hostile(a: Unit, b: Unit): boolean {
     if (a === b) return false;
+    if (isVehicle(a.sp)) return enemyOf(this, a.kingdom, b);
+    if (isVehicle(b.sp)) return !(b.sp === Sp.Plane && b.y > 1) && enemyOf(this, b.kingdom, a);
     if ((a.flags & UF.Mad) || (b.flags & UF.Mad)) return true;
     const da = SPECIES[a.sp], db = SPECIES[b.sp];
     if (da.undead !== db.undead && (da.undead || db.undead)) return true;
@@ -303,6 +314,7 @@ export class Sim {
     if (this.tick % 100 === 0) diplomacyThink(this);
     // buildings
     for (const b of this.buildings.values()) {
+      if (b.kind === Bk.Cannon) cannonTick(this, b);
       if (b.fire > 0) {
         b.fire--;
         if (this.tick % 5 === 0) this.damageBuilding(b, b.maxHp * 0.025);

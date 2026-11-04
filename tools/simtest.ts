@@ -20,13 +20,16 @@ for (let y = 0; y < years; y++) {
   const vs = [...sim.villages.values()].filter((v) => v.alive);
   const ks = [...sim.kingdoms.values()].filter((k) => k.alive);
   console.log(`year ${y + 1}: units=${sim.units.length} ${JSON.stringify(bySp)} villages=${vs.length} kingdoms=${ks.length} buildings=${sim.buildings.size} wars=${ks.reduce((a, k) => a + k.wars.length, 0) / 2} ms/tick=${((performance.now() - ty) / YEAR_TICKS).toFixed(2)} max=${maxTick.toFixed(1)}`);
-  console.log('   ' + vs.map((v) => `${v.name}(L${v.level} p${v.residents.length} f${v.food.toFixed(0)} w${v.wood.toFixed(0)} s${v.stone.toFixed(0)} b${v.buildings.length})`).join(' '));
+  console.log('   ' + vs.map((v) => `${v.name}(L${v.level} p${v.residents.length} f${v.food.toFixed(0)} w${v.wood.toFixed(0)} s${v.stone.toFixed(0)} g${v.gold.toFixed(0)} b${v.buildings.length})`).join(' '));
   const jobs: Record<number, number> = {}; const tasks: Record<string, number> = {};
   for (const u of sim.units) if (u.sp <= 3) { jobs[u.job] = (jobs[u.job] ?? 0) + 1; tasks[u.task?.k ?? 'none'] = (tasks[u.task?.k ?? 'none'] ?? 0) + 1; }
   console.log('   jobs', JSON.stringify(jobs), 'tasks', JSON.stringify(tasks));
   { let civ = 0, mood = 0, energy = 0, social = 0, couples = 0, adults = 0, hungry = 0;
     for (const u of sim.units) if (u.sp <= 3) { civ++; mood += u.mood; energy += u.energy; social += u.social; if (u.partner >= 0) couples++; if (u.age >= 6) adults++; if (u.hunger > 60) hungry++; }
     console.log(`   mind: mood ${(mood / civ).toFixed(0)} energy ${(energy / civ).toFixed(0)} social ${(social / civ).toFixed(0)} partnered ${couples}/${adults} adults, hungry ${hungry}, births ${sim.stats.births} deaths ${sim.stats.deaths} causes ${JSON.stringify(sim.deathCauses)}`); }
+  { const kinds: Record<number, number> = {}; for (const b of sim.buildings.values()) if (b.alive) kinds[b.kind] = (kinds[b.kind] ?? 0) + 1;
+    const veh: Record<string, number> = {}; let jailed = 0, aboard = 0; for (const u of sim.units) { if (u.sp >= 11) veh[SPECIES[u.sp].key + u.item] = (veh[SPECIES[u.sp].key + u.item] ?? 0) + 1; if (u.flags & UF.Jailed) jailed++; if (u.flags & UF.Aboard) aboard++; }
+    console.log('   eras', ks.map((k) => `${k.name}:e${k.era}/t${k.tech.toFixed(0)}`).join(' '), 'bk', JSON.stringify(kinds), 'veh', JSON.stringify(veh), 'jailed', jailed, 'aboard', aboard, 'crime', vs.map((v) => (v.crime ?? 0)).join(','), 'stats', JSON.stringify(sim.stats)); }
   maxTick = 0;
 }
 console.log('total s', ((performance.now() - t0) / 1000).toFixed(1));

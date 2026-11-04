@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Game } from './game';
 import { store } from './ui/store';
-import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, kingdomAt } from './sim/powers';
+import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, enlighten, kingdomAt } from './sim/powers';
 import { heightCubic } from './sim/world';
 import { UF } from './sim/entities';
 import { SPECIES, isCiv } from './sim/defs';
@@ -237,6 +237,7 @@ export class Controller {
     if (p.mode === 'village') {
       const t = sim.world.tileAt(g.x, g.z);
       const vid = t >= 0 ? sim.world.owner[t] : -1;
+      if (id === 'enlighten') { if (vid >= 0 && enlighten(sim, vid)) audio.event('era', g.x, g.z); else audio.ui('deny'); return; }
       if (vid >= 0 && incite(sim, vid)) audio.play('rebel', g.x, g.z); else audio.ui('deny');
       return;
     }

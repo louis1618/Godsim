@@ -364,6 +364,34 @@ function makeIcons(): Record<string, Maker> {
     return std(b.build(), 0x2a1a60, 0.3);
   };
   m['newworld'] = m['cat-world'];
+  // ---------------- machines & weapons
+  const machine = (sp: Sp, item: number, ry: number) => () => { const o = creature(models, sp, 0x3a7ae0, 0xffffff, 0xffffff, item); o.rotation.y = ry; return o; };
+  m['tank'] = machine(Sp.Tank, 0, -0.7);
+  m['cat-military'] = m['tank'];
+  m['plane'] = () => { const o = machine(Sp.Plane, 0, -0.6)(); o.rotation.x = 0.35; return o; };
+  m['warship'] = machine(Sp.Boat, 21, -0.8);
+  m['boat'] = machine(Sp.Boat, 20, -0.8);
+  m['cannon'] = () => { const o = std(blds.get(bkey(Bk.Cannon, Sp.Human, 0))!.clone()); colorTeam(o, 0x3a7ae0); o.rotation.y = -0.6; return o; };
+  m['nuke'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.capsule(0.22, 0.55, 6, 18), { color: vgrad(0x3a3e46, 0x6a7078, 0, 1) }, T(0, 0.55, 0, 0, 0, 0.5));
+    b.add(geo.cone(0.23, 0.28, 18), { color: 0xffd23a }, T(0.31, 1.05, 0, 0, 0, -0.5 + Math.PI * 0));
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; b.add(geo.box(0.04, 0.2, 0.18), { color: 0xffd23a }, new THREE.Matrix4().makeRotationZ(0.5).multiply(T(Math.cos(a) * 0.2, 0.18, Math.sin(a) * 0.2, 0, -a, 0))); }
+    for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2 + 0.3; b.add(geo.cyl(0.0, 0.13, 0.02, 3, 1), { color: 0x2a2238 }, new THREE.Matrix4().makeRotationZ(0.5).multiply(T(Math.cos(a) * 0.09, 0.6, 0.23, Math.PI / 2, 0, a))); }
+    return std(b.build());
+  };
+  m['enlighten'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.box(0.7, 0.08, 0.5), { color: 0xf3ecd8 }, T(-0.18, 0.3, 0, 0, 0, 0.18));
+    b.add(geo.box(0.7, 0.08, 0.5), { color: 0xf3ecd8 }, T(0.18, 0.3, 0, 0, 0, -0.18));
+    b.add(geo.box(1.4, 0.05, 0.54), { color: 0x3a6ab8 }, T(0, 0.22, 0));
+    b.add(geo.sphere(0.2, 16, 12), { color: 0xffe27a }, T(0, 0.75, 0));
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; b.add(geo.cone(0.05, 0.18, 6), { color: 0xffd23a }, T(Math.cos(a) * 0.34, 0.75 + Math.sin(a) * 0.34, 0, 0, 0, a - Math.PI / 2)); }
+    return std(b.build(), 0x604000, 0.25);
+  };
+  for (const [k, key] of [[Bk.Market, 'market'], [Bk.Library, 'library'], [Bk.Prison, 'prison'], [Bk.Dock, 'dock'], [Bk.Factory, 'factory'], [Bk.Apartment, 'apartment']] as [Bk, string][])
+    m['b-' + key] = () => { const o = std(blds.get(bkey(k, Sp.Human, 0))!.clone()); colorTeam(o, 0x3a7ae0); o.rotation.y = 0.5; return o; };
+  m['b-cannon'] = m['cannon'];
   m['audio'] = () => {
     const b = new ModelBuilder(1);
     b.add(geo.cone(0.38, 0.55, 20, ), { color: 0xffd65a }, T(0.05, 0.5, 0, 0, 0, Math.PI / 2));

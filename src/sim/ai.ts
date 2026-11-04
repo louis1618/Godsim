@@ -1,15 +1,24 @@
 import { Sim, setTimeout0 } from './sim';
 import { Unit, Task, Job, Anim, Emote, UF, Res, Mem } from './entities';
-import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
-import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf } from './civ';
+import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, isVehicle, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
+import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf, loot } from './civ';
 import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free } from './nav';
 import { mindTick, socialise, remember } from './mind';
+import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedTick, suspectFlee } from './jobs';
+import { vehicleTick } from './vehicles';
 
 const AGE_STEP = 10 / YEAR_TICKS;
 
 export function unitTick(sim: Sim, u: Unit) {
   u.px = u.x; u.pz = u.z;
   if (u.flags & (UF.Ragdoll | UF.Held)) return;
+  if (isVehicle(u.sp)) { vehicleTick(sim, u); return; }
+  if (u.flags & UF.Aboard) {
+    // riding a ferry: the boat carries us (it also puts us ashore)
+    const b = u.task?.k === 'board' ? sim.getUnit(u.task.boat) : undefined;
+    if (!b) { u.flags &= ~UF.Aboard; u.y = 0; u.task = null; u.think = 0; }
+    return;
+  }
   if (u.cd > 0) u.cd--;
   if (u.hitT > 0) u.hitT--;
   if (u.emoteT > 0 && --u.emoteT === 0) u.emote = Emote.None;
@@ -20,6 +29,8 @@ export function unitTick(sim: Sim, u: Unit) {
     if (u.flags & UF.Dead) return;
     mindTick(sim, u);
   }
+  if (u.flags & UF.Jailed) { jailTick(sim, u); return; }
+  if (u.flags & UF.Escorted) { escortedTick(sim, u); return; }
   // standing in fire / lava / deep water
   const w = sim.world;
   const t = w.tileAt(u.x, u.z);
@@ -99,7 +110,7 @@ function decide(sim: Sim, u: Unit) {
   if (threat) {
     const { enemy, dist } = threat;
     const fighter = !civ ? (def.aggressive || u.hp > u.maxHp * 0.6 && SPECIES[enemy.sp].hp < def.hp * 0.7)
-      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
+      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.job === Job.Guard || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
     if (fighter && !(u.traits & Trait.Peaceful && !(u.flags & UF.Mad) && enemy.sp <= Sp.Orc)) {
       if (!u.task || u.task.k !== 'attack' || u.task.u !== enemy.id) {
         setTask(sim, u, { k: 'attack', u: enemy.id });
@@ -114,7 +125,7 @@ function decide(sim: Sim, u: Unit) {
     }
   }
   // urgent needs break into anything that is not life-or-death
-  const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
+  const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal', 'arrest', 'escort', 'trade', 'board', 'escorted', 'jailed'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
   if (urgent) u.task = null;
   // keep committed work going; only idle/wander are re-decided
   if (u.task && u.task.k !== 'idle' && u.task.k !== 'wander' && taskValid(sim, u, u.task)) return;
@@ -131,6 +142,10 @@ function decide(sim: Sim, u: Unit) {
   }
   const v = villageOf(sim, u);
   if (!v) { u.village = -1; return; }
+
+  // 2b. wanted: run from the guard on our heels
+  const chaser = suspectFlee(sim, u, v);
+  if (chaser) { fleeFrom(sim, u, chaser[0], chaser[1]); sim.emote(u, Emote.Alert, 15); return; }
 
   // 3. carrying something: deliver
   if (u.carry !== Res.None && u.carryAmt > 0) { setTask(sim, u, { k: 'deliver' }); return; }
@@ -308,6 +323,7 @@ function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
 function taskValid(sim: Sim, u: Unit, t: Task): boolean {
   if (t.k === 'attack' || t.k === 'hunt') { const o = sim.getUnit(t.u); return !!o && !(o.flags & UF.Held); }
   if (t.k === 'love' || t.k === 'chat') return t.t > 0;
+  if (t.k === 'arrest') { const o = sim.getUnit(t.u); return !!o && !(o.flags & (UF.Jailed | UF.Escorted)); }
   return true;
 }
 
@@ -600,7 +616,9 @@ function run(sim: Sim, u: Unit, t: Task) {
         if (u.cd <= 0) {
           u.anim = Anim.Attack; u.animT = 6;
           u.cd = Math.round(SPECIES[u.sp].attackRate * 10);
+          const bv = sim.villages.get(b.village);
           sim.damageBuilding(b, SPECIES[u.sp].dmg * u.dmgMul * (u.job === Job.Warrior ? 2.4 : u.sp === Sp.Troll ? 3 : 1), u);
+          if (!b.alive && bv && isCiv(u.sp) && (b.kind === Bk.Storage || b.kind === Bk.TownHall)) loot(sim, u, bv);
           if (u.sp === Sp.Troll) sim.fx.push({ t: 'quakelet', x: ex, z: ez });
           sim.fx.push({ t: 'bhit', x: ex, z: ez, u: u.id, tx: cx, tz: cz });
           if (sim.rng.chance(0.07) && b.fire === 0) { b.fire = 160; sim.fx.push({ t: 'ignite', x: cx, z: cz }); }
@@ -669,6 +687,20 @@ function run(sim: Sim, u: Unit, t: Task) {
       u.social = Math.min(100, u.social + 0.8);
       if (--t.t <= 0) { u.task = null; u.think = 0; }
       break;
+    case 'post': runPost(sim, u, t, moveTo, workRate); break;
+    case 'arrest': runArrest(sim, u, t, moveTo); break;
+    case 'escort': runEscort(sim, u, t, moveTo); break;
+    case 'trade': runTrade(sim, u, t, moveTo); break;
+    case 'escorted': case 'jailed': case 'voyage': break;
+    case 'board': {
+      const boat = sim.getUnit(t.boat);
+      const dock = boat && sim.buildings.get(boat.home);
+      if (!boat || !dock || boat.task?.k !== 'voyage' || boat.task.phase !== 0) { u.task = null; u.think = 0; break; }
+      if (Math.hypot(boat.x - u.x, boat.z - u.z) < 2.2) { u.flags |= UF.Aboard; break; }
+      const [sx, sz] = standAtBuilding(sim, dock, u, 1);
+      if (moveTo(sim, u, sx, sz, 0.5)) { u.flags |= UF.Aboard; sim.fx.push({ t: 'splash', x: boat.x, z: boat.z }); }
+      break;
+    }
     case 'steal': {
       const v = sim.villages.get(t.v);
       const tgt = deliverTarget(sim, u);
@@ -677,7 +709,7 @@ function run(sim: Sim, u: Unit, t: Task) {
       if (moveTo(sim, u, t.sx, t.sz!, 0.5)) {
         const took = Math.min(v.food, 2 + sim.rng.int(0, 3));
         v.food -= took; u.hunger = 0; u.crimes++;
-        v.crime = (v.crime ?? 0) + 1;
+        addWanted(sim, v, u);
         sim.emote(u, Emote.Food, 20);
         sim.fx.push({ t: 'crime', x: u.x, z: u.z, u: u.id });
         // the neighbours notice
@@ -719,9 +751,9 @@ function runGather(sim: Sim, u: Unit, t: Extract<Task, { k: 'gather' }>) {
       if (left <= 0) w.setFeat(t.tile, Feat.None, 0); else { w.featAmt[t.tile] = left; w.markFeatTile(t.tile); }
       if (u.hunger > 60) { u.hunger = 10; amt = 1; }
     } else if (quarry) {
-      amt = 2;
+      amt = u.sp === Sp.Dwarf ? 4 : 3;
     } else {
-      amt = t.res === Res.Gold ? 1 : 3;
+      amt = t.res === Res.Gold ? (u.sp === Sp.Dwarf ? 2 : 1) : u.sp === Sp.Dwarf ? 5 : 4;
       const left = w.featAmt[t.tile] - 40;
       if (left <= 0) { w.setFeat(t.tile, Feat.None, 0); sim.fx.push({ t: 'rockbreak', x: tx, z: tz }); }
       else { w.featAmt[t.tile] = left; w.markFeatTile(t.tile); }
@@ -737,8 +769,10 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   if (!o || o.flags & UF.Held) { u.task = null; u.think = 0; return; }
   const def = SPECIES[u.sp];
   const d = Math.hypot(o.x - u.x, o.z - u.z);
-  const ranged = u.item === 5 && d > 1.2; // bow
-  const reach = ranged ? 6 : def.range * (0.8 + 0.2 * def.size);
+  const gun = u.item === 12 || u.item === 13;
+  const ranged = (u.item === 5 || gun) && d > 1.2; // bow, musket, rifle
+  const reach = ranged ? (u.item === 13 ? 9 : u.item === 12 ? 7 : 6) : def.range * (0.8 + 0.2 * def.size);
+  if (o.sp === Sp.Plane && o.y > 1 && !ranged) { u.task = null; u.think = 0; return; }
   if (d > 16) { u.task = null; u.think = 0; return; }
   if (d > reach) {
     // give up on targets we cannot reach
@@ -760,10 +794,10 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   u.stuck = 0;
   if (u.cd > 0) { if (u.anim !== Anim.Attack || u.animT <= 0) u.anim = Anim.Idle; return; }
   u.anim = Anim.Attack; u.animT = 6;
-  u.cd = Math.round(def.attackRate * 10 * (u.flags & UF.Hero ? 0.8 : 1));
-  const dmg = def.dmg * u.dmgMul * sim.rng.range(0.75, 1.25) * (u.age < def.adultAge ? 0.4 : 1);
+  u.cd = Math.round(def.attackRate * 10 * (u.flags & UF.Hero ? 0.8 : 1) * (gun ? 1.6 : 1));
+  const dmg = def.dmg * u.dmgMul * sim.rng.range(0.75, 1.25) * (u.age < def.adultAge ? 0.4 : 1) * (u.item === 13 ? 2.4 : u.item === 12 ? 1.8 : 1);
   if (ranged) {
-    sim.fx.push({ t: 'arrow', x: u.x, z: u.z, tx: o.x, tz: o.z, u: u.id });
+    sim.fx.push({ t: gun ? 'shot' : 'arrow', x: u.x, z: u.z, tx: o.x, tz: o.z, u: u.id, y: o.y });
     const oid = o.id;
     setTimeout0(sim, Math.max(2, Math.round(d * 1.2)), () => { const tgt = sim.getUnit(oid); if (tgt) hurt(sim, tgt, dmg, sim.getUnit(u.id), 'attack'); });
   } else {

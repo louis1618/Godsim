@@ -43,10 +43,15 @@ export function deserialize(json: string): Sim {
   w.computeIslands();
   const sim = new Sim(w, 1);
   sim.tick = d.tick; sim.nextId = d.nextId; sim.rng.setState(d.rng); Object.assign(sim.laws, d.laws); Object.assign(sim.stats, d.stats);
-  for (const u of d.units) { sim.units.push(u); sim.unitMap.set(u.id, u); }
+  // older saves: fill fields added by later versions
+  const fill = (o: any, def: Record<string, unknown>) => { for (const k in def) if (o[k] === undefined) o[k] = typeof def[k] === 'object' && def[k] !== null ? JSON.parse(JSON.stringify(def[k])) : def[k]; return o; };
+  const U0 = { y: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60, energy: 80, social: 70, mems: [], partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1 };
+  const V0 = { avgMood: 55, forest: 0.2, homeless: false, famineT: -1e9, crime: 0, coastal: true, wanted: [], captureT: 0, blessT: 0, lastAttacked: -1e9, industry: 0 };
+  const K0 = { lastKing: -1, era: 0, tech: 0, tradeBoost: 1, trade: {} };
+  for (const u of d.units) { fill(u, U0); sim.units.push(u); sim.unitMap.set(u.id, u); }
   for (const b of d.buildings) sim.buildings.set(b.id, b);
-  for (const v of d.villages) sim.villages.set(v.id, v);
-  for (const k of d.kingdoms) sim.kingdoms.set(k.id, k);
+  for (const v of d.villages) sim.villages.set(v.id, fill(v, V0));
+  for (const k of d.kingdoms) sim.kingdoms.set(k.id, fill(k, K0));
   sim.history = d.history ?? [];
   sim.rainClouds = d.rainClouds ?? []; sim.tornadoes = d.tornadoes ?? []; sim.meteors = d.meteors ?? [];
   fireTiles.clear();

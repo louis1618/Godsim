@@ -1,13 +1,14 @@
 import { Sim } from './sim';
-import { Sp, Mat, Feat, Trait, isCiv, SPECIES } from './defs';
+import { Sp, Mat, Feat, Trait, isCiv, SPECIES, Bk } from './defs';
+import { spawnVehicle } from './vehicles';
 import { Unit, UF, Emote, Job } from './entities';
 import { ignite } from './nature';
 import { explode, lightning, earthquake, infect, spawnMeteor, spawnTornado } from './disasters';
-import { declareWar, makePeace, makeAlliance, villageOf, destroyVillage, rebelVillage } from './civ';
+import { declareWar, makePeace, makeAlliance, villageOf, destroyVillage, rebelVillage, placeBuilding } from './civ';
 import { panic } from './ai';
 import { smoothstep } from '../core/math';
 
-export type PowerCat = 'world' | 'life' | 'civ' | 'nature' | 'disaster' | 'observe' | 'settings';
+export type PowerCat = 'world' | 'life' | 'civ' | 'nature' | 'disaster' | 'military' | 'observe' | 'settings';
 export type PowerMode = 'brush' | 'click' | 'unit' | 'pair' | 'village' | 'panel' | 'grab' | 'inspect';
 
 export interface PowerDef {
@@ -67,6 +68,7 @@ export const POWERS: PowerDef[] = [
   { id: 'brave', cat: 'civ', mode: 'unit' },
   { id: 'fast', cat: 'civ', mode: 'unit' },
   { id: 'immortal', cat: 'civ', mode: 'unit' },
+  { id: 'enlighten', cat: 'civ', mode: 'village' },
   // nature
   { id: 'rain', cat: 'nature', mode: 'click' },
   { id: 'storm', cat: 'nature', mode: 'click' },
@@ -83,6 +85,12 @@ export const POWERS: PowerDef[] = [
   { id: 'quake', cat: 'disaster', mode: 'click', rate: 0.7 },
   { id: 'plague', cat: 'disaster', mode: 'click', rate: 1 },
   { id: 'smite', cat: 'disaster', mode: 'unit' },
+  // weapons & machines of the later ages
+  { id: 'tank', cat: 'military', mode: 'click', rate: 1.5 },
+  { id: 'plane', cat: 'military', mode: 'click', rate: 1 },
+  { id: 'warship', cat: 'military', mode: 'click', rate: 1 },
+  { id: 'cannon', cat: 'military', mode: 'click', rate: 2 },
+  { id: 'nuke', cat: 'military', mode: 'click', rate: 0.25, key: 'KeyN' },
   // settings
   { id: 'laws', cat: 'settings', mode: 'panel' },
   { id: 'saveload', cat: 'settings', mode: 'panel' },
@@ -90,7 +98,7 @@ export const POWERS: PowerDef[] = [
   { id: 'audio', cat: 'settings', mode: 'panel' },
 ];
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
-export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'observe', 'settings'];
+export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'military', 'observe', 'settings'];
 
 const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll };
 
@@ -221,6 +229,26 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     case 'tornado': spawnTornado(sim, x, z); break;
     case 'quake': earthquake(sim, x, z, 10); break;
     case 'plague': infect(sim, x, z, 3.5); break;
+    case 'tank': case 'plane': case 'warship': {
+      if (t0 < 0) return false;
+      const water = w.waterDepth(t0) > 0.4;
+      if ((id === 'warship') !== water && id !== 'plane') return false;
+      const vid = w.owner[t0];
+      const v = vid >= 0 ? sim.villages.get(vid) : undefined;
+      const kid = v ? v.kingdom : kingdomAt(sim, x, z);
+      const u = spawnVehicle(sim, id === 'tank' ? Sp.Tank : id === 'plane' ? Sp.Plane : Sp.Boat, x, z, kid, v ? v.id : -1, id === 'warship' ? 1 : 0);
+      if (id === 'plane') u.y = 2;
+      break;
+    }
+    case 'cannon': {
+      if (t0 < 0) return false;
+      const v = sim.villages.get(w.owner[t0]);
+      const tx = Math.floor(x), tz = Math.floor(z);
+      if (!v || !v.alive || !w.walkable(t0) || w.bld[t0] >= 0) return false;
+      placeBuilding(sim, v, Bk.Cannon, tx, tz, v.race, 1).aim = sim.rng.range(0, Math.PI * 2);
+      break;
+    }
+    case 'nuke': nuke(sim, x, z); break;
     case 'bless': {
       let any = false;
       sim.near(x, z, r, (u) => { if (!SPECIES[u.sp].undead) { u.traits |= Trait.Blessed; u.flags &= ~UF.Sick; sim.applyTraits(u); u.hp = u.maxHp; sim.emote(u, Emote.Star, 20); any = true; } });
@@ -279,6 +307,40 @@ export function applyPairPower(sim: Sim, id: string, a: number, b: number): bool
   if (id === 'peace') { if (!ka.wars.includes(b)) return false; makePeace(sim, ka, kb); return true; }
   if (id === 'alliance') { if (ka.wars.includes(b)) makePeace(sim, ka, kb); makeAlliance(sim, ka, kb); return true; }
   return false;
+}
+
+/** Knowledge from the heavens: a village's kingdom leaps toward its next age. */
+export function enlighten(sim: Sim, vid: number): boolean {
+  const v = sim.villages.get(vid);
+  const k = v && sim.kingdoms.get(v.kingdom);
+  if (!v || !k) return false;
+  k.tech += 60 + k.era * 40;
+  for (const id of v.residents) { const u = sim.getUnit(id); if (u) sim.emote(u, Emote.Star, 30); }
+  sim.fx.push({ t: 'era', x: v.cx + 0.5, z: v.cz + 0.5, a: k.id, b: k.era });
+  return true;
+}
+
+/** A nuclear blast: a vast explosion, a mushroom cloud, scorched dead land and sickness around it. */
+export function nuke(sim: Sim, x: number, z: number) {
+  const w = sim.world;
+  sim.fx.push({ t: 'nuke', x, z, a: 12 });
+  explode(sim, x, z, 11, 900, { crater: 4.5, fire: true });
+  // fallout: everything withers, survivors fall sick
+  const R = 20;
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const tx = Math.floor(x) + dx, tz = Math.floor(z) + dz;
+    if (!w.inside(tx, tz)) continue;
+    const d = Math.hypot(dx, dz);
+    if (d > R) continue;
+    const t = tz * w.W + tx;
+    const f = w.feat[t];
+    if (f >= 1 && f <= 7 && sim.rng.chance(1 - d / R)) w.setFeat(t, Feat.Dead, 120);
+    if (f === Feat.Berry || f === Feat.Flower || f === Feat.Crop) w.setFeat(t, Feat.None, 0);
+    if (!w.isWater(t) && d < R * 0.8) { if (w.mat[t] !== Mat.Rock) w.mat[t] = Mat.Ash; w.grass[t] = 0; }
+  }
+  w.markTerrain(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
+  sim.near(x, z, R * 1.2, (u) => { if (!SPECIES[u.sp].undead && u.sp < Sp.Boat) { u.flags |= UF.Sick; sim.emote(u, Emote.Sick, 40); } });
+  sim.log('nuke', { x, z, text: '☢' });
 }
 
 export function incite(sim: Sim, vid: number): boolean {

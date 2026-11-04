@@ -131,7 +131,7 @@ class Particles {
 const _c = new THREE.Color();
 
 interface Bolt { mesh: THREE.Mesh; life: number; }
-interface Arrow { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number; t: number; dur: number; }
+interface Arrow { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number; t: number; dur: number; arc?: number; }
 
 /** Every transient visual: particles, emotes, bolts, arrows, meteors, tornadoes, debris, rain, clouds. */
 export class FxRenderer {
@@ -143,6 +143,8 @@ export class FxRenderer {
   private bolts: Bolt[] = [];
   private arrows: Arrow[] = [];
   private arrowMesh: THREE.InstancedMesh;
+  private shells: Arrow[] = [];
+  private shellMesh: THREE.InstancedMesh;
   private meteorMesh: THREE.InstancedMesh;
   private tornadoMesh: THREE.InstancedMesh;
   private debrisMesh: THREE.InstancedMesh;
@@ -203,6 +205,13 @@ export class FxRenderer {
     this.arrowMesh = new THREE.InstancedMesh(ab.build(), std, 256);
     this.arrowMesh.frustumCulled = false; this.arrowMesh.count = 0;
     this.group.add(this.arrowMesh);
+    // shells & bombs
+    const sb = new ModelBuilder(5);
+    sb.add(geo.capsule(0.06, 0.1, 3, 8), { color: 0x2f3236 }, T(0, 0, 0, Math.PI / 2));
+    sb.add(geo.cone(0.06, 0.08, 8), { color: 0x4a4e54 }, T(0, 0, 0.1, Math.PI / 2));
+    this.shellMesh = new THREE.InstancedMesh(sb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.5 }), 128);
+    this.shellMesh.frustumCulled = false; this.shellMesh.count = 0;
+    this.group.add(this.shellMesh);
     // meteors
     const mb = new ModelBuilder(4);
     mb.add(geo.ico(0.8, 1), { color: 0x4a3a32, jitter: 0.15, flat: true }, T());
@@ -392,6 +401,90 @@ export class FxRenderer {
       case 'rise':
         this.burst(e.x, y + 0.3, e.z, 12, { color: 0x3a2e48, frame: PF.Smoke, speed: 0.8, up: 0.8, life: 1.5, size: 0.4, size1: 0.8, alpha: 0.8 });
         break;
+      case 'shell': case 'bombdrop': {
+        const gy1 = this.gy(sim, e.tx!, e.tz!);
+        const y0 = (e.y ?? 0.5) + this.gy(sim, e.x, e.z);
+        const dur = Math.max(0.2, (e.a ?? 5) * 0.1);
+        if (e.t === 'shell') {
+          const big = e.b === 1;
+          this.shells.push({ x0: e.x, z0: e.z, x1: e.tx!, z1: e.tz!, y0, y1: gy1 + 0.1, t: 0, dur, arc: big ? 0.28 : 0.12 });
+          if (close) {
+            this.burst(e.x, y0, e.z, big ? 10 : 6, { color: 0xffd27a, frame: PF.Flame, speed: 1.4, up: 0.6, life: 0.25, size: big ? 0.5 : 0.3, size1: 0.05, add: true, drag: 4 });
+            this.burst(e.x, y0, e.z, big ? 12 : 6, { color: 0xd8d0c4, frame: PF.Smoke, speed: 1.2, up: 0.5, life: 1.4, size: 0.3, size1: big ? 1.1 : 0.7, drag: 2, alpha: 0.75 });
+            this.flashAt(e.x, y0 + 0.5, e.z, 8, 6);
+          }
+        } else this.shells.push({ x0: e.x, z0: e.z, x1: e.tx!, z1: e.tz!, y0, y1: gy1, t: 0, dur, arc: 0 });
+        break;
+      }
+      case 'shot': {
+        if (!close) return;
+        const ty = this.gy(sim, e.tx!, e.tz!) + 0.3 + (e.y ?? 0);
+        this.burst(e.x, y + 0.42, e.z, 3, { color: 0xffe08a, frame: PF.Flame, speed: 0.8, up: 0.2, life: 0.12, size: 0.18, size1: 0.02, add: true });
+        this.burst(e.x, y + 0.42, e.z, 3, { color: 0xe8e2d8, frame: PF.Smoke, speed: 0.4, up: 0.3, life: 0.9, size: 0.12, size1: 0.35, drag: 2, alpha: 0.6 });
+        for (let i = 1; i <= 6; i++) { const k = i / 7; this.add.spawn(e.x + (e.tx! - e.x) * k, y + 0.42 + (ty - y - 0.42) * k, e.z + (e.tz! - e.z) * k, 0, 0, 0, { life: 0.06 + k * 0.05, size: 0.06, color: 0xfff2b0, frame: PF.Dot }); }
+        break;
+      }
+      case 'study':
+        if (!close || this.rig.z01 > 0.45) return;
+        this.burst(e.x, y + 0.65, e.z, 2, { color: 0x9fd8ff, frame: PF.Spark, speed: 0.2, up: 0.7, life: 0.9, size: 0.08, add: true, drag: 1 });
+        break;
+      case 'fish':
+        if (!close) return;
+        this.burst(e.x, y + 0.05, e.z, 6, { color: 0xd8f0ff, frame: PF.Drop, speed: 0.8, up: 2.2, life: 0.6, size: 0.08, grav: -9 });
+        this.burst(e.x, y + 0.3, e.z, 1, { color: 0x9ac8e8, frame: PF.Chip, speed: 0.3, up: 2.5, life: 0.7, size: 0.1, grav: -8 });
+        break;
+      case 'splash':
+        this.burst(e.x, y + 0.05, e.z, 8, { color: 0xd8f0ff, frame: PF.Drop, speed: 1, up: 2, life: 0.6, size: 0.08, grav: -9 });
+        break;
+      case 'arrest': case 'jail':
+        this.burst(e.x, y + 0.6, e.z, 8, { color: 0x6aa0ff, frame: PF.Spark, speed: 0.9, up: 1.2, life: 0.6, size: 0.1, add: true, drag: 2 });
+        break;
+      case 'freed':
+        this.burst(e.x, y + 0.5, e.z, 8, { color: 0xfff2a0, frame: PF.Spark, speed: 0.8, up: 1.6, life: 0.7, size: 0.1, add: true, drag: 2 });
+        break;
+      case 'riot': case 'crime':
+        if (!close) return;
+        this.burst(e.x, y + 0.7, e.z, 4, { color: 0xff5a4a, frame: PF.Spark, speed: 0.6, up: 1.2, life: 0.5, size: 0.1, add: true });
+        break;
+      case 'trade': case 'loot':
+        this.burst(e.x, y + 0.6, e.z, e.t === 'loot' ? 12 : 8, { color: 0xffd34a, frame: PF.Chip, speed: 1.2, up: 2.4, life: 0.9, size: 0.07, grav: -7 });
+        this.burst(e.x, y + 0.6, e.z, 4, { color: 0xfff2a0, frame: PF.Spark, speed: 0.6, up: 1.2, life: 0.5, size: 0.1, add: true });
+        break;
+      case 'machine':
+        this.burst(e.x, y + 0.3, e.z, 10, { color: 0xd8d0c4, frame: PF.Smoke, speed: 1.2, up: 0.4, life: 1.0, size: 0.3, size1: 0.7, drag: 2.5, alpha: 0.7 });
+        this.burst(e.x, y + 0.6, e.z, 10, { color: 0xffe9a0, frame: PF.Spark, speed: 1.2, up: 2, life: 0.7, size: 0.1, add: true, drag: 1.5 });
+        break;
+      case 'wreck':
+        for (let i = 0; i < 6; i++) this.physics.spawnDebris(new THREE.Vector3(e.x, y + 0.4, e.z), new THREE.Vector3((Math.random() - 0.5) * 5, 3 + Math.random() * 3, (Math.random() - 0.5) * 5), 0x4a4e54, 0.16, 4);
+        this.burst(e.x, y + 0.5, e.z, 14, { color: 0x2f2c2a, frame: PF.Smoke, speed: 0.8, up: 1.2, life: 3, size: 0.5, size1: 1.4, drag: 0.8, alpha: 0.8 });
+        break;
+      case 'landfall': case 'settlers':
+        if (!close) return;
+        this.burst(e.x, y + 0.5, e.z, 8, { color: 0xffe9a0, frame: PF.Spark, speed: 0.8, up: 1.4, life: 0.8, size: 0.1, add: true, drag: 1.5 });
+        break;
+      case 'nuke': {
+        const r = e.a ?? 12;
+        this.screenFlash = 1;
+        this.flashAt(e.x, y + 20, e.z, 400, 160);
+        this.rig.shake = Math.max(this.rig.shake, 1.6);
+        // stem and cap of the mushroom cloud
+        for (let i = 0; i < 46; i++) this.alpha.spawn(e.x + (Math.random() - 0.5) * 2, y + 0.5 + i * 0.35, e.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.4, 1.2 + Math.random() * 0.6, (Math.random() - 0.5) * 0.4, { life: 7, size: 1.6, size1: 4, color: 0x7a6a5e, frame: PF.Smoke, alpha: 0.85, drag: 0.5 });
+        for (let i = 0; i < 70; i++) { const a = Math.random() * Math.PI * 2, rr = Math.random() * 5; this.alpha.spawn(e.x + Math.cos(a) * rr, y + 15 + Math.random() * 3, e.z + Math.sin(a) * rr, Math.cos(a) * 1.6, 0.6, Math.sin(a) * 1.6, { life: 9, size: 3, size1: 7, color: Math.random() < 0.4 ? 0xb8846a : 0x8a7a6e, frame: PF.Smoke, alpha: 0.8, drag: 0.4 }); }
+        for (let i = 0; i < 50; i++) this.add.spawn(e.x + (Math.random() - 0.5) * 6, y + 1 + Math.random() * 14, e.z + (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 3, 2 + Math.random() * 3, (Math.random() - 0.5) * 3, { life: 2.5, size: 3, size1: 0.5, color: Math.random() < 0.5 ? 0xffb050 : 0xffe8a0, frame: PF.Flame, drag: 0.8 });
+        this.ring(e.x, y + 0.2, e.z, r * 4, 1.6);
+        this.ring(e.x, y + 0.4, e.z, r * 2.5, 1.0);
+        break;
+      }
+      case 'era': {
+        const k = sim.kingdoms.get(e.a ?? -1);
+        const col = k ? KINGDOM_COLORS[k.color][0] : 0xffe9a0;
+        for (let j = 0; j < 5; j++) {
+          const ox = (Math.random() - 0.5) * 6, oz = (Math.random() - 0.5) * 6, oy = 4 + Math.random() * 3;
+          this.burst(e.x + ox, y + oy, e.z + oz, 22, { color: j % 2 ? col : 0xfff2a0, frame: PF.Spark, speed: 2.6, up: 0.6, life: 1.4, size: 0.14, add: true, grav: -2, drag: 1.2 });
+        }
+        this.ring(e.x, y + 0.2, e.z, 14, 1.2);
+        break;
+      }
       case 'fling': break; // physics already launched it inside the simulation tick
       case 'deliver':
         if (!close || this.rig.z01 > 0.45) return;
@@ -458,8 +551,18 @@ export class FxRenderer {
         if (++spawned > 160) break;
       }
     }
-    // burning buildings
+    // burning buildings; factory chimneys
     for (const b of sim.buildings.values()) {
+      if (b.kind === 13 && b.progress >= 1 && Math.random() < dt * 6) {
+        const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
+        if (this.near(cx, cz, 1.2)) {
+          const [lx, lz, h] = Math.random() < 0.5 ? [-0.85, -0.95, 1.74] : [-0.35, -0.95, 2.04];
+          const a = (b.rot * Math.PI) / 2, ca = Math.cos(a), sa = Math.sin(a);
+          const x = cx + lx * ca + lz * sa, z = cz - lx * sa + lz * ca;
+          const y = heightCubic(w.height, w.W, w.H, cx, cz) + h + 0.1;
+          this.alpha.spawn(x, y, z, 0.25, 0.7, 0.1, { life: 3.2, size: 0.25, size1: 1.1, color: 0x5a5652, frame: PF.Smoke, alpha: 0.55, drag: 0.3 });
+        }
+      }
       if (b.fire <= 0 || Math.random() > 0.5) continue;
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
       if (!this.near(cx, cz)) continue;
@@ -512,6 +615,26 @@ export class FxRenderer {
     }
     this.arrows = this.arrows.filter((a) => a.t < a.dur);
     this.arrowMesh.count = na; this.arrowMesh.instanceMatrix.needsUpdate = true;
+
+    // shells (arc) and bombs (fall); a smoke trail marks their flight
+    let ns = 0;
+    for (const a of this.shells) {
+      a.t += dt;
+      const k = Math.min(1, a.t / a.dur);
+      const L = Math.hypot(a.x1 - a.x0, a.z1 - a.z0);
+      const x = a.x0 + (a.x1 - a.x0) * k, z = a.z0 + (a.z1 - a.z0) * k;
+      const bomb = a.arc === 0;
+      const y = bomb ? a.y0 + (a.y1 - a.y0) * k * k : a.y0 + (a.y1 - a.y0) * k + Math.sin(k * Math.PI) * L * (a.arc ?? 0.12);
+      const yaw = Math.atan2(a.x1 - a.x0, a.z1 - a.z0);
+      const pitch = bomb ? Math.PI / 2 : -Math.atan2(Math.cos(k * Math.PI) * Math.PI * L * (a.arc ?? 0.12) + (a.y1 - a.y0), Math.max(0.01, L));
+      q.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+      p.set(x, y * hs, z); s.setScalar(bomb ? 1.6 : 1);
+      m.compose(p, q, s);
+      if (ns < 128) this.shellMesh.setMatrixAt(ns++, m);
+      if (Math.random() < 0.7) this.alpha.spawn(x, y, z, 0, 0.2, 0, { life: 0.7, size: 0.1, size1: 0.3, color: 0xcfc8bc, frame: PF.Smoke, alpha: 0.5, drag: 1 });
+    }
+    this.shells = this.shells.filter((a) => a.t < a.dur);
+    this.shellMesh.count = ns; this.shellMesh.instanceMatrix.needsUpdate = true;
 
     // meteors
     let nm = 0;

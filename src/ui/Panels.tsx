@@ -121,9 +121,16 @@ function Kingdoms({ app }: { app: AppCtl }) {
 const EV_ICON: Record<string, string> = {
   war: 'war', peace: 'peace', alliance: 'alliance', kingdomFounded: 'kingdoms', villageFounded: 'cat-civ', rebellion: 'rebel', captured: 'war',
   kingDied: 'crown', newKing: 'crown', hero: 'brave', heroDied: 'skeleton', villageLost: 'fire', kingdomFell: 'smite', villageGrew: 'cat-civ',
-  plague: 'plague', meteor: 'meteor', tornado: 'tornado',
+  plague: 'plague', meteor: 'meteor', tornado: 'tornado', era: 'enlighten', tradeRoute: 'cat-civ', raidWar: 'war', rebellionCrushed: 'crown',
+  warship: 'warship', voyage: 'warship', firstTank: 'tank', firstPlane: 'plane', nuke: 'nuke', famine: 'plague',
 };
 export { EV_ICON };
+
+/** One-line text for a chronicle entry (names joined; ages spelled out). */
+export function histText(h: { type: string; text: string }): string {
+  if (h.type === 'era') { const [k, n] = h.text.split('|'); return `${k} · ${t('era-' + n)}`; }
+  return h.text.replace('|', ' ⟷ ');
+}
 
 function History({ app }: { app: AppCtl }) {
   const s = useStore();
@@ -135,7 +142,7 @@ function History({ app }: { app: AppCtl }) {
         <div class="hrow" onClick={() => { if (h.x !== undefined) { app.game.gr.rig.flyTo(h.x + 0.5, h.z! + 0.5, app.game.gr.rig.vFromZoom(0.3)); store.set({ panel: null }); } }}>
           <span class="when">{Math.floor(h.tick / 480) + 1}{t('year')}</span>
           <img src={s.icons[EV_ICON[h.type] ?? 'history']} />
-          <span><b style={{ fontFamily: 'var(--font-display)', fontWeight: 'normal' }}>{t('ev-' + h.type)}</b> · {h.text.replace('|', ' ⟷ ')}</span>
+          <span><b style={{ fontFamily: 'var(--font-display)', fontWeight: 'normal' }}>{t('ev-' + h.type)}</b> · {histText(h)}</span>
         </div>
       ))}
     </>

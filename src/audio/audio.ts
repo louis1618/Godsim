@@ -232,6 +232,15 @@ class AudioEngine {
       case 'quake': this.play('quake', x, z); break;
       case 'meteorStart': this.play('meteor', x, z); break;
       case 'quakelet': if (g > 0.15 && this.rate('quakelet', 200)) this.burst({ f: 300, to: 60, a: 0.01, d: 0.4, g: 0.2 * g, pan }); break;
+      case 'shell': if (this.rate('shell', 90)) { this.boom(Math.max(0.15, g * 0.6), pan, a && a > 0 ? 0.55 : 0.45); } break;
+      case 'shot': if (g > 0.1 && this.rate('shot', 70)) { this.burst({ type: 'highpass', f: 900, a: 0.001, d: 0.09, g: 0.16 * g, pan }); this.tone(r(110, 160), { type: 'square', to: 50, d: 0.06, g: 0.06 * g, pan }); } break;
+      case 'bombdrop': if (g > 0.1 && this.rate('bombdrop', 300)) this.tone(1400, { type: 'sine', to: 500, d: 0.9, g: 0.05 * g, pan }); break;
+      case 'trade': case 'loot': if (g > 0.15 && this.rate('coin', 200)) [88, 93].forEach((m, i) => this.tone(mtof(m), { type: 'square', d: 0.08, g: 0.03 * g, t: this.ctx!.currentTime + i * 0.06, pan })); break;
+      case 'arrest': case 'jail': if (g > 0.15 && this.rate('arrest', 300)) { this.tone(mtof(76), { type: 'square', d: 0.12, g: 0.04 * g, pan }); this.tone(mtof(72), { type: 'square', d: 0.12, g: 0.04 * g, t: this.ctx!.currentTime + 0.14, pan }); } break;
+      case 'machine': [60, 64, 67, 72].forEach((m, i) => this.tone(mtof(m), { type: 'square', d: 0.15, g: 0.035 * Math.max(0.3, g), t: this.ctx!.currentTime + i * 0.07, pan })); break;
+      case 'nuke': this.boom(1, 0, 2.2); this.boom(1, 0, 1.6); this.burst({ f: 90, to: 30, a: 0.3, d: 4, g: 0.5, rate: 0.4 }); break;
+      case 'era': [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => this.tone(mtof(m), { type: 'triangle', d: 0.7, g: 0.09, t: this.ctx!.currentTime + i * 0.09, verb: 0.8 })); break;
+      case 'fish': if (g > 0.25 && this.rate('fish', 400)) this.burst({ type: 'bandpass', f: 1400, q: 2, d: 0.15, g: 0.05 * g, pan }); break;
       case 'land': if (g > 0.1 && this.rate('land', 80)) this.tone(r(140, 200), { type: 'sine', to: 70, d: 0.15, g: 0.12 * g, pan }); break;
     }
   }

@@ -111,7 +111,7 @@ export class BuildingRenderer {
       counts.set(pool, i + 1);
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
       const y = heightCubic(w.height, w.W, w.H, cx, cz);
-      this.q.setFromAxisAngle(this.up, (b.rot * Math.PI) / 2);
+      this.q.setFromAxisAngle(this.up, b.kind === Bk.Cannon && b.aim !== undefined ? b.aim : (b.rot * Math.PI) / 2);
       // pop-in when placed
       const age = sim.tick - b.born;
       const sc = age < 6 ? 0.7 + 0.3 * (age / 6) : 1;

@@ -3,7 +3,7 @@ import { store } from './store';
 import { useStore } from './App';
 import { t, hint } from './i18n';
 import { POWERS, POWER_MAP, CATS } from '../sim/powers';
-import { SPECIES, KINGDOM_COLORS, Sp, TRAIT_KEYS, BUILDINGS, isCiv, YEAR_TICKS } from '../sim/defs';
+import { SPECIES, KINGDOM_COLORS, Sp, TRAIT_KEYS, BUILDINGS, isCiv, isVehicle, YEAR_TICKS, Bk, ERA_TECH } from '../sim/defs';
 import { UF, Job } from '../sim/entities';
 import { Pause, Play, Season, SEASON_BG } from './glyphs';
 import type { AppCtl } from '../app';
@@ -169,7 +169,7 @@ function MoodFace({ mood }: { mood: number }) {
   );
 }
 
-const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed' };
+const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed', post: 'act-post', trade: 'act-trade', escort: 'act-escort', escorted: 'act-escorted', board: 'act-board', voyage: 'act-voyage' };
 
 function UnitCard({ app, id }: { app: AppCtl; id: number }) {
   usePulse(250);
@@ -190,15 +190,16 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
   const team = k ? hex(KINGDOM_COLORS[k.color][0]) : '#b9a98a';
   const traits = TRAIT_KEYS.filter(([b]) => u.traits & b);
   const good = new Set(['brave', 'strong', 'fast', 'wise', 'lucky', 'fertile', 'immortal', 'blessed']);
-  const iconId = def.key;
-  const title = isCiv(u.sp) ? u.name : t(iconId);
+  const machine = isVehicle(u.sp);
+  const iconId = u.sp === Sp.Boat ? (u.item === 1 ? 'warship' : 'boat') : def.key;
+  const title = isCiv(u.sp) ? u.name : u.sp === Sp.Boat ? t('boat-' + u.item) : t(iconId);
   return (
     <div class="gs-panel card" style={{ '--team': team } as any}>
       <div class="head">
         <img src={s.icons[iconId]} />
         <div>
           {isCiv(u.sp) ? <EditName value={u.name} onSave={(n) => { u.name = n; store.set({ tick: store.s.tick + 1 }); }} /> : <EditName value={u.name || title} onSave={(n) => { u.name = n; }} />}
-          <div class="sub">{t(iconId)}{k ? ` · ${k.name}` : ''}{v ? ` · ${v.name}` : ''}</div>
+          <div class="sub">{u.sp === Sp.Boat ? t('boat-' + u.item) : t(iconId)}{k ? ` · ${k.name}` : ''}{v ? ` · ${v.name}` : ''}</div>
         </div>
       </div>
       <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
@@ -208,18 +209,21 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
           <div class="state"><b>{t(ACTION_KEY[u.task?.k ?? 'idle'] ?? 'act-idle')}</b><small>{t('mood')} {Math.round(u.mood)}</small></div>
         </div>
         <div class="stat"><span class="lbl">{t('hp')}</span><div class={`meter ${u.hp / u.maxHp < 0.35 ? 'red' : ''}`}><i style={{ width: `${(u.hp / u.maxHp) * 100}%` }} /></div></div>
-        {!SPECIES[u.sp].undead && <div class="needs">
+        {!SPECIES[u.sp].undead && !machine && <div class="needs">
           <div class="need" title={t('need-food')}><span>{t('need-food')}</span><div class={`meter ${u.hunger > 70 ? 'red' : ''}`}><i style={{ width: `${100 - u.hunger}%` }} /></div></div>
           <div class="need" title={t('need-energy')}><span>{t('need-energy')}</span><div class={`meter blue ${u.energy < 25 ? 'red' : ''}`}><i style={{ width: `${u.energy}%` }} /></div></div>
           {isCiv(u.sp) && <div class="need" title={t('need-social')}><span>{t('need-social')}</span><div class={`meter pink ${u.social < 20 ? 'red' : ''}`}><i style={{ width: `${u.social}%` }} /></div></div>}
         </div>}
-        <div class="grid4">
+        {!machine && <div class="grid4">
           <div class="mini"><b>{Math.floor(u.age)}</b><small>{t('age')}</small></div>
           <div class="mini"><b>{u.level}</b><small>{t('level')}</small></div>
           <div class="mini"><b>{u.kills}</b><small>{t('kills')}</small></div>
           <div class="mini"><b>{Math.round(def.dmg * u.dmgMul)}</b><small>ATK</small></div>
-        </div>
+        </div>}
         <div class="pills">
+          {isCiv(u.sp) && u.age >= def.adultAge && !(u.flags & UF.King) ? <span class="pill job">{t('job-' + u.job)}</span> : null}
+          {u.flags & UF.Jailed ? <span class="pill bad">{t('jailed')}</span> : null}
+          {v && (v.wanted ?? []).includes(u.id) ? <span class="pill bad">{t('wanted')}</span> : null}
           {u.flags & UF.King ? <span class="pill gold"><img src={s.icons['crown']} class="pi" />{t('king')}</span> : null}
           {u.flags & UF.Hero ? <span class="pill gold"><img src={s.icons['brave']} class="pi" />{t('hero')}</span> : null}
           {u.flags & UF.Sick ? <span class="pill bad">{t('plague')}</span> : null}
@@ -255,6 +259,26 @@ function Relations({ app, u }: { app: AppCtl; u: import('../sim/entities').Unit 
   return <div class="pills">{items}{kids > 0 && <span class="pill">{t('rel-children')} {kids}</span>}</div>;
 }
 
+const STRIP: [Bk, string][] = [[Bk.Market, 'market'], [Bk.Library, 'library'], [Bk.Prison, 'prison'], [Bk.Dock, 'dock'], [Bk.Cannon, 'cannon'], [Bk.Factory, 'factory'], [Bk.Apartment, 'apartment']];
+/** Civic buildings a town has, with prisoners and machines: what its development looks like at a glance. */
+function BuildingStrip({ app, v }: { app: AppCtl; v: import('../sim/entities').Village }) {
+  const s = useStore();
+  const sim = app.game.sim;
+  const n: Record<number, number> = {};
+  for (const id of v.buildings) { const b = sim.buildings.get(id); if (b && b.alive && b.progress >= 1) n[b.kind] = (n[b.kind] ?? 0) + 1; }
+  let prisoners = 0, machines = 0;
+  for (const u of sim.units) { if (u.flags & UF.Dead) continue; if (u.flags & UF.Jailed && u.task?.k === 'jailed' && sim.buildings.get(u.task.b)?.village === v.id) prisoners++; if (isVehicle(u.sp) && u.village === v.id) machines++; }
+  const items = STRIP.filter(([k]) => n[k]);
+  if (!items.length && !prisoners && !machines) return null;
+  return (
+    <div class="pills">
+      {items.map(([k, key]) => <span class="pill"><img src={s.icons['b-' + key]} class="pi" />{n[k] > 1 ? n[k] : ''}</span>)}
+      {prisoners > 0 && <span class="pill bad">{t('prisoners')} {prisoners}</span>}
+      {machines > 0 && <span class="pill"><img src={s.icons['tank']} class="pi" />{machines}</span>}
+    </div>
+  );
+}
+
 function VillageCard({ app, id }: { app: AppCtl; id: number }) {
   usePulse(400);
   const s = useStore();
@@ -271,7 +295,7 @@ function VillageCard({ app, id }: { app: AppCtl; id: number }) {
         <img src={s.icons['cat-civ']} />
         <div>
           <EditName value={v.name} onSave={(n) => { v.name = n; }} />
-          <div class="sub">{k?.name}{k && k.capital === v.id ? ' ★' : ''} · {'★'.repeat(v.level + 1)}</div>
+          <div class="sub">{k?.name}{k && k.capital === v.id ? ' ★' : ''} · {'★'.repeat(v.level + 1)}{k ? ` · ${t('era-' + k.era)}` : ''}</div>
         </div>
       </div>
       <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
@@ -289,6 +313,8 @@ function VillageCard({ app, id }: { app: AppCtl; id: number }) {
           <div class="mini"><b>{Math.floor(v.gold)}</b><small>{t('gold')}</small></div>
         </div>
         <div class="stat"><span class="lbl">{t('mood')}</span><div class={`meter ${v.avgMood < 35 ? 'red' : ''}`}><i style={{ width: `${v.avgMood}%` }} /></div></div>
+        {k && k.era < 4 && <div class="stat"><span class="lbl">{t('tech')}</span><div class="meter blue"><i style={{ width: `${Math.min(100, (k.tech - ERA_TECH[k.era]) / (ERA_TECH[k.era + 1] - ERA_TECH[k.era]) * 100)}%` }} /></div></div>}
+        <BuildingStrip app={app} v={v} />
         {k && <div class="stat"><span class="lbl">{t('kingdom')}</span><EditName value={k.name} onSave={(n) => { k.name = n; }} /></div>}
         <div class="stat"><span class="lbl">{t('loyalty')}</span><div class={`meter ${v.loyalty < 20 ? 'red' : ''}`}><i style={{ width: `${Math.max(0, Math.min(100, v.loyalty))}%` }} /></div></div>
         {k && k.wars.length > 0 && <div class="pills"><span class="pill bad"><img src={s.icons['war']} class="pi" />{t('atWar')}</span>{k.wars.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill" style={{ background: hex(KINGDOM_COLORS[e.color][0]), color: '#fff', textShadow: '0 1px 0 #2a2238' }}>{e.name}</span>; })}</div>}

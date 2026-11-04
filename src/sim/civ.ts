@@ -1,6 +1,8 @@
 import { Sim, setTimeout0 } from './sim';
 import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res, Mem } from './entities';
-import { SPECIES, Sp, Bk, BUILDINGS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
+import { SPECIES, Sp, Bk, BUILDINGS, BUILDING_KINDS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
+import { guardWork, traderWork, postWork, unrestTick, tryCrushRebellion, completed } from './jobs';
+import { shipyardTick, overseasSite, launchFerry } from './vehicles';
 import { kingdomName, villageName } from './names';
 import { findFeature, setTask } from './ai';
 import { resolveInside, standAtBuilding } from './nav';
@@ -88,6 +90,18 @@ export function placeBuilding(sim: Sim, v: Village | null, kind: Bk, x: number, 
   return b;
 }
 
+/** Point a dock's pier (model +Z) at the open water. */
+function faceWater(sim: Sim, b: Building) {
+  const w = sim.world;
+  let sx = 0, sz = 0;
+  for (let dz = -3; dz <= b.size + 2; dz++) for (let dx = -3; dx <= b.size + 2; dx++) {
+    if (!w.inside(b.x + dx, b.z + dz)) continue;
+    const d = w.waterDepth(w.idx(b.x + dx, b.z + dz));
+    if (d > 0) { sx += (dx + 0.5 - b.size / 2) * d; sz += (dz + 0.5 - b.size / 2) * d; }
+  }
+  b.rot = Math.abs(sx) > Math.abs(sz) ? (sx > 0 ? 1 : 3) : (sz > 0 ? 0 : 2);
+}
+
 /** A 2x2 pad on the shore with open water next to it. */
 function findDockSite(sim: Sim, v: Village): [number, number] | null {
   const w = sim.world;
@@ -115,7 +129,7 @@ function findDockSite(sim: Sim, v: Village): [number, number] | null {
   return best;
 }
 
-function findSite(sim: Sim, v: Village, kind: Bk): [number, number] | null {
+export function findSite(sim: Sim, v: Village, kind: Bk): [number, number] | null {
   const size = BUILDINGS[kind].size;
   const margin = kind === Bk.Farm ? 0 : 1;
   const R = Math.max(4, v.radius - 1);
@@ -303,7 +317,7 @@ export function villageThink(sim: Sim, v: Village) {
   const adults = res.filter((u) => u.age >= def.adultAge);
   const pop = res.length;
   let housing = 0, pending = 0, farms = 0;
-  const counts = new Array(8).fill(0);
+  const counts = new Array(BUILDING_KINDS).fill(0);
   for (const id of v.buildings) {
     const b = sim.buildings.get(id);
     if (!b || !b.alive) continue;
@@ -332,6 +346,11 @@ export function villageThink(sim: Sim, v: Village) {
   if (R !== v.radius) { v.radius = R; claimTerritory(sim, v); }
 
   const atWar = !!k && k.wars.length > 0;
+  // stores have limits: food rots and timber warps beyond what storehouses hold
+  const foodCap = 50 + pop * 4 + counts[Bk.Storage] * 120 + counts[Bk.Windmill] * 40;
+  if (v.food > foodCap) v.food -= (v.food - foodCap) * 0.08;
+  const woodCap = 90 + counts[Bk.Storage] * 160;
+  if (v.wood > woodCap) v.wood -= (v.wood - woodCap) * 0.05;
   // collective state
   let moodSum = 0, hungry = 0;
   for (const u of res) { moodSum += u.mood; if (u.hunger > 70) hungry++; }
@@ -373,7 +392,7 @@ export function villageThink(sim: Sim, v: Village) {
   want[Job.Farmer] = Math.min(farms * 2, Math.ceil(nA * 0.35));
   const woodNeed = v.wood < 25 + v.level * 12;
   want[Job.Woodcutter] = Math.ceil(nA * (woodNeed ? 0.28 : 0.12));
-  want[Job.Miner] = v.level >= 1 && v.stone < 30 + v.level * 10 ? Math.ceil(nA * 0.12) : 0;
+  want[Job.Miner] = (v.level >= 1 && v.stone < 30 + v.level * 10) || v.needStone ? Math.ceil(nA * (v.needStone ? 0.18 : 0.12)) : 0;
   const era = k?.era ?? 0;
   want[Job.Guard] = era >= 1 && nA >= 8 ? Math.max(1, Math.floor(nA / 14)) + Math.min(2, Math.floor((v.crime ?? 0) / 3)) : 0;
   want[Job.Trader] = counts[Bk.Market] > 0 ? Math.min(2, counts[Bk.Market] * 1 + (v.level >= 2 ? 1 : 0)) : 0;
@@ -403,34 +422,54 @@ export function villageThink(sim: Sim, v: Village) {
     }
   }
 
-  // construction planning
+  // taxes: markets and grand halls bring in coin
+  v.gold += counts[Bk.Market] * pop * 0.004 + (v.level >= 2 ? 0.04 * v.level : 0);
+  // order & machines
+  unrestTick(sim, v, adults);
+  if (sim.rng.chance(0.34)) shipyardTick(sim, v);
+  if (v.crime) v.crime *= 0.985;
+
+  // construction planning: walk the town's wish list; essentials wait for materials, extras are skipped
   if (pending < 1 + Math.floor(pop / 14) && sim.tick >= v.planT) {
-    let kind = -1 as Bk;
-    if (pop >= housing - 1) kind = Bk.House;
-    else if (farms < Math.ceil(pop / 5) && pop >= BUILDINGS[Bk.Farm].minPop) kind = Bk.Farm;
-    else if (counts[Bk.Storage] < 1 && pop >= BUILDINGS[Bk.Storage].minPop) kind = Bk.Storage;
-    else if (counts[Bk.Windmill] < 1 && farms >= 2 && pop >= BUILDINGS[Bk.Windmill].minPop) kind = Bk.Windmill;
-    else if (counts[Bk.Tower] < (atWar ? 3 : 1) + Math.floor(pop / 30) && pop >= BUILDINGS[Bk.Tower].minPop) kind = Bk.Tower;
-    else if (counts[Bk.Temple] < 1 && pop >= BUILDINGS[Bk.Temple].minPop) kind = Bk.Temple;
-    else if (era >= 1 && counts[Bk.Market] < 1 && pop >= BUILDINGS[Bk.Market].minPop) kind = Bk.Market;
-    else if (era >= 1 && counts[Bk.Library] < (v.level >= 3 ? 2 : 1) && pop >= BUILDINGS[Bk.Library].minPop) kind = Bk.Library;
-    else if (era >= 1 && counts[Bk.Prison] < 1 && pop >= BUILDINGS[Bk.Prison].minPop) kind = Bk.Prison;
-    else if (era >= 1 && counts[Bk.Dock] < 1 && pop >= BUILDINGS[Bk.Dock].minPop && v.coastal) kind = Bk.Dock;
-    else if (era >= 2 && counts[Bk.Cannon] < (atWar ? 4 : 2) + v.level && pop >= BUILDINGS[Bk.Cannon].minPop) kind = Bk.Cannon;
-    else if (era >= 3 && counts[Bk.Factory] < 1 && pop >= BUILDINGS[Bk.Factory].minPop) kind = Bk.Factory;
-    else if (pop >= housing - 3 && counts[Bk.House] + counts[Bk.Apartment] < 14) kind = Bk.House;
-    // the modern age builds upward
-    if (kind === Bk.House && era >= 4 && pop >= BUILDINGS[Bk.Apartment].minPop) kind = Bk.Apartment;
-    if ((kind as number) >= 0) {
+    v.needStone = false;
+    const ok = (kind: Bk) => pop >= BUILDINGS[kind].minPop && era >= (BUILDINGS[kind].era ?? 0);
+    const plan: [Bk, boolean, boolean][] = [
+      [Bk.House, pop >= housing - 1, true],
+      [Bk.Farm, farms < Math.ceil(pop / 5) && ok(Bk.Farm), true],
+      [Bk.Storage, counts[Bk.Storage] < 1 + Math.floor(pop / 45) && ok(Bk.Storage), false],
+      [Bk.Market, counts[Bk.Market] < 1 && ok(Bk.Market), false],
+      [Bk.Prison, counts[Bk.Prison] < 1 && ok(Bk.Prison) && ((v.crime ?? 0) > 0.5 || v.loyalty < 45 || pop >= 30), false],
+      [Bk.Library, counts[Bk.Library] < (v.level >= 3 ? 2 : 1) && ok(Bk.Library), false],
+      [Bk.Factory, counts[Bk.Factory] < 1 && ok(Bk.Factory), false],
+      [Bk.Dock, counts[Bk.Dock] < 1 && ok(Bk.Dock) && v.coastal, false],
+      [Bk.Windmill, counts[Bk.Windmill] < 1 && farms >= 2 && ok(Bk.Windmill), false],
+      [Bk.Tower, counts[Bk.Tower] < (atWar ? 3 : 1) + Math.floor(pop / 30) && ok(Bk.Tower), false],
+      [Bk.Temple, counts[Bk.Temple] < 1 && ok(Bk.Temple), false],
+      [Bk.Cannon, counts[Bk.Cannon] < (atWar ? 3 : 1) + (v.level >= 3 ? 1 : 0) && ok(Bk.Cannon), false],
+      [Bk.House, pop >= housing - 3 && counts[Bk.House] + counts[Bk.Apartment] < 16, false],
+    ];
+    // saving up: materials earmarked for a more important project are not spent on lesser ones
+    let rw = 0, rs = 0, rg = 0;
+    for (const [k0, want, essential] of plan) {
+      if (!want) continue;
+      // the modern age builds upward
+      const kind = k0 === Bk.House && era >= 4 && pop >= BUILDINGS[Bk.Apartment].minPop ? Bk.Apartment : k0;
       const c = BUILDINGS[kind].cost;
-      if (v.wood >= c.wood && v.stone >= c.stone && v.gold >= c.gold) {
+      if (v.wood - rw >= c.wood && v.stone - rs >= c.stone && v.gold - rg >= c.gold) {
         const site = kind === Bk.Dock ? findDockSite(sim, v) : findSite(sim, v, kind);
-        if (kind === Bk.Dock && !site) v.coastal = false;
-        if (site) {
-          v.wood -= c.wood; v.stone -= c.stone; v.gold -= c.gold;
-          placeBuilding(sim, v, kind, site[0], site[1], v.race, 0.02);
-        }
+        if (kind === Bk.Dock && !site) { v.coastal = false; continue; }
+        if (!site) continue;
+        v.wood -= c.wood; v.stone -= c.stone; v.gold -= c.gold;
+        const nb = placeBuilding(sim, v, kind, site[0], site[1], v.race, 0.02);
+        if (kind === Bk.Dock) faceWater(sim, nb);
+        if (v.saveFor === kind) v.saveFor = -1;
+        break;
       }
+      if (c.stone > v.stone) v.needStone = true;
+      if (essential) break;
+      if (v.saveFor !== kind && (v.saveFor ?? -1) < 0) { v.saveFor = kind; v.saveT = sim.tick; }
+      if (v.saveFor === kind && sim.tick - (v.saveT ?? 0) < YEAR_TICKS * 2.5) { rw += c.wood; rs += c.stone; rg += c.gold; }
+      else if (v.saveFor === kind) v.saveFor = -1; // gave up waiting; let others build
     }
     v.planT = sim.tick + 30;
   }
@@ -486,7 +525,14 @@ function sendSettlers(sim: Sim, v: Village, adults: Unit[]) {
     if (w.owner[w.idx(x, z)] >= 0) continue;
     if (siteOk(sim, x - 1, z - 1, 3, -1, 1, 1.4)) site = [x, z];
   }
-  if (!site) return;
+  // no room on this island: a port town may ship colonists across the sea
+  let ferryDock: Building | undefined;
+  if (!site) {
+    ferryDock = completed(sim, v, Bk.Dock)[0];
+    if (!ferryDock || sim.units.some((o) => o.sp === Sp.Boat && o.item === 2 && o.village === v.id && !(o.flags & UF.Dead))) return;
+    site = overseasSite(sim, v, (x, z) => siteOk(sim, x - 1, z - 1, 3, -1, 1, 1.4));
+    if (!site) return;
+  }
   sim.rng.shuffle(cands);
   // couples travel together
   const chosen: Unit[] = [];
@@ -496,12 +542,13 @@ function sendSettlers(sim: Sim, v: Village, adults: Unit[]) {
     const p = sim.getUnit(c.partner);
     if (p && p.village === v.id && !chosen.includes(p) && cands.includes(p)) chosen.push(p);
   }
+  if (ferryDock && !launchFerry(sim, v, ferryDock, chosen, site)) return;
   for (let i = 0; i < chosen.length; i++) {
     const u = chosen[i];
     const idx = v.residents.indexOf(u.id); if (idx >= 0) v.residents.splice(idx, 1);
     u.village = -1; u.flags |= UF.Settler; u.job = Job.None; u.item = 0;
     if (u.carryAmt > 0) { u.carry = Res.None; u.carryAmt = 0; }
-    setTask(sim, u, { k: 'settle', tx: site[0] + 0.5 + sim.rng.range(-1, 1), tz: site[1] + 0.5 + sim.rng.range(-1, 1) });
+    if (!ferryDock) setTask(sim, u, { k: 'settle', tx: site[0] + 0.5 + sim.rng.range(-1, 1), tz: site[1] + 0.5 + sim.rng.range(-1, 1) });
   }
   sim.fx.push({ t: 'settlers', x: v.cx, z: v.cz, tx: site[0], tz: site[1] });
 }
@@ -623,6 +670,11 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
       if (q >= 0) return { k: 'gather', tile: q, res: Res.Stone, work: 0 };
       break;
     }
+    case Job.Guard: return guardWork(sim, u, v) ?? { k: 'idle', t: 20 };
+    case Job.Trader: { const t = traderWork(sim, u, v); if (t) return t; break; }
+    case Job.Scholar: { const t = postWork(sim, u, v, Bk.Library, 120); if (t) return t; break; }
+    case Job.Worker: { const t = postWork(sim, u, v, Bk.Factory, 100); if (t) return t; break; }
+    case Job.Fisher: { const t = postWork(sim, u, v, Bk.Dock, 90); if (t) return t; break; }
     case Job.Gatherer: {
       const t = findFeature(sim, u.x, u.z, 14, (f) => f === Feat.Berry);
       if (t >= 0) return { k: 'gather', tile: t, res: Res.Food, work: 0 };
@@ -706,7 +758,7 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
       let libs = 0, markets = 0;
       for (const id of v.buildings) { const b = sim.buildings.get(id); if (b && b.alive && b.progress >= 1) { if (b.kind === Bk.Library) libs++; if (b.kind === Bk.Market) markets++; } }
       const scholars = v.residents.filter((id) => sim.getUnit(id)?.job === Job.Scholar).length;
-      gain += (v.residents.length * 0.007 + libs * 0.22 + scholars * 0.12 + markets * 0.08) * (0.6 + v.avgMood / 100);
+      gain += (v.residents.length * 0.007 + libs * 0.18 + scholars * 0.04 + markets * 0.08) * (0.6 + v.avgMood / 100);
       maxLevel = Math.max(maxLevel, v.level);
     }
     k.tech += gain * (k.tradeBoost ?? 1);
@@ -746,7 +798,7 @@ export function kingdomThink(sim: Sim, k: Kingdom) {
     for (const vid of k.villages) {
       const v = sim.villages.get(vid)!;
       if (vid === k.capital || v.residents.length < 8) continue;
-      if (v.loyalty < 0 && sim.rng.chance(0.06)) { rebel(sim, v, k); break; }
+      if (v.loyalty < 0 && sim.rng.chance(0.06)) { if (!tryCrushRebellion(sim, v)) rebel(sim, v, k); break; }
     }
   }
 }
@@ -827,6 +879,50 @@ function contact(sim: Sim, a: Kingdom, b: Kingdom): number {
   return best;
 }
 
+/** 0 = comfortable, >1 = villages lacking food / materials or recently starving. */
+export function shortage(sim: Sim, k: Kingdom) {
+  let lack = 0;
+  for (const vid of k.villages) {
+    const v = sim.villages.get(vid);
+    if (!v) continue;
+    const pop = v.residents.length;
+    lack += (v.food < pop * 0.4 ? 1 : 0) + (sim.tick - v.famineT < YEAR_TICKS ? 1 : 0) + (v.wood < 6 && v.stone < 4 ? 0.5 : 0);
+  }
+  return lack / Math.max(1, k.villages.length);
+}
+export function wealth(sim: Sim, k: Kingdom) {
+  let s = 0;
+  for (const vid of k.villages) { const v = sim.villages.get(vid); if (v) s += v.food + v.wood + v.stone * 1.3 + v.gold * 4; }
+  return s;
+}
+
+/** Economic war: want (shortage) x opportunity (their stores) x strength, held back by friendship. */
+function raidWar(sim: Sim, a: Kingdom, b: Kingdom): boolean {
+  for (const [x, y] of [[a, b], [b, a]] as [Kingdom, Kingdom][]) {
+    const need = shortage(sim, x);
+    if (need < 0.5) continue;
+    const prize = wealth(sim, y);
+    const px = power(sim, x), py = power(sim, y);
+    const op = x.opinion[y.id] ?? 0;
+    if (prize < 60 || px < 6 || px < py * 0.85 || op > 35 || x.allies.includes(y.id)) continue;
+    const p = 0.08 * need * (0.5 + x.aggression) * Math.min(2, prize / 150) * (op < 0 ? 1.5 : 1);
+    if (sim.rng.chance(p)) { declareWar(sim, x, y, true); sim.log('raidWar', { a: x.id, b: y.id, text: `${x.name}|${y.name}` }); return true; }
+  }
+  return false;
+}
+
+/** Raiders carry off what they can from a fallen storehouse or hall. */
+export function loot(sim: Sim, by: Unit, v: Village) {
+  const k = sim.kingdoms.get(by.kingdom);
+  const home = k && sim.villages.get(k.capital);
+  if (!home || home === v) return;
+  const take = (n: number) => Math.floor(n * 0.5);
+  const f = take(v.food), wd = take(v.wood), st = take(v.stone), g = take(v.gold);
+  v.food -= f; v.wood -= wd; v.stone -= st; v.gold -= g;
+  home.food += f; home.wood += wd; home.stone += st; home.gold += g;
+  if (f + wd + st + g > 0) sim.fx.push({ t: 'loot', x: by.x, z: by.z, u: by.id, a: f + wd + st + g });
+}
+
 export function diplomacyThink(sim: Sim) {
   const ks = [...sim.kingdoms.values()].filter((k) => k.alive);
   for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
@@ -836,7 +932,11 @@ export function diplomacyThink(sim: Sim) {
     const touching = d < 6;
     const sinceP = sim.tick - (a.peaceT[b.id] ?? -1e9);
     const rivalry = (hash2(Math.min(a.id, b.id), Math.max(a.id, b.id), 7) - 0.5) * 50;
-    const target = RACE_AFFINITY(a.race, b.race) + rivalry + (near ? -24 : 0) + (touching ? -18 : 0) - (a.aggression + b.aggression - 1) * 35 + (sinceP < YEAR_TICKS * 3 ? 30 : 0) + (a.rebelOf === b.id || b.rebelOf === a.id ? -25 : 0);
+    // caravans build friendship; trade counters fade unless renewed
+    const trade = (a.trade?.[b.id] ?? 0) + (b.trade?.[a.id] ?? 0);
+    if (a.trade?.[b.id]) a.trade[b.id] *= 0.85;
+    if (b.trade?.[a.id]) b.trade[a.id] *= 0.85;
+    const target = RACE_AFFINITY(a.race, b.race) + rivalry + (near ? -24 : 0) + (touching ? -18 : 0) - (a.aggression + b.aggression - 1) * 35 + (sinceP < YEAR_TICKS * 3 ? 30 : 0) + (a.rebelOf === b.id || b.rebelOf === a.id ? -25 : 0) + Math.min(30, trade * 3);
     for (const [x, y] of [[a, b], [b, a]] as [Kingdom, Kingdom][]) {
       const cur = x.opinion[y.id] ?? target;
       x.opinion[y.id] = cur + (target - cur) * 0.2 + sim.rng.range(-5, 5);
@@ -847,6 +947,8 @@ export function diplomacyThink(sim: Sim) {
       const pa = power(sim, a), pb = power(sim, b);
       const tired = dur > YEAR_TICKS * 2.5 ? (dur / (YEAR_TICKS * 10)) : 0;
       if (sim.rng.chance(Math.min(0.25, tired * 0.1 + (Math.min(pa, pb) < 4 ? 0.1 : 0)))) makePeace(sim, a, b);
+    } else if (sim.laws.wars && near && sinceP > YEAR_TICKS * 1.5 && a.wars.length < 2 && b.wars.length < 2 && sim.tick > YEAR_TICKS * 2 && raidWar(sim, a, b)) {
+      // a hungry kingdom raided a rich neighbour
     } else if (sim.laws.wars && near && op < -20 && sinceP > YEAR_TICKS * 2 && a.wars.length < 2 && b.wars.length < 2 && sim.tick > YEAR_TICKS * 2) {
       const pa = power(sim, a), pb = power(sim, b);
       const attacker = pa >= pb ? a : b, defender = attacker === a ? b : a;

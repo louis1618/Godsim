@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Sim } from '../sim/sim';
-import { SPECIES, SPECIES_COUNT, Sp, isCiv, KINGDOM_COLORS } from '../sim/defs';
+import { SPECIES, SPECIES_COUNT, Sp, isCiv, isVehicle, KINGDOM_COLORS } from '../sim/defs';
 import { UF, Anim } from '../sim/entities';
 import { buildCreatureModels, SKIN_TONES, HAIR_TONES } from './models/creatures';
 import { patchInstanced } from './shared';
@@ -9,7 +9,7 @@ import { U } from './shared';
 
 const ANIM_GLSL = /* glsl */ `
 attribute float aSlot; attribute float aPart; attribute vec3 aPivot; attribute float aItem;
-attribute vec3 iCloth; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iMisc; attribute float iMood;
+attribute vec3 iCloth; attribute vec3 iSkin; attribute vec3 iHair; attribute vec4 iMisc; // misc.w = mood*99 (int part) + hit flash (fraction)
 uniform float uAnimTime;
 varying float vFlash;
 mat3 gsRotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
@@ -19,6 +19,14 @@ mat3 gsRotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, 
 void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   float A = iMisc.x; float t = uAnimTime + iMisc.y;
   int part = int(aPart + 0.5);
+  if (A >= 10.0) {
+    // machines: rigid; boats bob and roll, tanks rumble, propellers spin
+    R = mat3(1.0); piv = aPivot; lean = 0.0;
+    off = vec3(0.0, A == 11.0 ? sin(t * 1.7) * 0.02 : A == 10.0 ? sin(t * 40.0) * 0.003 : 0.0, 0.0);
+    if (A == 11.0) lean = sin(t * 1.1) * 0.05;
+    if (part == 7 && A == 12.0) R = gsRotZ(t * 45.0);
+    return;
+  }
   bool walk = A == 1.0 || A == 4.0;
   float spd = A == 4.0 ? 18.0 : 12.0;
   float s = sin(t * spd);
@@ -34,7 +42,7 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   if (A == 8.0) { lhZ = -1.4 - sin(t * 25.0) * 0.9; rhZ = 1.4 + sin(t * 23.0) * 0.9; legA = sin(t * 30.0) * 0.9; headX = sin(t * 13.0) * 0.4; }
   if (A == 9.0) { headX = 0.75 + sin(t * 9.0) * 0.15; lhA = -0.6; rhA = -0.6; }
   // mood colours every pose: gloomy creatures hang their heads, cheerful ones bounce
-  float md = iMood;
+  float md = floor(iMisc.w) / 99.0;
   if (md < 0.3 && A != 5.0) { float g = (0.3 - md) / 0.3; headX += 0.45 * g; bob *= 1.0 - 0.5 * g; lhZ *= 0.3; rhZ *= 0.3; lean += 0.1 * g; }
   if (md > 0.75 && (A == 0.0 || walk)) { float j = (md - 0.75) / 0.25; bob += abs(sin(t * (walk ? spd : 5.0))) * 0.035 * j; headY += sin(t * 3.0) * 0.15 * j; }
   if (A == 5.0) { lhZ = -0.4; rhZ = 0.4; headY = 0.0; headX = -0.1 + sin(t * 1.2) * 0.04; legA = 0.0; }
@@ -82,7 +90,7 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   else if (sl == 3) vColor.rgb *= iHair;
   else if (sl == 4) vColor.rgb *= iCloth * 0.4 + vec3(0.1, 0.08, 0.07);
   else if (sl == 5) vColor.rgb *= mix(iCloth, vec3(1.0), 0.6);
-  vFlash = iMisc.w;
+  vFlash = fract(iMisc.w);
 }`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vFlash;')
@@ -95,7 +103,7 @@ function makeCharacterMaterial(depth: boolean): THREE.Material {
   return mat;
 }
 
-interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribute; skin: THREE.InstancedBufferAttribute; hair: THREE.InstancedBufferAttribute; misc: THREE.InstancedBufferAttribute; mood: THREE.InstancedBufferAttribute; cap: number; }
+interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribute; skin: THREE.InstancedBufferAttribute; hair: THREE.InstancedBufferAttribute; misc: THREE.InstancedBufferAttribute; cap: number; }
 
 /** Characters are drawn a bit larger than their simulation footprint so they read well. */
 export const CREATURE_SCALE = 1.4;
@@ -185,11 +193,12 @@ export class UnitRenderer {
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const mk = (n: number) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * n), n); a.setUsage(THREE.DynamicDrawUsage); return a; };
-    const cloth = mk(3), skin = mk(3), hair = mk(3), misc = mk(4), mood = mk(1);
-    g.setAttribute('iCloth', cloth); g.setAttribute('iSkin', skin); g.setAttribute('iHair', hair); g.setAttribute('iMisc', misc); g.setAttribute('iMood', mood);
+    const cloth = mk(3), skin = mk(3), hair = mk(3), misc = mk(4);
+    g.setAttribute('iCloth', cloth); g.setAttribute('iSkin', skin); g.setAttribute('iHair', hair); g.setAttribute('iMisc', misc);
+    if (g.getAttribute('iMood')) g.deleteAttribute('iMood');
     mesh.count = 0;
     this.group.add(mesh);
-    return { mesh, cloth, skin, hair, misc, mood, cap };
+    return { mesh, cloth, skin, hair, misc, cap };
   }
 
   private grow(sp: number, need: number) {
@@ -261,9 +270,9 @@ export class UnitRenderer {
       }
       // team colour
       let col: number;
-      if (isCiv(u.sp)) {
+      if (isCiv(u.sp) || isVehicle(u.sp)) {
         const k = sim.kingdoms.get(u.kingdom);
-        col = k ? KINGDOM_COLORS[k.color][0] : 0xcdbb94;
+        col = k ? KINGDOM_COLORS[k.color][0] : isVehicle(u.sp) ? 0x3a3a3a : 0xcdbb94;
       } else col = SPECIES_TINT[u.sp] ?? 0xffffff;
       // markers (map view)
       {
@@ -271,7 +280,7 @@ export class UnitRenderer {
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
         this.markerCol[o] = this.c.r; this.markerCol[o + 1] = this.c.g; this.markerCol[o + 2] = this.c.b;
-        const base = isCiv(u.sp) ? 8 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : 3.6;
+        const base = isCiv(u.sp) ? 8 : isVehicle(u.sp) ? 11 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : 3.6;
         this.markerSize[mk] = base * (u.flags & UF.King ? 1.7 : u.flags & UF.Hero ? 1.35 : 1) * (u.age < def.adultAge ? 0.75 : 1) * (u.sp === Sp.Bear ? 1.3 : 1);
         mk++;
       }
@@ -290,6 +299,7 @@ export class UnitRenderer {
       const child = u.age < def.adultAge;
       let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
       if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (isVehicle(u.sp)) sc = CREATURE_SCALE * (u.sp === Sp.Boat ? 1.7 : u.sp === Sp.Tank ? 1.6 : 1.8);
       // a little pop when born
       const age = sim.tick - u.born;
       if (age < 8) sc *= 0.5 + 0.5 * Math.min(1, (age + alpha) / 8) + Math.sin(Math.min(1, (age + alpha) / 8) * Math.PI) * 0.25;
@@ -307,12 +317,14 @@ export class UnitRenderer {
       if (hairs && u.age > def.lifespan[0] * 0.75) this.c.lerp(new THREE.Color(0xdddddd), 0.7);
       pool.hair.setXYZ(i, this.c.r, this.c.g, this.c.b);
       let anim: number = u.anim;
-      if (ph || u.id === this.heldId) anim = Anim.Fly;
+      if (isVehicle(u.sp)) anim = u.sp === Sp.Boat ? Anim.Float : u.sp === Sp.Plane ? Anim.Soar : Anim.Drive;
+      else if (ph || u.id === this.heldId) anim = Anim.Fly;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
-      const item = u.sp === Sp.Troll ? 8 : child || !isCiv(u.sp) ? 0 : u.item;
-      pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, u.hitT > 0 ? u.hitT / 6 : 0);
-      pool.mood.setX(i, (u.mood ?? 60) / 100);
+      if (u.flags & UF.Aboard) anim = Anim.Idle;
+      const item = u.sp === Sp.Troll ? 8 : u.sp === Sp.Boat ? 20 + u.item : child || !isCiv(u.sp) ? 0 : u.item;
+      const mood = isVehicle(u.sp) ? 60 : (u.mood ?? 60);
+      pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, Math.round(Math.max(0, Math.min(1, mood / 100)) * 99) + (u.hitT > 0 ? Math.min(0.95, u.hitT / 6) : 0));
       if (u.flags & UF.King) {
         const hh = (u.sp === Sp.Dwarf ? 0.55 : 0.72) * sc;
         this.tmpP.set(x, y + hh, z);
@@ -328,7 +340,7 @@ export class UnitRenderer {
       p.mesh.count = show3D ? counts[sp] : 0;
       total += p.mesh.count;
       p.mesh.instanceMatrix.needsUpdate = true;
-      p.cloth.needsUpdate = p.skin.needsUpdate = p.hair.needsUpdate = p.misc.needsUpdate = p.mood.needsUpdate = true;
+      p.cloth.needsUpdate = p.skin.needsUpdate = p.hair.needsUpdate = p.misc.needsUpdate = true;
     }
     this.visibleCount = total;
     this.crowns.count = Math.min(crowns, 64);

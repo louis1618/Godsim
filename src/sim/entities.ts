@@ -1,7 +1,7 @@
 import { Sp, Bk } from './defs';
 
 export const enum Job { None = 0, Gatherer = 1, Farmer = 2, Woodcutter = 3, Miner = 4, Builder = 5, Warrior = 6, Hunter = 7, Guard = 8, Trader = 9, Fisher = 10, Scholar = 11, Worker = 12 }
-export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9 }
+export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9, Drive = 10, Float = 11, Soar = 12 }
 export const enum Emote { None = 0, Heart = 1, Angry = 2, Alert = 3, Sad = 4, Zzz = 5, Music = 6, Skull = 7, Crown = 8, Sick = 9, Star = 10, Food = 11, Swords = 12 }
 export const enum UF {
   King = 1 << 0, Hero = 1 << 1, Sick = 1 << 2, Mad = 1 << 3, Settler = 1 << 4, Leader = 1 << 5,
@@ -31,7 +31,15 @@ export type Task =
   | { k: 'chat'; u: number; t: number }
   | { k: 'sleep'; t: number; sx?: number; sz?: number }
   | { k: 'dance'; t: number }
-  | { k: 'steal'; v: number; sx?: number; sz?: number };
+  | { k: 'steal'; v: number; sx?: number; sz?: number }
+  | { k: 'post'; b: number; t: number; sx?: number; sz?: number }
+  | { k: 'arrest'; u: number; n: number; fought?: boolean }
+  | { k: 'escort'; u: number; b: number; sx?: number; sz?: number }
+  | { k: 'escorted'; g: number }
+  | { k: 'jailed'; b: number }
+  | { k: 'trade'; v: number; res: Res; amt: number; back: boolean; sx?: number; sz?: number; n: number }
+  | { k: 'board'; boat: number }
+  | { k: 'voyage'; phase: number; tx: number; tz: number; wp: number[]; wi: number; n: number; riders?: number[]; site?: [number, number] };
 
 export interface Unit {
   id: number;
@@ -101,6 +109,7 @@ export interface Building {
   alive: boolean;
   born: number;
   look: number;
+  aim?: number;             // turret yaw (cannons)
 }
 
 export interface Village {
@@ -131,6 +140,10 @@ export interface Village {
   captureT: number;
   blessT: number;
   lastAttacked: number;
+  industry?: number;        // factory output banked toward the next machine
+  needStone?: boolean;      // a wanted building is waiting on stone
+  saveFor?: number;         // building kind the town is saving materials for
+  saveT?: number;
 }
 
 export interface Banner { symbol: number; pattern: number; c1: number; c2: number; }
@@ -159,6 +172,7 @@ export interface Kingdom {
   era: number;              // Era
   tech: number;             // accumulated knowledge
   tradeBoost?: number;      // knowledge multiplier from recent trade
+  trade?: Record<number, number>; // recent caravans with each kingdom (decays)
 }
 
 export interface HistoryEntry {

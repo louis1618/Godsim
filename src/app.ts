@@ -10,7 +10,7 @@ import { mountUI } from './ui/App';
 import { forgeIcons } from './render/icons';
 import { audio } from './audio/audio';
 import { t } from './ui/i18n';
-import { EV_ICON } from './ui/Panels';
+import { EV_ICON, histText } from './ui/Panels';
 import { U } from './render/shared';
 import { KINGDOM_COLORS, YEAR_TICKS, Mat } from './sim/defs';
 import { HistoryEntry } from './sim/entities';
@@ -23,7 +23,7 @@ import { growWorld, MAX_WORLD } from './sim/expand';
 interface FeedItem { key: number; t: number; icon: string; title: string; text: string; colors: string[]; x?: number; z?: number; }
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 const NO_AUTO = new URLSearchParams(location.search).has('noauto');
-const BIG = new Set(['war', 'rebellion', 'kingdomFell', 'captured', 'peace']);
+const BIG = new Set(['war', 'rebellion', 'kingdomFell', 'captured', 'peace', 'era', 'raidWar', 'nuke', 'firstTank', 'firstPlane']);
 
 export class AppCtl {
   gr: GameRenderer;
@@ -284,13 +284,13 @@ export class AppCtl {
     let x = h.x, z = h.z;
     if (x === undefined && ka) { const c = sim.villages.get(ka.capital); if (c) { x = c.cx; z = c.cz; } }
     const icon = EV_ICON[h.type] ?? 'history';
-    const text = h.text.replace('|', ' ⟷ ');
+    const text = histText(h);
     if (h.type === 'newKing' && sim.tick < 200) return;
     this.feed.push({ key: this.feedKey++, t: performance.now(), icon, title: t('ev-' + h.type), text, colors, x, z });
     if (this.feed.length > 30) this.feed.shift();
     if (BIG.has(h.type) && store.s.screen === 'play') {
       this.banner = { t: performance.now(), icon, title: t('ev-' + h.type), text };
-      if (h.type === 'war' || h.type === 'rebellion') audio.play(h.type === 'war' ? 'war' : 'rebel', x ?? 0, z ?? 0);
+      if (h.type === 'war' || h.type === 'raidWar' || h.type === 'rebellion') audio.play(h.type === 'rebellion' ? 'rebel' : 'war', x ?? 0, z ?? 0);
       if (h.type === 'peace') audio.play('peace', x ?? 0, z ?? 0);
       store.set({ tick: store.s.tick + 1 });
     }
