@@ -17,6 +17,7 @@ import { HistoryEntry } from './sim/entities';
 import { saveSlot, loadSlot } from './sim/save';
 import { fireTiles } from './sim/nature';
 import { damp } from './core/math';
+import { MapLabels } from './ui/maplabels';
 
 interface FeedItem { key: number; t: number; icon: string; title: string; text: string; colors: string[]; x?: number; z?: number; }
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -36,12 +37,14 @@ export class AppCtl {
   private previewCache = new Map<string, ImageData>();
   private lastYear = -1;
   private pendingOpts: WorldOpts | null = null;
+  labels: MapLabels;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.gr = new GameRenderer(canvas);
     this.game = new Game(this.gr);
     this.ctl = new Controller(this.game, canvas);
     this.setQuality(this.quality);
+    this.labels = new MapLabels(this.game, uiRoot.parentElement!);
     mountUI(uiRoot, this);
     this.gr.onFrame.push((dt) => this.frame(dt));
     const unlock = () => { audio.start(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
@@ -75,6 +78,7 @@ export class AppCtl {
 
   private attach(sim: Sim) {
     this.game.setSim(sim.world, sim);
+    this.labels?.clear();
     this.feed = [];
     this.popHistory = [];
     this.lastYear = -1;
@@ -200,6 +204,7 @@ export class AppCtl {
       U.uGenesis.value = this.genAnim;
     }
     this.ctl.update(dt);
+    this.labels.update(dt);
     // audio listener + ambience estimate around the view
     const rig = this.gr.rig;
     audio.listener.x = rig.focus.x; audio.listener.z = rig.focus.z; audio.listener.span = rig.V; audio.listener.z01 = rig.z01; audio.listener.yaw = rig.yaw;
