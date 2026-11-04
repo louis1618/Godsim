@@ -8,8 +8,8 @@ import { UF, Job } from '../sim/entities';
 import { Pause, Play, Season, SEASON_BG } from './glyphs';
 import type { AppCtl } from '../app';
 
-export const ACC: Record<string, string> = { world: '#6cc04a', life: '#ff7a8a', civ: '#ffc53d', nature: '#33c2a6', disaster: '#ff6a3a', observe: '#8f7cf2', settings: '#9aa7bd' };
-export const ACC_L: Record<string, string> = { world: '#d8f2c4', life: '#ffd8de', civ: '#fff0bf', nature: '#c8f2ea', disaster: '#ffd6c8', observe: '#e2dcff', settings: '#e3e8f0' };
+export const ACC: Record<string, string> = { world: '#6cc04a', life: '#ff7a8a', civ: '#ffc53d', nature: '#33c2a6', disaster: '#ff6a3a', military: '#7f8fa3', observe: '#8f7cf2', settings: '#9aa7bd' };
+export const ACC_L: Record<string, string> = { world: '#d8f2c4', life: '#ffd8de', civ: '#fff0bf', nature: '#c8f2ea', disaster: '#ffd6c8', military: '#dde3ea', observe: '#e2dcff', settings: '#e3e8f0' };
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 const keyLabel = (k?: string) => (k ? k.replace('Digit', '').replace('Key', '') : '');
 

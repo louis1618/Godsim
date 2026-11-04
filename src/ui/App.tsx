@@ -70,9 +70,9 @@ function Create({ app }: { app: AppCtl }) {
         <div class="opt-group">
           <label>{t('size')}</label>
           <div class="opt-row">
-            {[128, 192, 256].map((sz, i) => (
-              <div class={`chip ${o.size === sz ? 'on' : ''}`} onClick={() => setOpt({ size: sz })}>
-                <div class="dot" style={{ width: 18 + i * 12 + 'px', height: 18 + i * 12 + 'px' }} />
+            {([[128, false], [192, false], [256, false], [384, false], [256, true]] as [number, boolean][]).map(([sz, wide], i) => (
+              <div class={`chip ${o.size === sz && !!o.wide === wide ? 'on' : ''}`} onClick={() => setOpt({ size: sz, wide })} title={`${wide ? sz * 2 : sz}×${sz}`}>
+                <div class="dot" style={{ width: (wide ? 50 : 14 + i * 9) + 'px', height: (wide ? 24 : 14 + i * 9) + 'px', borderRadius: wide ? '12px' : '50%' }} />
               </div>
             ))}
           </div>

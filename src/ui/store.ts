@@ -2,7 +2,7 @@ import type { PowerCat } from '../sim/powers';
 
 export type Screen = 'boot' | 'title' | 'create' | 'play';
 export interface Selection { kind: 'unit' | 'village' | 'kingdom'; id: number; }
-export interface WorldOpts { size: number; shape: 'continents' | 'pangaea' | 'archipelago' | 'highlands'; life: 0 | 1 | 2; seed: number; }
+export interface WorldOpts { size: number; wide?: boolean; shape: 'continents' | 'pangaea' | 'archipelago' | 'highlands'; life: 0 | 1 | 2; seed: number; }
 
 export interface UIState {
   screen: Screen;

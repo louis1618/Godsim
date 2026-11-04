@@ -5,7 +5,7 @@ import { World } from './world';
 import { Mat, Feat } from './defs';
 
 export type WorldShape = 'continents' | 'pangaea' | 'archipelago' | 'highlands';
-export interface GenOptions { size: number; shape: WorldShape; seed: number; }
+export interface GenOptions { size: number; shape: WorldShape; seed: number; wide?: boolean; }
 
 /** Binary min-heap keyed by float priority (for priority-flood). */
 class Heap {
@@ -33,7 +33,8 @@ class Heap {
 }
 
 export function generateWorld(opt: GenOptions): World {
-  const W = opt.size, H = opt.size;
+  const W = opt.wide ? opt.size * 2 : opt.size, H = opt.size;
+  const aspect = W / H;
   const world = new World(W, H);
   const rng = new Rng(opt.seed);
   const nBase = new Noise2D(opt.seed * 7 + 1);
@@ -44,14 +45,17 @@ export function generateWorld(opt: GenOptions): World {
   const nDetail = new Noise2D(opt.seed * 7 + 6);
   const nForest = new Noise2D(opt.seed * 7 + 7);
   const { height, mat, moist } = world;
-  const scale = 192 / W; // keep feature size roughly constant in tiles
+  const scale = 192 / H; // keep feature size roughly constant in tiles
 
   // continent seeds for 'continents' shape
   const blobs: { x: number; z: number; r: number }[] = [];
-  const nb = opt.shape === 'continents' ? rng.int(2, 3) : opt.shape === 'archipelago' ? rng.int(6, 9) : 1;
+  const nb = Math.round((opt.shape === 'continents' ? rng.int(2, 3) : opt.shape === 'archipelago' ? rng.int(6, 9) : 1) * (opt.shape === 'pangaea' || opt.shape === 'highlands' ? 1 : aspect));
   for (let i = 0; i < nb; i++) {
-    if (opt.shape === 'pangaea' || opt.shape === 'highlands') blobs.push({ x: 0.5 + rng.range(-0.05, 0.05), z: 0.5 + rng.range(-0.05, 0.05), r: 0.43 });
-    else if (opt.shape === 'continents') {
+    if (opt.shape === 'pangaea' || opt.shape === 'highlands') blobs.push({ x: 0.5 + rng.range(-0.05, 0.05), z: 0.5 + rng.range(-0.05, 0.05), r: 0.43 * (aspect > 1 ? 1.25 : 1) });
+    else if (opt.shape === 'continents' && aspect > 1) {
+      // a wide world: continents strung along the long axis
+      blobs.push({ x: (i + 0.5) / nb + rng.range(-0.04, 0.04), z: 0.5 + rng.range(-0.14, 0.14), r: rng.range(0.24, 0.3) });
+    } else if (opt.shape === 'continents') {
       const a = (i / nb) * Math.PI * 2 + rng.range(-0.4, 0.4);
       blobs.push({ x: 0.5 + Math.cos(a) * 0.22, z: 0.5 + Math.sin(a) * 0.22, r: rng.range(0.22, 0.28) });
     } else blobs.push({ x: rng.range(0.15, 0.85), z: rng.range(0.15, 0.85), r: rng.range(0.07, 0.15) });
@@ -61,15 +65,15 @@ export function generateWorld(opt: GenOptions): World {
   for (let z = 0; z < H; z++) {
     for (let x = 0; x < W; x++) {
       const u = x / W, v = z / H;
-      const wx = nWarp.fbm(u * 3, v * 3, 3) * 0.12, wz = nWarp.fbm(u * 3 + 17, v * 3 - 9, 3) * 0.12;
+      const wx = nWarp.fbm(u * aspect * 3, v * 3, 3) * 0.12, wz = nWarp.fbm(u * aspect * 3 + 17, v * 3 - 9, 3) * 0.12;
       const uu = u + wx, vv = v + wz;
       let mask = 0;
       for (const b of blobs) {
-        const d = Math.hypot(uu - b.x, vv - b.z) / b.r;
+        const d = Math.hypot((uu - b.x) * (opt.shape === 'pangaea' || opt.shape === 'highlands' ? 1 : aspect), vv - b.z) / b.r;
         mask = Math.max(mask, 1 - d);
       }
       const freq = opt.shape === 'archipelago' ? 5 : 3.2;
-      const n = nBase.fbm(uu * freq, vv * freq, 5);
+      const n = nBase.fbm(uu * aspect * freq, vv * freq, 5);
       let e: number;
       if (opt.shape === 'highlands') e = mask * 0.9 + n * 0.55 + 0.12;
       else e = mask * 0.95 + n * 0.5 - 0.05;
@@ -89,9 +93,9 @@ export function generateWorld(opt: GenOptions): World {
       if (e < 0) {
         h = -Math.pow(-e, 0.8) * 9 - 0.25;
       } else {
-        const hills = Math.pow(e, 1.15) * 5.5 + nDetail.fbm(u * 14 * scale, v * 14 * scale, 3) * 0.6 * smoothstep(0, 0.2, e);
-        const ridge = nMount.ridged(u * 4.2, v * 4.2, 5);
-        const mMask = smoothstep(0.12, 0.45, e) * smoothstep(0.35, 0.75, nMount.fbm(u * 1.6 + 5, v * 1.6 - 3, 3) * 0.5 + 0.5 + (opt.shape === 'highlands' ? 0.2 : 0));
+        const hills = Math.pow(e, 1.15) * 5.5 + nDetail.fbm(u * aspect * 14 * scale, v * 14 * scale, 3) * 0.6 * smoothstep(0, 0.2, e);
+        const ridge = nMount.ridged(u * aspect * 4.2, v * 4.2, 5);
+        const mMask = smoothstep(0.12, 0.45, e) * smoothstep(0.35, 0.75, nMount.fbm(u * aspect * 1.6 + 5, v * 1.6 - 3, 3) * 0.5 + 0.5 + (opt.shape === 'highlands' ? 0.2 : 0));
         h = 0.18 + hills + Math.pow(ridge, 2.2) * 15 * mMask;
       }
       height[i] = h;
@@ -106,8 +110,8 @@ export function generateWorld(opt: GenOptions): World {
     for (let x = 0; x < W; x++) {
       const i = z * W + x, u = x / W, v = z / H;
       const lat = Math.abs(v - 0.5) * 2;
-      temp[i] = 1 - Math.pow(lat, 1.6) * 0.95 - Math.max(0, height[i]) * 0.045 + nTemp.fbm(u * 3, v * 3, 3) * 0.28;
-      moist[i] = clamp(Math.round((nMoist.fbm(u * 3.5, v * 3.5, 4) * 0.5 + 0.5) * 255), 0, 255);
+      temp[i] = 1 - Math.pow(lat, 1.6) * 0.95 - Math.max(0, height[i]) * 0.045 + nTemp.fbm(u * aspect * 3, v * 3, 3) * 0.28;
+      moist[i] = clamp(Math.round((nMoist.fbm(u * aspect * 3.5, v * 3.5, 4) * 0.5 + 0.5) * 255), 0, 255);
     }
   }
 
@@ -148,7 +152,7 @@ export function generateWorld(opt: GenOptions): World {
       const i = z * W + x;
       if (world.isWater(i)) continue;
       const u = x / W, v = z / H;
-      const forest = nForest.fbm(u * 6, v * 6, 4) * 0.5 + 0.5 + (moist[i] / 255 - 0.5) * 0.5;
+      const forest = nForest.fbm(u * aspect * 6, v * 6, 4) * 0.5 + 0.5 + (moist[i] / 255 - 0.5) * 0.5;
       const r = hash2(x, z, opt.seed);
       const mt = mat[i];
       let f = Feat.None;

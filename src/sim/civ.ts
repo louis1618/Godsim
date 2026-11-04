@@ -401,7 +401,7 @@ export function villageThink(sim: Sim, v: Village) {
   want[Job.Worker] = counts[Bk.Factory] > 0 ? counts[Bk.Factory] * 3 : 0;
   const assigned: Record<number, number> = {};
   for (const u of adults) assigned[u.job] = (assigned[u.job] ?? 0) + 1;
-  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Fisher, Job.Woodcutter, Job.Miner, Job.Trader, Job.Scholar, Job.Worker];
+  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Trader, Job.Fisher, Job.Woodcutter, Job.Miner, Job.Scholar, Job.Worker];
   for (const u of adults) {
     if (u.flags & UF.King && u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; continue; }
     const cur = u.job;
@@ -424,6 +424,16 @@ export function villageThink(sim: Sim, v: Village) {
 
   // taxes: markets and grand halls bring in coin
   v.gold += counts[Bk.Market] * pop * 0.004 + (v.level >= 2 ? 0.04 * v.level : 0);
+  // an unfilled important post takes a worker from a less important one (one move per think)
+  for (let i = 0; i < order.length; i++) {
+    const j = order[i];
+    if ((assigned[j] ?? 0) >= (want[j] ?? 0)) continue;
+    const donor = adults.find((u) => { const oi = order.indexOf(u.job); return oi > i && !(u.flags & UF.King) && (assigned[u.job] ?? 0) > 1 && !(j === Job.Warrior && u.traits & Trait.Peaceful); })
+      ?? adults.find((u) => u.job === Job.Gatherer);
+    if (donor) { assigned[donor.job]--; donor.job = j; assigned[j] = (assigned[j] ?? 0) + 1; donor.item = jobItem(donor, era); donor.task = null; donor.think = 0; }
+    break;
+  }
+
   // order & machines
   unrestTick(sim, v, adults);
   if (sim.rng.chance(0.34)) shipyardTick(sim, v);

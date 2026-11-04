@@ -170,9 +170,10 @@ export class AppCtl {
 
   // ------------------------------------------------------------- world lifecycle
   makeWorld(o: WorldOpts, genesis: boolean) {
-    const world = generateWorld({ size: o.size, shape: o.shape as WorldShape, seed: o.seed });
+    const world = generateWorld({ size: o.size, wide: o.wide, shape: o.shape as WorldShape, seed: o.seed });
     const sim = new Sim(world, o.seed);
-    if (o.life > 0) seedLife(sim, { tribes: o.life === 2 ? 7 : 4, animals: true });
+    const area = (world.W * world.H) / (192 * 192);
+    if (o.life > 0) seedLife(sim, { tribes: Math.round((o.life === 2 ? 7 : 4) * Math.max(1, Math.sqrt(area))), animals: true });
     fireTiles.clear();
     this.attach(sim);
     if (genesis) { this.genAnim = 0; U.uGenesis.value = 0; }

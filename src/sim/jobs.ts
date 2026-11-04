@@ -75,6 +75,7 @@ export function guardWork(sim: Sim, u: Unit, v: Village): Task | null {
 }
 
 const RES_VALUE = [0, 1, 1, 1.3, 4];
+const TRADER_SPEED = 1.6;
 function stock(v: Village, r: Res) { return r === Res.Food ? v.food : r === Res.Wood ? v.wood : r === Res.Stone ? v.stone : r === Res.Gold ? v.gold : 0; }
 function addStock(v: Village, r: Res, n: number) {
   if (r === Res.Food) v.food += n; else if (r === Res.Wood) v.wood += n; else if (r === Res.Stone) v.stone += n; else if (r === Res.Gold) v.gold += n;
@@ -85,11 +86,12 @@ function surplus(v: Village, r: Res) {
   return r === Res.Food ? v.food - 24 - pop * 0.6 : r === Res.Wood ? v.wood - 45 - v.level * 10 : r === Res.Stone ? v.stone - 30 - v.level * 8 : v.gold - 10;
 }
 
-export function tradePartnerOk(sim: Sim, a: Village, b: Village) {
+export function tradePartnerOk(sim: Sim, a: Village, b: Village, enRoute = false) {
   if (!b.alive || b === a || !b.residents.length) return false;
   if (a.kingdom !== b.kingdom) {
     const ka = sim.kingdoms.get(a.kingdom);
-    if (!ka || ka.wars.includes(b.kingdom) || (ka.opinion[b.kingdom] ?? 0) < -35) return false;
+    // a caravan already on the road only turns back if war breaks out
+    if (!ka || ka.wars.includes(b.kingdom) || (!enRoute && (ka.opinion[b.kingdom] ?? 0) < -35)) return false;
   }
   const w = sim.world;
   return w.island[w.idx(a.cx, a.cz)] === w.island[w.idx(b.cx, b.cz)];
@@ -106,7 +108,7 @@ export function traderWork(sim: Sim, u: Unit, v: Village): Task | null {
       if (s < 4) continue;
       const need = Math.max(0, -surplus(p, r));
       const amt = Math.min(12, Math.floor(s), Math.max(4, Math.ceil(need)));
-      const score = need * 1.5 + amt * 0.2 - d * 0.08 + (p.kingdom !== v.kingdom ? 1.5 : 0) + sim.rng.next();
+      const score = need * 1.5 + amt * 0.2 - d * 0.14 + (p.kingdom !== v.kingdom ? 1.5 : 0) + sim.rng.next();
       if (!best || score > best.score) best = { p, r, amt, score };
     }
   }
@@ -283,14 +285,14 @@ export function runTrade(sim: Sim, u: Unit, t: Extract<Task, { k: 'trade' }>, mo
   const home = sim.villages.get(u.village);
   const p = sim.villages.get(t.v);
   if (!home || !home.alive) { u.task = null; return; }
-  if (++t.n > 2400) { u.task = { k: 'deliver' }; return; }
+  if (++t.n > 2400) { u.task = { k: 'deliver' }; u.path = null; return; }
   if (!t.back) {
-    if (!p || !tradePartnerOk(sim, home, p)) { t.back = true; t.sx = undefined; return; }
+    if (!p || !tradePartnerOk(sim, home, p, true)) { t.back = true; t.sx = undefined; u.path = null; return; }
     if (t.sx === undefined || t.sz === undefined) {
       const b = completed(sim, p, Bk.Market)[0] ?? sim.buildings.get(p.hall);
       [t.sx, t.sz] = b && b.alive ? standAtBuilding(sim, b, u, 3) : [p.cx + 0.5, p.cz + 1.5];
     }
-    if (!moveTo(sim, u, t.sx, t.sz!, 0.6)) return;
+    if (!moveTo(sim, u, t.sx, t.sz!, 0.6, TRADER_SPEED)) return;
     // goods change hands; the buyer pays in what it can spare
     addStock(p, t.res, t.amt);
     home.gold += 1; // market levy
@@ -315,12 +317,19 @@ export function runTrade(sim: Sim, u: Unit, t: Extract<Task, { k: 'trade' }>, mo
       if (first) sim.log('tradeRoute', { a: ka.id, b: kb.id, v: p.id, x: p.cx, z: p.cz, text: `${home.name}|${p.name}` });
     }
     sim.stats.trades = (sim.stats.trades ?? 0) + 1;
-    t.back = true; t.sx = undefined; t.sz = undefined;
+    t.back = true; t.sx = undefined; t.sz = undefined; u.path = null;
     if (payAmt <= 0) { u.task = null; u.think = 0; }
     return;
   }
-  // heading home with the payment
-  u.task = { k: 'deliver' };
+  // heading home with the payment (traders travel with a pack animal: quicker than walkers)
+  if (t.sx === undefined || t.sz === undefined) {
+    const b = completed(sim, home, Bk.Market)[0] ?? sim.buildings.get(home.hall);
+    [t.sx, t.sz] = b && b.alive ? standAtBuilding(sim, b, u, 3) : [home.cx + 0.5, home.cz + 1.5];
+  }
+  if (!moveTo(sim, u, t.sx, t.sz!, 0.8, TRADER_SPEED)) return;
+  if (u.carry !== Res.None && u.carryAmt > 0) { addStock(home, u.carry, u.carryAmt); sim.fx.push({ t: 'deliver', x: u.x, z: u.z, a: u.carry, u: u.id }); }
+  u.carry = Res.None; u.carryAmt = 0;
+  u.task = null; u.think = 0;
 }
 
 // --------------------------------------------------------------------------- crime & order
