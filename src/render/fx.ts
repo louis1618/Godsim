@@ -250,8 +250,8 @@ export class FxRenderer {
 
   initClouds(W: number, H: number) {
     this.cloudData = [];
-    const n = Math.round(14 * (W * H) / (192 * 192));
-    for (let i = 0; i < Math.min(40, n); i++) this.cloudData.push({ x: Math.random() * W * 1.4 - W * 0.2, z: Math.random() * H * 1.4 - H * 0.2, y: 34 + Math.random() * 14, s: 2.5 + Math.random() * 3, v: 0.6 + Math.random() * 0.6 });
+    const n = Math.round(9 * (W * H) / (192 * 192));
+    for (let i = 0; i < Math.min(40, n); i++) this.cloudData.push({ x: Math.random() * W * 1.4 - W * 0.2, z: Math.random() * H * 1.4 - H * 0.2, y: 38 + Math.random() * 14, s: 2 + Math.random() * 2.4, v: 0.6 + Math.random() * 0.6 });
   }
 
   // ---------------------------------------------------------------- event handling
@@ -581,8 +581,8 @@ export class FxRenderer {
       this.clouds.setMatrixAt(nc++, m);
     }
     this.clouds.count = nc; this.clouds.instanceMatrix.needsUpdate = true;
-    const cOp = THREE.MathUtils.smoothstep(camY, 55, 110);
-    (this.clouds.material as THREE.MeshStandardMaterial).opacity = 0.85 * cOp;
+    const cOp = THREE.MathUtils.smoothstep(camY, 60, 120);
+    (this.clouds.material as THREE.MeshStandardMaterial).opacity = (0.85 - 0.35 * this.rig.mapMode * (1 - this.rig.orbit)) * cOp;
     this.clouds.visible = cOp > 0.01;
     this.clouds.castShadow = cOp > 0.3;
     // rain clouds + rain

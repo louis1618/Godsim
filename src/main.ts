@@ -6,6 +6,7 @@ import './ui/style.css';
 import { AppCtl } from './app';
 import { store } from './ui/store';
 import { audio } from './audio/audio';
+import { U } from './render/shared';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ui = document.getElementById('ui')!;
@@ -14,6 +15,7 @@ const bar = boot.querySelector('.bar i') as HTMLElement;
 const app = new AppCtl(canvas, ui);
 (window as any).app = app;
 (window as any).game = app.game;
+(window as any).U = U;
 
 let running = true;
 function loop() { if (running) app.gr.frame(); requestAnimationFrame(loop); }

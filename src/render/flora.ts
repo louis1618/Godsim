@@ -134,24 +134,26 @@ export class FloraRenderer {
       }
     }
     const cp = camera.position;
-    const key = `${Math.round(cp.x / 4)},${Math.round(cp.y / 4)},${Math.round(cp.z / 4)},${Math.round(z01 * 40)}`;
-    if (!changed && !this.dirty && key === this.lastKey) return;
-    this.lastKey = key;
-    this.dirty = false;
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
-    const counts = this.pools.map(() => [0, 0]);
-    // gather
+    // visibility / LOD signature per chunk; only re-gather when it changes
     const order: [number, boolean][] = [];
     const box = new THREE.Box3();
     const hiDist = 46;
+    let sig = '';
     for (let ci = 0; ci < this.chunks.length; ci++) {
       const c = this.chunks[ci];
       box.copy(c.box); box.min.y *= heightScale; box.max.y *= heightScale; box.max.y += 2;
       if (!this.frustum.intersectsBox(box)) continue;
       const d = box.distanceToPoint(cp);
-      order.push([ci, d < hiDist && z01 < 0.62]);
+      const hi = d < hiDist && z01 < 0.62;
+      order.push([ci, hi]);
+      sig += hi ? 'H' + ci : 'L' + ci;
     }
+    if (!changed && !this.dirty && sig === this.lastKey) return;
+    this.lastKey = sig;
+    this.dirty = false;
+    const counts = this.pools.map(() => [0, 0]);
     for (let pi = 0; pi < this.pools.length; pi++) {
       const pool = this.pools[pi];
       let nh = 0, nl = 0;

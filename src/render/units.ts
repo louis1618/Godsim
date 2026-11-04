@@ -258,7 +258,7 @@ export class UnitRenderer {
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
         this.markerCol[o] = this.c.r; this.markerCol[o + 1] = this.c.g; this.markerCol[o + 2] = this.c.b;
-        const base = isCiv(u.sp) ? 7.5 : 5;
+        const base = isCiv(u.sp) ? 8 : u.sp === Sp.Skeleton ? 7 : 3.6;
         this.markerSize[mk] = base * (u.flags & UF.King ? 1.7 : u.flags & UF.Hero ? 1.35 : 1) * (u.age < def.adultAge ? 0.75 : 1) * (u.sp === Sp.Bear ? 1.3 : 1);
         mk++;
       }

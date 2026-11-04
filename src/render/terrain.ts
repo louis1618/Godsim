@@ -152,15 +152,20 @@ col = mix(col, vec3(0.93, 0.95, 0.99), snowAmt);
 vec4 own = texelFetch(uOwnerTex, gsClampT(ti), 0);
 if (own.a > 0.0) {
   vec2 fp = fract(gp);
-  float bw = mix(0.1, 0.24, uMapMode);
+  float bw = mix(0.12, 0.3, uMapMode);
   float b = 0.0;
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(-1, 0)), 0))) b = max(b, 1.0 - smoothstep(0.0, bw, fp.x));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(1, 0)), 0))) b = max(b, smoothstep(1.0 - bw, 1.0, fp.x));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(0, -1)), 0))) b = max(b, 1.0 - smoothstep(0.0, bw, fp.y));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(0, 1)), 0))) b = max(b, smoothstep(1.0 - bw, 1.0, fp.y));
   float wtr = step(0.0, h);
-  col = mix(col, own.rgb, uTerritory * 0.32 * wtr);
-  col = mix(col, own.rgb * 1.05, b * clamp(uTerritory * 1.6, 0.0, 1.0) * wtr);
+  float tk = clamp(uTerritory, 0.0, 1.0);
+  // soft tinted fill with a faint diagonal hatch in map view, bold border with an ink edge
+  float hatch = step(0.5, fract((gp.x + gp.y) * 1.5)) * 0.06 * uMapMode;
+  col = mix(col, own.rgb, (0.36 + hatch) * tk * wtr);
+  float edge = b * b;
+  vec3 bcol = mix(own.rgb, own.rgb * 0.35, smoothstep(0.75, 1.0, edge));
+  col = mix(col, bcol, b * clamp(tk * 1.8, 0.0, 1.0) * wtr);
 }
 diffuseColor.rgb = col;
 `)

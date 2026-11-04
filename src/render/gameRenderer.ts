@@ -31,6 +31,7 @@ export class GameRenderer {
   private aoPass: EffectPass | null = null;
   private normalPass: NormalPass | null = null;
   private tilt: TiltShiftEffect | null = null;
+  private tiltPass: EffectPass | null = null;
   private aoRadius = 0;
 
   constructor(readonly canvas: HTMLCanvasElement) {
@@ -91,7 +92,8 @@ export class GameRenderer {
     this.ao = ssao;
     void w; void h;
     this.tilt = new TiltShiftEffect({ focusArea: 1, feather: 0.45, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
-    comp.addPass(new EffectPass(this.rig.camera, this.tilt));
+    this.tiltPass = new EffectPass(this.rig.camera, this.tilt);
+    comp.addPass(this.tiltPass);
     const bloom = new BloomEffect({ luminanceThreshold: 0.86, luminanceSmoothing: 0.18, intensity: 0.75, mipmapBlur: true });
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL });
     const hsat = new HueSaturationEffect({ saturation: 0.1 });
@@ -166,6 +168,7 @@ export class GameRenderer {
       if (this.tilt) {
         const k = Math.max(0, 1 - Math.abs(rig.z01 - 0.42) / 0.22) * (1 - rig.orbit * 0.6);
         this.tilt.focusArea = lerp(1.3, 0.62, k);
+        if (this.tiltPass) this.tiltPass.enabled = k > 0.02;
       }
       this.composer.render(dt);
     } else this.renderer.render(this.scene, rig.camera);
