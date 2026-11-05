@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ModelBuilder, T, geo, hex, vgrad, noisy } from './kit';
+import { ModelBuilder, T, geo, hex, vgrad, noisy, shingles, masonry, planks } from './kit';
 import { Sp, Bk } from '../../sim/defs';
 
 /**
@@ -48,7 +48,9 @@ function gable(b: ModelBuilder, len: number, w: number, h: number, y: number, sl
   const ang = Math.atan2(h, w / 2);
   const slope = Math.hypot(h, w / 2) + 0.08;
   for (const side of [-1, 1]) {
-    b.add(geo.rbox(len + 0.16, thick, slope, 0.025, 1), slot ? { ...TEAM, ao: [y, y + h, 0.75] } : { color: 0x9a5a3a }, T(0, y + h / 2, side * (w / 4), side * ang, 0, 0));
+    b.add(geo.rbox(len + 0.16, thick, slope, 0.025, 1), slot ? { color: shingles(), slot: 1, ao: [y, y + h, 0.75] } : { color: shingles(0x9a5a3a) }, T(0, y + h / 2, side * (w / 4), side * ang, 0, 0));
+    // ridge cap
+    if (side > 0) b.add(geo.cyl(0.045, 0.045, len + 0.2, 6), slot ? { ...TEAM_L } : { color: 0x7a4a2a }, T(0, y + h + 0.02, 0, 0, 0, Math.PI / 2));
   }
   // gable ends
   b.add(geo.prism(len, w, h), { color: 0xf0e2c0 }, T(0, y, 0));
@@ -86,7 +88,7 @@ function house(race: Sp, seed: number): THREE.BufferGeometry {
   const s = STYLES[race];
   switch (race) {
     case Sp.Human: {
-      b.add(geo.rbox(1.5, 0.16, 1.3, 0.04, 1), { color: noisy(s.base, 0.06, 6) }, T(0, 0.08, 0));
+      b.add(geo.rbox(1.5, 0.16, 1.3, 0.04, 1), { color: masonry(s.base, 0.08, 0.2) }, T(0, 0.08, 0));
       b.add(geo.rbox(1.34, 0.72, 1.14, 0.03, 1), { color: vgrad(s.wall2, s.wall, 0.1, 0.9) }, T(0, 0.52, 0));
       // timber frame
       for (const x of [-0.66, 0.66]) for (const z of [-0.56, 0.56]) b.add(geo.box(0.07, 0.74, 0.07), { color: s.trim }, T(x, 0.52, z));
@@ -116,7 +118,7 @@ function house(race: Sp, seed: number): THREE.BufferGeometry {
     }
     case Sp.Dwarf: {
       b.add(geo.rbox(1.55, 0.2, 1.4, 0.04, 1), { color: s.base }, T(0, 0.1, 0));
-      b.add(geo.rbox(1.4, 0.6, 1.24, 0.06, 1), { color: noisy(s.wall, 0.08, 7) }, T(0, 0.48, 0));
+      b.add(geo.rbox(1.4, 0.6, 1.24, 0.06, 1), { color: masonry(s.wall, 0.12, 0.22) }, T(0, 0.48, 0));
       for (const z of [-0.63, 0.63]) b.add(geo.box(1.42, 0.06, 0.02), { color: 0x5f6368 }, T(0, 0.74, z));
       b.add(geo.pyramid(1.75, 0.55), { ...TEAM, ao: [0.78, 1.3, 0.7], flat: true }, T(0, 1.05, 0, 0, 0, 0, 1, 1, 0.9));
       // stone arch door
@@ -172,13 +174,13 @@ function townHall(race: Sp, level: number): THREE.BufferGeometry {
       windows(b, s, 2.0, 1.8, 0.75, 3, 0.0);
       flag(b, 0, 2.0, 0, 0.6, 0.4);
       if (big) {
-        b.add(geo.rbox(0.8, 1.9, 0.8, 0.04, 1), { color: noisy(0xb9b3a8, 0.06, 4) }, T(0.85, 0.95, -0.65));
+        b.add(geo.rbox(0.8, 1.9, 0.8, 0.04, 1), { color: masonry(0xb9b3a8, 0.14, 0.2) }, T(0.85, 0.95, -0.65));
         for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; b.add(geo.box(0.2, 0.18, 0.2), { color: 0xa9a398 }, T(0.85 + Math.cos(a) * 0.32, 1.98, -0.65 + Math.sin(a) * 0.32)); }
         b.add(geo.pyramid(0.95, 0.7), { ...TEAM, flat: true }, T(0.85, 2.3, -0.65));
       }
       if (castle) {
         for (const [x, z] of [[-1.2, 1.1], [1.2, 1.1], [-1.2, -1.1]]) {
-          b.add(geo.cyl(0.28, 0.32, 1.5, 10), { color: noisy(0xb9b3a8, 0.06, 4) }, T(x, 0.75, z));
+          b.add(geo.cyl(0.28, 0.32, 1.5, 14, 6), { color: masonry(0xb9b3a8, 0.14, 0.18) }, T(x, 0.75, z));
           b.add(geo.cone(0.38, 0.6, 10), { ...TEAM }, T(x, 1.8, z));
         }
         b.add(geo.box(2.4, 0.5, 0.12), { color: 0xa9a398 }, T(0, 0.25, 1.15));
@@ -263,7 +265,7 @@ function storage(race: Sp): THREE.BufferGeometry {
   const s = STYLES[race];
   const wood = race === Sp.Dwarf ? 0x8f887f : race === Sp.Orc ? 0x7a5a3a : 0xa8743f;
   b.add(geo.rbox(1.6, 0.12, 1.5, 0.03, 1), { color: s.base }, T(0, 0.06, 0));
-  b.add(geo.rbox(1.4, 0.8, 1.2, 0.03, 1), { color: (p) => hex(wood).multiplyScalar(0.92 + 0.12 * Math.sin(p.y * 40)) }, T(0, 0.52, -0.1));
+  b.add(geo.rbox(1.4, 0.8, 1.2, 0.03, 1), { color: planks(wood) }, T(0, 0.52, -0.1));
   b.add(geo.box(0.6, 0.6, 0.04), { color: 0x6b4428 }, T(0, 0.42, 0.51));
   b.add(geo.box(0.05, 0.6, 0.05), { color: 0xe8dcc0 }, T(0, 0.42, 0.53, 0, 0, 0.78));
   b.add(geo.box(0.05, 0.6, 0.05), { color: 0xe8dcc0 }, T(0, 0.42, 0.53, 0, 0, -0.78));
@@ -286,7 +288,7 @@ function tower(race: Sp): THREE.BufferGeometry {
   }
   const stone = race === Sp.Elf ? 0xf0ece0 : race === Sp.Dwarf ? 0x8f887f : 0xb9b3a8;
   const r = race === Sp.Elf ? 0.26 : 0.36;
-  b.add(geo.cyl(r, r + 0.06, 1.8, 10, 3), { color: noisy(stone, 0.06, 5), flat: race === Sp.Dwarf }, T(0, 0.9, 0));
+  b.add(geo.cyl(r, r + 0.06, 1.8, 14, 8), { color: masonry(stone, 0.14, 0.18), flat: race === Sp.Dwarf }, T(0, 0.9, 0));
   b.add(geo.cyl(r + 0.08, r + 0.08, 0.14, 10), { color: noisy(stone, 0.06, 5) }, T(0, 1.85, 0));
   for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; b.add(geo.box(0.12, 0.14, 0.12), { color: stone }, T(Math.cos(a) * (r + 0.04), 1.98, Math.sin(a) * (r + 0.04), 0, -a)); }
   if (race === Sp.Elf) b.add(geo.cone(0.34, 1.0, 10), { ...TEAM }, T(0, 2.45, 0));
@@ -307,7 +309,7 @@ function temple(race: Sp): THREE.BufferGeometry {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     b.add(geo.cyl(0.09, 0.1, 1.0, 8), { color: stone }, T(Math.cos(a) * 0.85, 0.82, Math.sin(a) * 0.85));
   }
-  b.add(geo.cyl(0.65, 0.7, 0.9, 12), { color: vgrad(0xd8d0c0, stone, 0.3, 1.2) }, T(0, 0.77, 0));
+  b.add(geo.cyl(0.65, 0.7, 0.9, 18, 6), { color: masonry(stone, 0.15, 0.22) }, T(0, 0.77, 0));
   b.add(geo.cyl(1.05, 1.05, 0.14, 16), { color: stone }, T(0, 1.38, 0));
   if (race === Sp.Orc) b.add(geo.cone(0.95, 1.1, 8), { ...TEAM, flat: true }, T(0, 2.0, 0));
   else b.add(geo.sphere(0.85, 16, 10, ), { color: (p) => hex(0xffd65a).lerp(hex(0xfff2b0), Math.max(0, (p.y - 1.4) / 0.9)) }, T(0, 1.45, 0, 0, 0, 0, 1, 0.9, 1));
@@ -354,7 +356,7 @@ function library(race: Sp): THREE.BufferGeometry {
   const s = STYLES[race];
   const stone = race === Sp.Orc ? 0x9a8a72 : race === Sp.Dwarf ? 0x9a948c : 0xe9e2d2;
   b.add(geo.rbox(1.8, 0.16, 1.7, 0.04, 1), { color: noisy(s.base, 0.05, 5) }, T(0, 0.08, 0));
-  b.add(geo.rbox(1.5, 0.95, 1.2, 0.03, 1), { color: vgrad(s.wall2, stone, 0.1, 1.0) }, T(0, 0.62, -0.18));
+  b.add(geo.rbox(1.5, 0.95, 1.2, 0.03, 1), { color: masonry(stone, 0.13, 0.26) }, T(0, 0.62, -0.18));
   // portico: steps, columns, pediment
   b.add(geo.box(1.5, 0.08, 0.5), { color: 0xd8d0c0 }, T(0, 0.2, 0.62));
   for (let i = 0; i < 4; i++) b.add(geo.cyl(0.06, 0.07, 0.82, 8), { color: 0xf3eee2 }, T(-0.6 + i * 0.4, 0.64, 0.68));
@@ -402,14 +404,14 @@ function prison(race: Sp): THREE.BufferGeometry {
   b.add(geo.box(1.6, 0.02, 1.6), { color: 0x9a8e7c }, T(0, 0.11, 0)); // yard floor
   // perimeter walls (front is iron bars so the yard reads from outside)
   for (const [x, z, w, d] of [[0, -0.9, 1.9, 0.16], [-0.9, 0, 0.16, 1.9], [0.9, 0, 0.16, 1.9]] as [number, number, number, number][]) {
-    b.add(geo.rbox(w, 0.62, d, 0.03, 1), { color: noisy(stone, 0.08, 6) }, T(x, 0.41, z));
+    b.add(geo.rbox(w, 0.62, d, 0.03, 1), { color: masonry(stone, 0.12, 0.22) }, T(x, 0.41, z));
     b.add(geo.box(w + 0.04, 0.06, d + 0.04), { color: 0x6f6a64 }, T(x, 0.75, z));
   }
   b.add(geo.box(1.9, 0.12, 0.16), { color: noisy(stone, 0.08, 6) }, T(0, 0.16, 0.9));
   b.add(geo.box(1.9, 0.06, 0.08), { color: 0x3a3c40 }, T(0, 0.74, 0.9));
   for (let i = 0; i < 13; i++) b.add(geo.cyl(0.015, 0.015, 0.56, 4), { color: 0x3a3c40 }, T(-0.84 + i * 0.14, 0.46, 0.9));
   // guard tower in the back corner
-  b.add(geo.rbox(0.5, 1.25, 0.5, 0.03, 1), { color: noisy(stone, 0.08, 5) }, T(0.68, 0.7, -0.68));
+  b.add(geo.rbox(0.5, 1.25, 0.5, 0.03, 1), { color: masonry(stone, 0.12, 0.2) }, T(0.68, 0.7, -0.68));
   b.add(geo.box(0.6, 0.08, 0.6), { color: 0x6f6a64 }, T(0.68, 1.36, -0.68));
   b.add(geo.pyramid(0.66, 0.38), { ...TEAM, flat: true }, T(0.68, 1.6, -0.68));
   b.add(geo.box(0.12, 0.16, 0.02), { color: 0xffd27a, part: 2, pivot: [0.68, 1.0, -0.42] }, T(0.68, 1.05, -0.42));
@@ -424,7 +426,7 @@ function dock(race: Sp): THREE.BufferGeometry {
   const wood = race === Sp.Dwarf ? 0x8a7a6a : race === Sp.Orc ? 0x6b4a2e : 0xa8743f;
   // boathouse on the land half
   b.add(geo.rbox(1.6, 0.12, 0.95, 0.03, 1), { color: 0x7a6a58 }, T(0, 0.06, -0.45));
-  b.add(geo.rbox(1.3, 0.62, 0.75, 0.03, 1), { color: (p) => hex(wood).multiplyScalar(0.9 + 0.12 * Math.sin(p.y * 42)) }, T(0, 0.43, -0.5));
+  b.add(geo.rbox(1.3, 0.62, 0.75, 0.03, 1), { color: planks(wood) }, T(0, 0.43, -0.5));
   gable(b, 1.4, 0.85, 0.42, 0.74);
   b.add(geo.box(0.42, 0.42, 0.03), { color: 0x4a3322 }, T(0, 0.33, -0.11));
   // pier out over the water (+Z), planks on posts

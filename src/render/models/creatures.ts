@@ -166,6 +166,13 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     // belt + collar trim
     b.add(geo.torus(Wd * 0.385, Wd * 0.04, 5, 14), { color: 0x5b3b24 }, T(0, hipY + bodyH * 0.3, 0, Math.PI / 2));
     b.add(geo.torus(Wd * 0.24, Wd * 0.04, 5, 12), { color: W, slot: 5 }, T(0, hipY + bodyH * 0.95, 0, Math.PI / 2));
+    if (!troll) {
+      // buckle, buttons, a pouch on the belt and a hem stripe: clothes with some tailoring
+      b.add(geo.rbox(Wd * 0.14, Wd * 0.1, Wd * 0.05, Wd * 0.015, 1), { color: 0xd9b84a }, T(0, hipY + bodyH * 0.3, Wd * 0.39));
+      for (const k of [0.55, 0.74]) b.add(geo.sphere(Wd * 0.035, 6, 4), { color: W, slot: 5 }, T(0, hipY + bodyH * k, Wd * 0.385 - (k - 0.55) * Wd * 0.1));
+      b.add(geo.rbox(Wd * 0.16, Wd * 0.18, Wd * 0.1, Wd * 0.03, 1), { color: 0x7a5235 }, T(Wd * 0.3, hipY + bodyH * 0.2, Wd * 0.24, 0, 0.6, 0));
+      b.add(geo.torus(Wd * 0.36, Wd * 0.025, 4, 14), { color: W, slot: 5 }, T(0, hipY + bodyH * 0.05, 0, Math.PI / 2));
+    }
   }
   // head
   const hy = headY;
@@ -184,6 +191,11 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     }
   }
   if (!skel) b.add(geo.sphere(hr * 0.12, 8, 6), { color: W, slot: 2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.08, hr * 0.98, 0, 0, 0, 1, 0.8, 0.8));
+  if (!skel && !troll) {
+    // brows (hair-coloured) and a small smile give every face an expression
+    for (const side of [-1, 1]) b.add(geo.capsule(hr * 0.04, hr * 0.2, 2, 5), { color: W, slot: 3, part: P.Head, pivot: headPiv }, T(side * hr * 0.37, hy + hr * 0.3, hr * 0.86, -0.2, 0, Math.PI / 2 + side * 0.18));
+    b.add(geo.torus(hr * 0.13, hr * 0.028, 4, 10, Math.PI), { color: 0x5a2a2a, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.26, hr * 0.92, -0.25, 0, Math.PI));
+  }
   // style details
   const hairSlot = { color: W, slot: 3, part: P.HeadAtt, pivot: headPiv } as const;
   switch (o.style) {
@@ -233,6 +245,7 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     const hx = side * Wd * 0.5, hyy = hipY + bodyH * 0.3;
     b.add(geo.sphere(Wd * 0.12, 10, 8), { color: skel ? 0xe6e1d2 : W, slot: skinSlot, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(hx, hyy, 0.02));
     if (!skel) b.add(geo.capsule(Wd * 0.085, (shoulderY - hyy) * 0.6, 3, 8), { color: W, slot: 1, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.45, (shoulderY + hyy) / 2 + 0.01, 0, 0, 0, side * 0.12));
+    if (!skel && !troll) b.add(geo.torus(Wd * 0.085, Wd * 0.025, 4, 10), { color: W, slot: 5, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.48, hyy + Wd * 0.13, 0.01, Math.PI / 2, 0, side * 0.12));
   }
   items(b, Wd * 0.5, hipY + bodyH * 0.3, 0.02, H / 0.62);
   return b.build();
@@ -248,6 +261,7 @@ function quadruped(sp: Sp): THREE.BufferGeometry {
       const wool = 0xf4f1ea;
       for (const [x, y, z, r] of [[0, 0.24, 0, 0.17], [0.09, 0.26, 0.08, 0.12], [-0.09, 0.26, 0.08, 0.12], [0.09, 0.25, -0.1, 0.12], [-0.09, 0.25, -0.1, 0.12], [0, 0.33, 0, 0.12], [0, 0.25, 0.14, 0.11], [0, 0.26, -0.16, 0.1]] as const)
         b.add(geo.ico(r, 1), { color: wool, jitter: 0.012 }, T(x, y, z));
+      for (let i = 0; i < 10; i++) { const a = i * 2.4, e = (i % 3) * 0.4; b.add(geo.ico(0.06, 1), { color: i % 2 ? 0xfaf7f0 : 0xece6da, jitter: 0.008 }, T(Math.cos(a) * 0.13 * Math.cos(e), 0.27 + Math.sin(e) * 0.09, Math.sin(a) * 0.15)); }
       const hp: [number, number, number] = [0, 0.27, 0.16];
       b.add(geo.sphere(0.075, 10, 8), { color: 0x2d2a2c, part: P.Head, pivot: hp }, T(0, 0.3, 0.25, 0, 0, 0, 0.9, 1, 1.25));
       for (const s of [-1, 1]) {
@@ -266,6 +280,9 @@ function quadruped(sp: Sp): THREE.BufferGeometry {
       const bodyY = (deer ? 0.3 : 0.24) * S;
       b.add(geo.capsule(0.11 * S, 0.22 * S, 4, 10), { color: fur }, T(0, bodyY, 0, Math.PI / 2, 0, 0, bear ? 1.15 : 1, 1, 1));
       b.add(geo.capsule(0.08 * S, 0.16 * S, 3, 8), { color: belly }, T(0, bodyY - 0.04 * S, 0.01, Math.PI / 2, 0, 0, 0.9, 0.7, 1));
+      if (sp === Sp.Wolf) for (let i = 0; i < 5; i++) b.add(geo.ico(0.06, 1), { color: i % 2 ? belly : fur, jitter: 0.01 }, T(Math.cos(i * 1.3) * 0.06, bodyY + 0.05, 0.13 + Math.sin(i * 1.3) * 0.02));
+      if (deer) for (let i = 0; i < 7; i++) b.add(geo.sphere(0.014, 5, 4), { color: 0xf4ead8 }, T((i % 2 ? 1 : -1) * (0.075 + (i % 3) * 0.01), bodyY + 0.06 + (i % 3) * 0.02, -0.12 + i * 0.035));
+      if (bear) b.add(geo.ico(0.1 * S, 1), { color: 0x6a4630, jitter: 0.015 }, T(0, bodyY + 0.1 * S, 0.06 * S, 0, 0, 0, 1.3, 0.8, 1));
       const hp: [number, number, number] = [0, bodyY + 0.04 * S, 0.17 * S];
       const hy = bodyY + (deer ? 0.13 : 0.06) * S, hz = 0.24 * S;
       b.add(geo.sphere(0.095 * S, 12, 10), { color: fur, part: P.Head, pivot: hp }, T(0, hy, hz));
@@ -273,6 +290,7 @@ function quadruped(sp: Sp): THREE.BufferGeometry {
       b.add(geo.sphere(0.022 * S, 6, 4), { color: 0x1f1b1d, part: P.Head, pivot: hp }, T(0, hy - 0.005 * S, hz + 0.16 * S));
       for (const s of [-1, 1]) {
         b.add(geo.sphere(0.018 * S, 6, 4), { color: 0x1d1a24, part: P.Head, pivot: hp }, T(s * 0.045 * S, hy + 0.03 * S, hz + 0.07 * S));
+        b.add(geo.sphere(0.006 * S, 4, 3), { color: 0xffffff, part: P.Head, pivot: hp }, T(s * 0.043 * S, hy + 0.037 * S, hz + 0.085 * S));
         if (bear) b.add(geo.sphere(0.035 * S, 8, 6), { color: fur, part: P.Head, pivot: hp }, T(s * 0.07 * S, hy + 0.08 * S, hz - 0.02 * S));
         else b.add(geo.cone(0.03 * S, 0.08 * S, 4), { color: fur, part: P.Head, pivot: hp }, T(s * 0.05 * S, hy + 0.1 * S, hz - 0.03 * S, 0, 0, -s * 0.25));
         if (deer) {

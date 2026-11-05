@@ -233,7 +233,7 @@ export class FxRenderer {
     this.bombMesh.frustumCulled = false; this.bombMesh.count = 0;
     this.group.add(this.bombMesh);
     const rg = new THREE.RingGeometry(0.86, 1, 64); rg.rotateX(-Math.PI / 2);
-    this.reticles = new THREE.InstancedMesh(rg, new THREE.MeshBasicMaterial({ color: 0xff3a2a, transparent: true, opacity: 0.75, depthWrite: false }), 48);
+    this.reticles = new THREE.InstancedMesh(rg, new THREE.MeshBasicMaterial({ color: 0xff3a2a, transparent: true, opacity: 0.75, depthWrite: false, depthTest: false }), 48);
     this.reticles.frustumCulled = false; this.reticles.count = 0; this.reticles.renderOrder = 45;
     this.group.add(this.reticles);
     // meteors
@@ -608,8 +608,12 @@ export class FxRenderer {
         const f = w.fire[t] / 255;
         const tree = w.feat[t] >= 1 && w.feat[t] <= 8;
         const y = heightCubic(w.height, w.W, w.H, x, z) + (tree ? 0.5 : 0.05);
-        this.add.spawn(x + (Math.random() - 0.5) * 0.7, y, z + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.2, 0.8 + Math.random() * 0.6, (Math.random() - 0.5) * 0.2, { life: 0.6, size: (tree ? 0.55 : 0.35) * (0.5 + f), size1: 0.05, color: Math.random() < 0.3 ? 0xffd27a : 0xff7a2a, frame: PF.Flame, rot: (Math.random() - 0.5) * 0.4 });
-        if (Math.random() < 0.3) this.alpha.spawn(x, y + 0.6, z, 0.15, 0.7, 0.05, { life: 2.4, size: 0.4, size1: 1.2, color: 0x4a4440, frame: PF.Smoke, alpha: 0.55, drag: 0.4 });
+        const fx0 = x + (Math.random() - 0.5) * 0.7, fz0 = z + (Math.random() - 0.5) * 0.7, sz = (tree ? 0.55 : 0.35) * (0.5 + f);
+        // layered flame: red-orange body, a hot yellow-white core, sparks drifting up, then smoke
+        this.add.spawn(fx0, y, fz0, (Math.random() - 0.5) * 0.2, 0.8 + Math.random() * 0.6, (Math.random() - 0.5) * 0.2, { life: 0.65, size: sz, size1: 0.05, color: Math.random() < 0.4 ? 0xff5a1a : 0xff8a2a, frame: PF.Flame, rot: (Math.random() - 0.5) * 0.4 });
+        this.add.spawn(fx0, y + 0.05, fz0, 0, 0.9 + Math.random() * 0.4, 0, { life: 0.4, size: sz * 0.55, size1: 0.02, color: 0xfff0b0, frame: PF.Flame, rot: (Math.random() - 0.5) * 0.3 });
+        if (Math.random() < 0.25) this.add.spawn(fx0, y + 0.3, fz0, (Math.random() - 0.5) * 0.6, 1.4 + Math.random(), (Math.random() - 0.5) * 0.6, { life: 1.4, size: 0.05, color: 0xffb04a, frame: PF.Spark, drag: 0.5, vrot: 3 });
+        if (Math.random() < 0.3) this.alpha.spawn(x, y + 0.6, z, 0.15, 0.7, 0.05, { life: 2.6, size: 0.45, size1: 1.4, color: Math.random() < 0.5 ? 0x3a3532 : 0x5a524c, frame: PF.Smoke, alpha: 0.55, drag: 0.4 });
         if (++spawned > 160) break;
       }
     }
@@ -629,7 +633,10 @@ export class FxRenderer {
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
       if (!this.near(cx, cz)) continue;
       const y = heightCubic(w.height, w.W, w.H, cx, cz) + 0.5 + Math.random() * b.size * 0.4;
-      this.add.spawn(cx + (Math.random() - 0.5) * b.size * 0.8, y, cz + (Math.random() - 0.5) * b.size * 0.8, 0, 1, 0, { life: 0.7, size: 0.6, size1: 0.1, color: 0xff8a2a, frame: PF.Flame });
+      const bx = cx + (Math.random() - 0.5) * b.size * 0.8, bz = cz + (Math.random() - 0.5) * b.size * 0.8;
+      this.add.spawn(bx, y, bz, 0, 1, 0, { life: 0.75, size: 0.65, size1: 0.1, color: Math.random() < 0.5 ? 0xff6a1a : 0xff8a2a, frame: PF.Flame });
+      this.add.spawn(bx, y + 0.1, bz, 0, 1.1, 0, { life: 0.45, size: 0.32, size1: 0.04, color: 0xfff0b0, frame: PF.Flame });
+      if (Math.random() < 0.35) this.add.spawn(bx, y + 0.5, bz, (Math.random() - 0.5) * 0.8, 1.6 + Math.random(), (Math.random() - 0.5) * 0.8, { life: 1.6, size: 0.06, color: 0xffb04a, frame: PF.Spark, drag: 0.4, vrot: 3 });
       if (Math.random() < 0.4) this.alpha.spawn(cx, y + 0.8, cz, 0.2, 0.9, 0.1, { life: 3, size: 0.6, size1: 1.8, color: 0x3a3632, frame: PF.Smoke, alpha: 0.6, drag: 0.3 });
     }
     // burning creatures

@@ -83,10 +83,30 @@ export class ModelBuilder {
     return this;
   }
 
+  /**
+   * Bake light into the vertex colours of the whole model so nothing reads as a flat plastic block:
+   * contact occlusion near the ground, sky light on upward faces, shade on faces turned downward,
+   * and a faint per-vertex mottling that breaks up large single-colour areas.
+   */
+  bake = true;
   build(): THREE.BufferGeometry {
     const g = mergeGeometries(this.parts, false)!;
     g.computeBoundingSphere();
     g.computeBoundingBox();
+    if (this.bake) {
+      const bb = g.boundingBox!;
+      const y0 = bb.min.y, hgt = Math.max(1e-3, bb.max.y - bb.min.y);
+      const pos = g.attributes.position as THREE.BufferAttribute, nor = g.attributes.normal as THREE.BufferAttribute, col = g.attributes.color as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ny = nor.getY(i);
+        const ht = (y - y0) / hgt;
+        let k = 1;
+        k *= 0.8 + 0.2 * Math.min(1, ht / 0.18);              // contact occlusion at the base
+        k *= ny >= 0 ? 1 + ny * 0.07 : 1 + ny * 0.16;          // sky light above, shade below
+        k *= 1 + noise.noise(x * 9.1 + z * 3.7, y * 9.3 - z * 5.1) * 0.05; // gentle mottling
+        col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+      }
+    }
     return g;
   }
 }
@@ -111,6 +131,37 @@ export function vgrad(a: number, b: number, y0: number, y1: number): ColorFn {
 export function noisy(base: number, amt: number, freq = 4, seed = 0): ColorFn {
   const c = hex(base);
   return (p) => { const n = noise.noise(p.x * freq + seed, p.z * freq + p.y * freq * 0.7); return c.clone().multiplyScalar(1 + n * amt); };
+}
+
+/** Roof shingles: rows of slightly varied tiles (works on team-tinted parts: values are greys). */
+export function shingles(base = 0xffffff, rows = 13): ColorFn {
+  const c = hex(base);
+  return (p) => {
+    const row = Math.floor(p.y * rows), col = Math.floor((p.x + p.z + (row % 2) * 0.06) * 8);
+    const edge = (p.y * rows) % 1;
+    const v = 0.86 + ((row * 7 + col * 13) % 5) * 0.035 - (edge < 0.18 ? 0.12 : 0);
+    return c.clone().multiplyScalar(v);
+  };
+}
+/** Stone blocks with darker mortar joints. */
+export function masonry(base: number, rowH = 0.13, blockW = 0.24): ColorFn {
+  const c = hex(base);
+  return (p) => {
+    const row = Math.floor(p.y / rowH), fy = (p.y / rowH) % 1;
+    const u = (p.x + p.z) / blockW + (row % 2) * 0.5, fx = u - Math.floor(u);
+    const mortar = fy < 0.1 || fx < 0.06;
+    const v = mortar ? 0.72 : 0.92 + ((Math.floor(u) * 31 + row * 17) % 7) * 0.025;
+    return c.clone().multiplyScalar(v);
+  };
+}
+/** Wooden planks: vertical boards with grain. */
+export function planks(base: number, w = 0.11): ColorFn {
+  const c = hex(base);
+  return (p) => {
+    const u = (p.x + p.z) / w, b = Math.floor(u), f = u - b;
+    const grain = Math.sin(p.y * 40 + b * 3.1) * 0.03;
+    return c.clone().multiplyScalar((f < 0.07 ? 0.75 : 0.93 + ((b * 13) % 5) * 0.025) + grain);
+  };
 }
 
 // ---------- primitives ----------

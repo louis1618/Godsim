@@ -127,6 +127,11 @@ float fireN = mix(mix(f1, f2, fq.x), mix(f3, f4, fq.x), fq.y);
 float camDist = length(cameraPosition - vec3(vWPos.x, vWPos.y * uHeightScale, vWPos.z));
 float near = 1.0 - smoothstep(12.0, 60.0, camDist);
 natural *= 0.9 + 0.2 * gsNoise(gp * 5.0) * (0.6 + 0.4 * gsNoise(gp * 0.7));
+// broad patches: sun-dried yellow meadows and lush green hollows, so land never reads as one flat green
+float patchA = smoothstep(0.55, 0.85, gsNoise(gp * 0.045 + 7.0));
+float patchB = smoothstep(0.55, 0.85, gsNoise(gp * 0.06 - 13.0));
+natural *= mix(vec3(1.0), vec3(1.07, 1.02, 0.84), patchA * 0.55);
+natural *= mix(vec3(1.0), vec3(0.88, 1.03, 0.92), patchB * 0.5);
 natural *= 1.0 + near * (0.16 * (gsNoise(gp * 23.0) - 0.5) + 0.1 * (gsNoise(gp * 57.0) - 0.5));
 // --- map (crisp tiles) ---
 ivec2 ti = ivec2(floor(gp));
