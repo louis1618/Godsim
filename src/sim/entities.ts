@@ -1,7 +1,7 @@
 import { Sp, Bk } from './defs';
 
 export const enum Job { None = 0, Gatherer = 1, Farmer = 2, Woodcutter = 3, Miner = 4, Builder = 5, Warrior = 6, Hunter = 7, Guard = 8, Trader = 9, Fisher = 10, Scholar = 11, Worker = 12 }
-export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9, Drive = 10, Float = 11, Soar = 12 }
+export const enum Anim { Idle = 0, Walk = 1, Work = 2, Attack = 3, Panic = 4, Sleep = 5, Cheer = 6, Swim = 7, Fly = 8, Eat = 9, Drive = 10, Float = 11, Soar = 12, Drown = 14, Cast = 15, Die = 16 }
 export const enum Emote { None = 0, Heart = 1, Angry = 2, Alert = 3, Sad = 4, Zzz = 5, Music = 6, Skull = 7, Crown = 8, Sick = 9, Star = 10, Food = 11, Swords = 12 }
 export const enum UF {
   King = 1 << 0, Hero = 1 << 1, Sick = 1 << 2, Mad = 1 << 3, Settler = 1 << 4, Leader = 1 << 5,
@@ -20,7 +20,7 @@ export type Task =
   | { k: 'farm'; b: number; tile: number; work: number }
   | { k: 'attack'; u: number }
   | { k: 'raze'; b: number; sx?: number; sz?: number }
-  | { k: 'flee'; tx: number; tz: number }
+  | { k: 'flee'; tx: number; tz: number; n?: number }
   | { k: 'eat' }
   | { k: 'graze'; work: number }
   | { k: 'hunt'; u: number }
@@ -39,6 +39,7 @@ export type Task =
   | { k: 'jailed'; b: number }
   | { k: 'trade'; v: number; res: Res; amt: number; back: boolean; sx?: number; sz?: number; n: number }
   | { k: 'board'; boat: number }
+  | { k: 'swim'; tx: number; tz: number; n: number }
   | { k: 'voyage'; phase: number; tx: number; tz: number; wp: number[]; wi: number; n: number; riders?: number[]; site?: [number, number] };
 
 export interface Unit {
@@ -89,6 +90,10 @@ export interface Unit {
   jailUntil: number;        // tick until release when imprisoned (-1 free)
   mother: number;           // convenience: mother id or -1
   blocked?: number;         // consecutive blocked re-plans
+  pathWait?: number;        // ticks spent waiting for a share of the path-search budget
+  wdX?: number; wdZ?: number; wdT?: number; // watchdog anchor: last place/time real progress was seen
+  idleRun?: number;         // consecutive idle decisions (restless after a while)
+  air?: number;             // breath left (0..100) while under deep water
 }
 
 export const enum Mem { Grief = 1, Wedding = 2, NewBaby = 3, Victory = 4, Defeat = 5, Injured = 6, Blessed = 7, Famine = 8, Homeless = 9, Jailed = 10, Robbed = 11, Party = 12, Fire = 13, Disaster = 14, Trade = 15 }

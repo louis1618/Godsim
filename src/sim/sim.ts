@@ -10,7 +10,7 @@ import { unitTick } from './ai';
 import { villageThink, kingdomThink, diplomacyThink, onBuildingDestroyed } from './civ';
 import { natureTick } from './nature';
 import { disasterTick } from './disasters';
-import { resolveInside } from './nav';
+import { nearestFree, resolveInside } from './nav';
 import { onDeath } from './mind';
 
 export interface FxEvent {
@@ -63,8 +63,10 @@ export class Sim {
   cw: number; ch: number;
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
-  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0 };
+  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0 };
   deathCauses: Record<string, number> = {};
+  /** recent deaths for death animations (drained by the renderer; never saved) */
+  graveyard: { u: Unit; cause: string; tick: number }[] = [];
   onHistory: ((h: HistoryEntry) => void) | null = null;
   physics: PhysicsPort | null = null;
   /** Optional profiling hook (tools only): told about every path search a creature makes. */
@@ -139,6 +141,14 @@ export class Sim {
     this.units.push(u);
     this.unitMap.set(u.id, u);
     resolveInside(this, u);
+    // land creatures are never born into water or rock walls: shift onto the nearest dry ground
+    if (!isVehicle(sp) && sp !== Sp.Fish && sp !== Sp.Dragon && sp !== Sp.Crocodile) {
+      const t = this.world.tileAt(u.x, u.z);
+      if (t >= 0 && !this.world.walkable(t)) {
+        const p = nearestFree(this.world, u.x, u.z, 3);
+        if (p) { u.x = u.px = p[0]; u.z = u.pz = p[1]; }
+      }
+    }
     return u;
   }
 
@@ -168,7 +178,11 @@ export class Sim {
     this.stats.deaths++;
     if (isCiv(u.sp)) this.deathCauses[cause] = (this.deathCauses[cause] ?? 0) + 1;
     if (isVehicle(u.sp)) { this.fx.push({ t: 'explosion', x: u.x, z: u.z, a: 1.4, b: 60 }); this.fx.push({ t: 'wreck', x: u.x, z: u.z, a: u.sp, u: u.id }); }
-    else this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : 0 });
+    else {
+      this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : cause === 'drown' ? 3 : 0 });
+      // renderers show the fall (or the sinking body) for a moment; not part of the simulation state
+      if (!(u.flags & (UF.Ragdoll | UF.Held))) { this.graveyard.push({ u, cause, tick: this.tick }); if (this.graveyard.length > 300) this.graveyard.shift(); }
+    }
     // murder among neighbours is a crime the guards will pursue
     if (by && isCiv(by.sp) && isCiv(u.sp) && by.kingdom >= 0 && by.kingdom === u.kingdom && !(by.flags & UF.Mad) && !(u.flags & (UF.Jailed | UF.Escorted))) {
       const bv = this.villages.get(by.village);

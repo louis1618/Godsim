@@ -19,7 +19,7 @@ mat3 gsRotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, 
 void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   float A = iMisc.x; float t = uAnimTime + iMisc.y;
   int part = int(aPart + 0.5);
-  if (A >= 10.0) {
+  if (A >= 10.0 && A < 14.0) {
     // machines: rigid; boats bob and roll, tanks rumble, propellers spin
     R = mat3(1.0); piv = aPivot; lean = 0.0;
     off = vec3(0.0, A == 11.0 ? sin(t * 1.7) * 0.02 : A == 10.0 ? sin(t * 40.0) * 0.003 : 0.0, 0.0);
@@ -42,8 +42,15 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   if (A == 7.0) { bob = -0.2; lhA = s * 1.3; rhA = -s * 1.3; legA = s * 0.5; }
   if (A == 8.0) { lhZ = -1.4 - sin(t * 25.0) * 0.9; rhZ = 1.4 + sin(t * 23.0) * 0.9; legA = sin(t * 30.0) * 0.9; headX = sin(t * 13.0) * 0.4; }
   if (A == 9.0) { headX = 0.75 + sin(t * 9.0) * 0.15; lhA = -0.6; rhA = -0.6; }
+  // drowning: head thrown back, arms thrashing above the surface, bobbing under
+  if (A == 14.0) { lhZ = -2.4 - sin(t * 13.0) * 0.55; rhZ = 2.4 + sin(t * 11.0) * 0.55; lhA = sin(t * 9.0) * 0.7; rhA = -sin(t * 8.0) * 0.7; headX = -0.5; legA = sin(t * 10.0) * 0.5; bob = -0.34 + sin(t * 6.0) * 0.08; lean = -0.2; }
+  // casting: both hands raised forward, a slight sway as the spell builds
+  if (A == 15.0) { lhA = -1.7 + sin(t * 8.0) * 0.12; rhA = -2.0 + sin(t * 7.0) * 0.18; lhZ = -0.35; rhZ = 0.35; headX = -0.18; bob = abs(sin(t * 4.0)) * 0.02; lean = -0.06; }
+  // dead: limp limbs (the topple itself is the instance transform)
+  if (A == 16.0) { lhZ = -1.2; rhZ = 1.2; lhA = -0.4; rhA = 0.3; headX = 0.55; legA = 0.25; tailA = 0.0; }
   // mood colours every pose: gloomy creatures hang their heads, cheerful ones bounce
   float md = floor(iMisc.w) / 99.0;
+  if (A >= 14.0) md = 0.5;
   if (md < 0.3 && A != 5.0) { float g = (0.3 - md) / 0.3; headX += 0.45 * g; bob *= 1.0 - 0.5 * g; lhZ *= 0.3; rhZ *= 0.3; lean += 0.1 * g; }
   if (md > 0.75 && (A == 0.0 || walk)) { float j = (md - 0.75) / 0.25; bob += abs(sin(t * (walk ? spd : 5.0))) * 0.035 * j; headY += sin(t * 3.0) * 0.15 * j; }
   if (A == 5.0) { lhZ = -0.4; rhZ = 0.4; headY = 0.0; headX = -0.1 + sin(t * 1.2) * 0.04; legA = 0.0; }
@@ -139,7 +146,18 @@ export class UnitRenderer {
   private tmpS = new THREE.Vector3();
   private tmpP = new THREE.Vector3();
   private c = new THREE.Color();
+  private up = new THREE.Vector3(0, 1, 0);
+  private fallAxis = new THREE.Vector3();
+  private qFall = new THREE.Quaternion();
+  private counts = new Int32Array(SPECIES_COUNT);
   visibleCount = 0;
+  /** breath gauge: a row of bubbles over swimmers' heads */
+  private bubbles: THREE.InstancedMesh;
+  /** shoreline cache: highest water level within 2 tiles of each tile (-inf when none) */
+  private shore: Float32Array | null = null;
+  private shoreKey = '';
+  /** bodies of the recently dead, shown toppling over (or sinking) before they fade into the ground */
+  private corpses: { sp: number; x: number; z: number; y: number; dir: number; look: number; col: number; item: number; scale: number; t0: number; life: number; drown: boolean; burnt: boolean; side: number; age: number; adult: number; mood: number }[] = [];
 
   constructor() {
     this.mat = makeCharacterMaterial(false);
@@ -202,6 +220,46 @@ export class UnitRenderer {
     outline.scale.setScalar(1.18);
     this.star.add(outline);
     this.group.add(this.star);
+    const bm = new THREE.MeshStandardMaterial({ color: 0xcff4ff, emissive: 0x4aa8d8, emissiveIntensity: 0.35, roughness: 0.15, metalness: 0, transparent: true, opacity: 0.85 });
+    patchInstanced(bm, {});
+    this.bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(0.06, 10, 8), bm, 600);
+    this.bubbles.frustumCulled = false; this.bubbles.count = 0; this.bubbles.renderOrder = 24;
+    this.group.add(this.bubbles);
+  }
+
+  /** Drawn ground height for a land creature: the terrain, or the surface of shallow surf it wades in. */
+  private groundY(w: Sim['world'], x: number, z: number): number {
+    let y = heightCubic(w.height, w.W, w.H, x, z);
+    const t = w.tileAt(x, z);
+    if (t < 0) return y;
+    if (w.water[t] > w.height[t]) return Math.max(y, w.water[t] - 0.05);
+    const sh = this.shore![t];
+    // the drawn surf covers the edge of this dry tile: stand in it ankle-deep instead of under it
+    if (sh > y) y = Math.max(y, sh - 0.1);
+    return y;
+  }
+
+  private ensureShore(w: Sim['world']) {
+    const key = `${w.W}x${w.H}:${w.terrainVersion}:${w.waterVersion}`;
+    if (this.shore && this.shore.length === w.N && key === this.shoreKey) return;
+    this.shoreKey = key;
+    const { W, H } = w;
+    const sh = this.shore && this.shore.length === w.N ? this.shore : new Float32Array(w.N);
+    // two separable max passes over the water levels (5x5 window)
+    const lv = new Float32Array(w.N).fill(-Infinity);
+    for (let t = 0; t < w.N; t++) if (w.water[t] > w.height[t]) lv[t] = w.water[t];
+    const tmp = new Float32Array(w.N);
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+      let m = -Infinity;
+      for (let d = -2; d <= 2; d++) { const xx = x + d; if (xx >= 0 && xx < W) { const v = lv[z * W + xx]; if (v > m) m = v; } }
+      tmp[z * W + x] = m;
+    }
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+      let m = -Infinity;
+      for (let d = -2; d <= 2; d++) { const zz = z + d; if (zz >= 0 && zz < H) { const v = tmp[zz * W + x]; if (v > m) m = v; } }
+      sh[z * W + x] = m;
+    }
+    this.shore = sh;
   }
 
   private makePool(g: THREE.BufferGeometry, cap: number): Pool {
@@ -249,9 +307,8 @@ export class UnitRenderer {
     if (ph) return out.copy(ph.pos);
     const x = u.px + (u.x - u.px) * alpha, z = u.pz + (u.z - u.pz) * alpha;
     const w = sim.world;
-    let y = heightCubic(w.height, w.W, w.H, x, z);
-    const t = w.tileAt(x, z);
-    if (t >= 0 && w.water[t] > w.height[t]) y = Math.max(y, w.water[t] - 0.05);
+    this.ensureShore(w);
+    const y = this.groundY(w, x, z);
     return out.set(x, y + u.y, z);
   }
 
@@ -260,18 +317,26 @@ export class UnitRenderer {
   update(sim: Sim, alpha: number, camPos: THREE.Vector3, focus: THREE.Vector3, viewV: number, z01: number, pixelScale: number, dt: number) {
     const show3D = z01 < 0.86 || this.orbit > 0.5;
     const radiusMul = this.orbit > 0.5 ? 4 : 1;
-    const counts = new Array(SPECIES_COUNT).fill(0);
+    const counts = this.counts;
+    counts.fill(0);
     const w = sim.world;
+    this.ensureShore(w);
     const radius = Math.max(30, viewV * 1.4) * radiusMul;
-    let mk = 0, crowns = 0;
+    let mk = 0, crowns = 0, nb = 0;
     this.ensureMarkers(sim.units.length + 8);
     const time = U.uTime.value;
+    const markersOn = z01 > 0.5 || this.orbit > 0.05;
+    // newly dead bodies (kept only near the view; a few seconds each)
+    this.takeCorpses(sim, focus, radius, time);
     // first pass: count per species for capacity
     if (show3D) {
       for (const u of sim.units) if (!(u.flags & UF.Dead)) counts[u.sp]++;
+      for (const c of this.corpses) counts[c.sp]++;
       for (let sp = 0; sp < SPECIES_COUNT; sp++) if (this.pools[sp]) this.grow(sp, counts[sp] + 4);
       counts.fill(0);
     }
+    // camera-right on the ground plane: breath bubbles line up across the screen
+    const rx = Math.cos(this.orbitYaw(camPos, focus)), rz = -Math.sin(this.orbitYaw(camPos, focus));
     for (const u of sim.units) {
       if (u.flags & UF.Dead) continue;
       const def = SPECIES[u.sp];
@@ -280,10 +345,9 @@ export class UnitRenderer {
       if (ph) { x = ph.pos.x; y = ph.pos.y; z = ph.pos.z; }
       else {
         x = u.px + (u.x - u.px) * alpha; z = u.pz + (u.z - u.pz) * alpha;
-        y = heightCubic(w.height, w.W, w.H, x, z);
-        const t = w.tileAt(x, z);
-        if (t >= 0 && w.water[t] > w.height[t]) y = Math.max(y, w.water[t] - 0.05);
-        y += u.y;
+        // far outside the 3D view and no map pins wanted: skip the ground lookup entirely
+        if (!markersOn) { const ddx = x - focus.x, ddz = z - focus.z; if (ddx * ddx + ddz * ddz > radius * radius) continue; }
+        y = this.groundY(w, x, z) + u.y;
       }
       // team colour
       let col: number;
@@ -292,7 +356,7 @@ export class UnitRenderer {
         col = k ? KINGDOM_COLORS[k.color][0] : isVehicle(u.sp) ? 0x3a3a3a : 0xcdbb94;
       } else col = SPECIES_TINT[u.sp] ?? 0xffffff;
       // markers (map view)
-      {
+      if (markersOn) {
         const o = mk * 3;
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
@@ -322,7 +386,7 @@ export class UnitRenderer {
       // a little pop when born
       const age = sim.tick - u.born;
       if (age < 8) sc *= 0.5 + 0.5 * Math.min(1, (age + alpha) / 8) + Math.sin(Math.min(1, (age + alpha) / 8) * Math.PI) * 0.25;
-      if (ph) this.tmpQ.copy(ph.quat); else this.tmpQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+      if (ph) this.tmpQ.copy(ph.quat); else this.tmpQ.setFromAxisAngle(this.up, ry);
       this.tmpS.setScalar(sc);
       this.tmpP.set(x, y, z);
       this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
@@ -333,14 +397,29 @@ export class UnitRenderer {
       const skins = SKIN_TONES[u.sp], hairs = HAIR_TONES[u.sp];
       this.c.setHex(skins ? skins[look % skins.length] : 0xffffff); pool.skin.setXYZ(i, this.c.r, this.c.g, this.c.b);
       this.c.setHex(hairs ? hairs[(look >> 3) % hairs.length] : 0xffffff);
-      if (hairs && u.age > def.lifespan[0] * 0.75) this.c.lerp(new THREE.Color(0xdddddd), 0.7);
+      if (hairs && u.age > def.lifespan[0] * 0.75) this.c.lerp(GREY, 0.7);
       pool.hair.setXYZ(i, this.c.r, this.c.g, this.c.b);
+      // breath gauge over anyone holding their breath under deep water
+      if (u.air !== undefined && nb < 590) {
+        const n = Math.ceil(u.air / 20), hy = y + ((isCiv(u.sp) ? 1.05 : 0.75) * def.size * CREATURE_SCALE) + 0.28 + Math.sin(time * 4 + u.id) * 0.03;
+        for (let b = 0; b < 5; b++) {
+          const full = b < n, part = b === n - 1 ? (u.air - b * 20) / 20 : 1;
+          const s = full ? 0.6 + 0.4 * part : 0.32;
+          if (!full && u.air > 0 && b >= n + 1) continue;
+          const o = (b - 2) * 0.15;
+          this.tmpP.set(x + rx * o, hy + (full ? 0 : -0.02), z + rz * o);
+          this.tmpS.setScalar(full ? s : (u.air <= 0 ? 0.5 + Math.sin(time * 20) * 0.2 : s));
+          this.tmpM.compose(this.tmpP, IDQ, this.tmpS);
+          this.bubbles.setMatrixAt(nb++, this.tmpM);
+        }
+      }
       let anim: number = u.anim;
       if (isVehicle(u.sp)) anim = u.sp === Sp.Boat ? Anim.Float : u.sp === Sp.Plane ? Anim.Soar : u.animT > 0 ? 13 : Anim.Drive;
       else if (ph || u.id === this.heldId) anim = Anim.Fly;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
       if (u.flags & UF.Aboard) anim = Anim.Idle;
+      if (u.anim === Anim.Drown) anim = Anim.Drown;
       const item = u.sp === Sp.Troll ? 8 : u.sp === Sp.Boat ? 20 + u.item : child || !isCiv(u.sp) ? 0 : u.item;
       const mood = isVehicle(u.sp) ? 60 : (u.mood ?? 60);
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, Math.round(Math.max(0, Math.min(1, mood / 100)) * 99) + (u.hitT > 0 ? Math.min(0.95, u.hitT / 6) : 0));
@@ -352,6 +431,9 @@ export class UnitRenderer {
         if (crowns < this.crowns.count + 64) this.crowns.setMatrixAt(crowns++, this.tmpM);
       }
     }
+    if (show3D) this.drawCorpses(w, time, counts);
+    this.bubbles.count = show3D ? nb : 0;
+    this.bubbles.instanceMatrix.needsUpdate = true;
     let total = 0;
     for (let sp = 0; sp < SPECIES_COUNT; sp++) {
       const p = this.pools[sp];
@@ -385,4 +467,76 @@ export class UnitRenderer {
     this.markerMat.uniforms.uScale.value = pixelScale;
     void time;
   }
+
+  private orbitYaw(cam: THREE.Vector3, focus: THREE.Vector3) { return Math.atan2(cam.x - focus.x, cam.z - focus.z); }
+
+  private takeCorpses(sim: Sim, focus: THREE.Vector3, radius: number, time: number) {
+    const g = sim.graveyard;
+    if (!g.length) return;
+    const w = sim.world;
+    for (const d of g) {
+      const u = d.u;
+      if (isVehicle(u.sp) || !this.pools[u.sp] || sim.tick - d.tick > 30) continue;
+      const dx = u.x - focus.x, dz = u.z - focus.z;
+      if (dx * dx + dz * dz > radius * radius || this.corpses.length > 150) continue;
+      const def = SPECIES[u.sp];
+      const child = u.age < def.adultAge;
+      let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1);
+      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (u.sp === Sp.Dragon) sc = CREATURE_SCALE * def.size;
+      if (u.sp === Sp.Crocodile) sc = CREATURE_SCALE * 1.15 * (child ? 0.6 : 1);
+      const k = sim.kingdoms.get(u.kingdom);
+      const col = isCiv(u.sp) ? (k ? KINGDOM_COLORS[k.color][0] : 0xcdbb94) : SPECIES_TINT[u.sp] ?? 0xffffff;
+      const drown = d.cause === 'drown';
+      this.corpses.push({
+        sp: u.sp, x: u.x, z: u.z, y: this.groundY(w, u.x, u.z) + Math.max(0, u.y), dir: this.yawCache.get(u.id) ?? u.dir, look: u.look, col,
+        item: child || !isCiv(u.sp) ? 0 : u.item, scale: sc, t0: time, life: drown ? 3.6 : u.sp === Sp.Fish ? 1.2 : 2.6, drown,
+        burnt: d.cause === 'fire' || d.cause === 'lightning', side: (u.id & 1) ? 1 : -1, age: u.age, adult: def.adultAge, mood: u.mood ?? 60,
+      });
+      this.yawCache.delete(u.id);
+    }
+    g.length = 0;
+    // forget facing for anyone gone (keeps the cache from growing over decades)
+    if (this.yawCache.size > sim.units.length * 2 + 256) { const alive = new Set(sim.units.map((u) => u.id)); for (const id of this.yawCache.keys()) if (!alive.has(id)) this.yawCache.delete(id); }
+  }
+
+  private drawCorpses(w: Sim['world'], time: number, counts: Int32Array) {
+    let j = 0;
+    for (const c of this.corpses) {
+      const k = (time - c.t0) / c.life;
+      if (k >= 1) continue;
+      this.corpses[j++] = c;
+      const pool = this.pools[c.sp];
+      if (!pool) continue;
+      const i = counts[c.sp]++;
+      if (i >= pool.cap) continue;
+      // topple: a quick fall with a small bounce, then settle and sink into the ground (or the depths)
+      const a = Math.min(1, k * (c.drown ? 1.6 : 4.2));
+      const bounce = a < 1 ? 0 : Math.max(0, Math.sin((k * 4.2 - 1) * 9) * 0.08 * Math.max(0, 1 - (k * 4.2 - 1)));
+      const fall = (c.drown ? 1.25 : 1.5) * (1 - (1 - a) * (1 - a)) - bounce;
+      this.tmpQ.setFromAxisAngle(this.up, c.dir);
+      this.fallAxis.set(Math.cos(c.dir), 0, -Math.sin(c.dir)); // the creature's own left-right axis
+      if (c.sp >= Sp.Sheep && c.sp !== Sp.Skeleton && c.sp !== Sp.Troll) this.fallAxis.set(Math.sin(c.dir), 0, Math.cos(c.dir)); // beasts roll onto their side
+      this.qFall.setFromAxisAngle(this.fallAxis, fall * c.side);
+      this.tmpQ.premultiply(this.qFall);
+      let y = c.y;
+      if (c.drown) y -= k * 1.3;
+      else y -= THREE.MathUtils.smoothstep(k, 0.7, 1) * 0.5 * c.scale;
+      this.tmpP.set(c.x, y, c.z);
+      this.tmpS.setScalar(c.scale);
+      this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
+      pool.mesh.setMatrixAt(i, this.tmpM);
+      const burn = c.burnt ? 0.28 : 1;
+      this.c.setHex(c.col).multiplyScalar(burn); pool.cloth.setXYZ(i, this.c.r, this.c.g, this.c.b);
+      const skins = SKIN_TONES[c.sp], hairs = HAIR_TONES[c.sp];
+      this.c.setHex(skins ? skins[c.look % skins.length] : 0xffffff).multiplyScalar(burn); pool.skin.setXYZ(i, this.c.r, this.c.g, this.c.b);
+      this.c.setHex(hairs ? hairs[(c.look >> 3) % hairs.length] : 0xffffff).multiplyScalar(burn); pool.hair.setXYZ(i, this.c.r, this.c.g, this.c.b);
+      pool.misc.setXYZW(i, Anim.Die, (c.look % 1000) * 0.0137, c.item, 50);
+    }
+    this.corpses.length = j;
+    void w;
+  }
 }
+
+const GREY = new THREE.Color(0xdddddd);
+const IDQ = new THREE.Quaternion();

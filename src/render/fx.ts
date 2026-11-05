@@ -321,9 +321,26 @@ export class FxRenderer {
         if (!close) return;
         this.burst(e.tx ?? e.x, y + 0.4, e.tz ?? e.z, 3, { color: 0xb08a5a, frame: PF.Chip, speed: 1.5, up: 2, life: 0.6, size: 0.06, grav: -8 });
         break;
+      case 'gasp':
+        if (!close) return;
+        // air escaping: bubbles and a little splash where a creature struggles
+        this.burst(e.x, y + 0.05, e.z, 4, { color: 0xdff6ff, frame: PF.Dot, speed: 0.25, up: 1.1, life: 0.9, size: 0.06, size1: 0.1, drag: 1.5, alpha: 0.85 });
+        this.burst(e.x, y + 0.1, e.z, 3, { color: 0xffffff, frame: PF.Drop, speed: 1.2, up: 1.8, life: 0.5, size: 0.07, grav: -8 });
+        break;
+      case 'unstuck':
+        if (!close) return;
+        this.burst(e.x, y + 0.1, e.z, 6, { color: 0xe8dcc4, frame: PF.Smoke, speed: 0.9, up: 0.3, life: 0.6, size: 0.18, size1: 0.35, drag: 3, alpha: 0.6 });
+        break;
       case 'death': {
         if (!close) return;
         const fire = e.b === 1, plague = e.b === 2;
+        if (e.b === 3) {
+          // drowned: a last stream of bubbles, no dust
+          this.burst(e.x, y, e.z, 10, { color: 0xdff6ff, frame: PF.Dot, speed: 0.3, up: 1.4, life: 1.6, size: 0.07, size1: 0.12, drag: 1.2, alpha: 0.85, spread: 0.3 });
+          this.burst(e.x, y + 0.05, e.z, 2, { color: 0xffffff, frame: PF.Ring, speed: 0, up: 0, life: 1.2, size: 0.2, size1: 0.9, alpha: 0.6 });
+          if (e.a !== undefined && SPECIES[e.a].civ) this.alpha.spawn(e.x, y + 0.5, e.z, 0, 0.55, 0, { life: 2.4, size: 0.3, size1: 0.22, color: 0xffffff, frame: PF.Soul, alpha: 0.9, rot: 0 });
+          break;
+        }
         this.burst(e.x, y + 0.2, e.z, 6, { color: fire ? 0x3a3330 : plague ? 0x9ad65a : 0xece8e0, frame: PF.Smoke, speed: 0.8, up: 0.4, life: 0.8, size: 0.2, size1: 0.45, drag: 2, alpha: 0.8 });
         if (e.a !== undefined && SPECIES[e.a].civ) this.alpha.spawn(e.x, y + 0.5, e.z, 0, 0.55, 0, { life: 2.4, size: 0.3, size1: 0.22, color: 0xffffff, frame: PF.Soul, alpha: 0.9, rot: 0 });
         break;

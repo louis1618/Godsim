@@ -115,7 +115,7 @@ export function spawnVolcano(sim: Sim, x: number, z: number) {
     const k = 1 - d / R;
     const crater = d < 1.6 ? -1.6 * (1 - d / 1.6) : 0;
     w.height[t] = Math.max(w.height[t], 0.4) + 9 * Math.pow(k, 1.4) + crater;
-    if (w.water[t] > w.height[t]) w.water[t] = 0;
+    if (w.water[t] > w.height[t]) { w.water[t] = 0; w.waterVersion++; }
     if (w.feat[t] !== Feat.None && k > 0.3) w.setFeat(t, Feat.None, 0);
     w.mat[t] = d < 1.8 ? Mat.Lava : k > 0.35 ? Mat.Rock : w.mat[t];
     const b = sim.buildingAt(t);
@@ -156,6 +156,7 @@ export function spawnFlood(sim: Sim, x: number, z: number, r = 11) {
     if (w.height[t] >= lv) continue;
     tiles.push(t); base.push(w.water[t]);
     w.water[t] = Math.max(w.water[t], lv);
+    w.waterVersion++;
     w.wet[t] = 255;
     if (w.fire[t]) w.fire[t] = 0;
   }
@@ -223,9 +224,10 @@ function disasterExtras(sim: Sim) {
         const t = f.tiles[i];
         const lv = f.base[i] + (f.level - f.base[i]) * k;
         w.water[t] = Math.min(w.water[t], Math.max(f.base[i], lv));
+        w.waterVersion++;
       }
       w.markTerrain(Math.floor(f.x - f.r) - 2, Math.floor(f.z - f.r) - 2, Math.floor(f.x + f.r) + 2, Math.floor(f.z + f.r) + 2);
-      if (f.life <= 0) { for (let i = 0; i < f.tiles.length; i++) w.water[f.tiles[i]] = f.base[i]; w.islandsDirty = true; w.navVersion++; }
+      if (f.life <= 0) { for (let i = 0; i < f.tiles.length; i++) w.water[f.tiles[i]] = f.base[i]; w.islandsDirty = true; w.navVersion++; w.waterVersion++; }
     }
   }
   sim.floods = sim.floods.filter((f) => f.life > 0);

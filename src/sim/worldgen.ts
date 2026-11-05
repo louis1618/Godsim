@@ -190,6 +190,8 @@ export function generateWorld(opt: GenOptions): World {
           break;
       }
       if (f === Feat.Oak && temp[i] < 0.42 && r < 0.6) f = Feat.Pine;
+      // plants never stand in the surf: the drawn shoreline may cover the edge of a dry tile
+      if (f !== Feat.None && f !== Feat.Boulder && f !== Feat.Ore && !world.dryForPlant(i)) f = Feat.None;
       world.feat[i] = f;
       world.featAmt[i] = f === Feat.None ? 0 : 160 + Math.floor(hash2(z, x, 3) * 95);
       world.grass[i] = mt === Mat.Grass || mt === Mat.Lush ? 220 : mt === Mat.Savanna ? 150 : mt === Mat.Swamp ? 120 : 0;

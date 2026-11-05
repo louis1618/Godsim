@@ -10,6 +10,8 @@ import { fishTick, dragonTick, aquatic } from './animals';
 import { eats, grazes, hunts } from './foodchain';
 
 const AGE_STEP = 10 / YEAR_TICKS;
+/** Stuck-creature watchdog switch (tests turn it off to measure the raw failure rate). */
+export const watchdogOpts = { enabled: true };
 
 export function unitTick(sim: Sim, u: Unit) {
   u.px = u.x; u.pz = u.z;
@@ -47,18 +49,32 @@ export function unitTick(sim: Sim, u: Unit) {
     if (w.isWater(t)) {
       u.anim = Anim.Swim;
       if (!aquatic(u.sp)) {
-        if (w.isDeep(t) && sim.tick % 8 === 0 && !def.undead) hurt(sim, u, 3, undefined, 'drown');
-        if (!u.task || u.task.k === 'idle') escapeWater(sim, u);
+        // breath: deep water drains it (good swimmers last longer); at zero the creature drowns
+        if (w.isDeep(t) && !def.undead) {
+          u.air = Math.max(0, (u.air ?? 100) - (BREATH[u.sp] ?? 0.5));
+          if (u.air < 30) u.anim = Anim.Drown;
+          if (u.air <= 0) {
+            hurt(sim, u, u.maxHp * 0.04, undefined, 'drown');
+            if (u.flags & UF.Dead) return;
+          }
+          if (u.air < 30 && sim.tick % 12 === u.id % 12) sim.fx.push({ t: 'gasp', x: u.x, z: u.z, u: u.id });
+        }
+        // whatever it was doing, a creature in the water heads for the nearest shore
+        if (u.task?.k !== 'swim') swimToShore(sim, u);
       }
+    } else if (u.air !== undefined) {
+      u.air = Math.min(100, u.air + 2.5);
+      if (u.air >= 100) u.air = undefined;
     }
     if (u.flags & UF.Dead) return;
   }
-  if (--u.think <= 0 || !u.task) decide(sim, u);
+  if (u.task?.k !== 'swim' && (--u.think <= 0 || !u.task)) decide(sim, u);
   if (u.task) run(sim, u, u.task);
   // walking animations only while the creature really changes position (judged before the
   // separation nudge, so being shuffled aside never shows as walking in place)
   if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && Math.abs(u.x - u.px) + Math.abs(u.z - u.pz) < 1e-4) u.anim = Anim.Idle;
   separate(sim, u);
+  if (watchdogOpts.enabled && (sim.tick + u.id) % 10 === 0) watchdog(sim, u);
 }
 
 /** Work speed from mood (content workers are productive; miserable ones slack). */
@@ -129,14 +145,17 @@ function decide(sim: Sim, u: Unit) {
       }
       return;
     }
-    if (dist < 7 && (!u.task || u.task.k !== 'flee')) {
+    if (dist < 7) {
+      const was = u.task?.k === 'flee';
+      // keep running, but re-aim every decision so a dead end never pins the creature down
       fleeFrom(sim, u, enemy.x, enemy.z);
-      if (civ && sim.rng.chance(0.5)) sim.emote(u, Emote.Alert, 20);
+      if (!was && civ && sim.rng.chance(0.5)) sim.emote(u, Emote.Alert, 20);
       return;
     }
     if (u.task?.k === 'flee') return;
     // a distant threat: keep an eye on it but carry on living
   }
+  if (maroonedEscape(sim, u)) return;
   // urgent needs break into anything that is not life-or-death
   const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal', 'arrest', 'escort', 'trade', 'board', 'escorted', 'jailed'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
   if (urgent) u.task = null;
@@ -233,8 +252,8 @@ function decide(sim: Sim, u: Unit) {
       return;
     }
   }
-  if (sim.rng.chance(0.5)) setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 20) });
-  else wanderNear(sim, u, v.cx + 0.5, v.cz + 0.5, v.radius * 0.7);
+  if ((u.idleRun ?? 0) < 2 && sim.rng.chance(0.5)) { setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 20) }); u.idleRun = (u.idleRun ?? 0) + 1; }
+  else { wanderNear(sim, u, v.cx + 0.5, v.cz + 0.5, v.radius * 0.7); u.idleRun = 0; }
 }
 
 function decideAnimal(sim: Sim, u: Unit) {
@@ -313,8 +332,9 @@ function decideAnimal(sim: Sim, u: Unit) {
   // where the camera is - so every view of the world sees exactly the same history.
   const t = sim.world.tileAt(u.x, u.z);
   const calm = t >= 0 && sim.world.owner[t] < 0 && u.hunger < 50 && u.hitT === 0;
-  if (sim.rng.chance(u.hunger > 55 && hunts(u.sp) ? 0.1 : calm ? 0.55 : 0.35)) setTask(sim, u, { k: 'idle', t: (10 + sim.rng.int(0, 30)) * (calm ? 2 : 1) });
-  else wanderNear(sim, u, u.x, u.z, roam);
+  // a creature rests now and then but never for long stretches in a row (looks frozen otherwise)
+  if ((u.idleRun ?? 0) < 2 && sim.rng.chance(u.hunger > 55 && hunts(u.sp) ? 0.1 : calm ? 0.55 : 0.35)) { setTask(sim, u, { k: 'idle', t: (10 + sim.rng.int(0, 30)) * (calm ? 2 : 1) }); u.idleRun = (u.idleRun ?? 0) + 1; }
+  else { wanderNear(sim, u, u.x, u.z, roam); u.idleRun = 0; }
   if (calm) u.think *= 2;
 }
 
@@ -372,54 +392,196 @@ export function setTask(sim: Sim, u: Unit, t: Task) {
   if (t.k === 'flee' || t.k === 'attack' || t.k === 'hunt') u.think = 6;
 }
 
+/**
+ * Escape planning (utility-scored): sample 12 headings and score each by how much it leads away from
+ * the danger, how far the creature can actually run that way (walls, water, fire cut a heading short)
+ * and - for townsfolk - whether it leads home, where the guards are. Re-run at every decision while
+ * the threat lasts, so a dead end never pins anyone down.
+ */
 function fleeFrom(sim: Sim, u: Unit, x: number, z: number) {
-  let dx = u.x - x, dz = u.z - z;
-  const l = Math.hypot(dx, dz) || 1;
-  dx /= l; dz /= l;
+  const w = sim.world;
+  let ax = u.x - x, az = u.z - z;
+  const l = Math.hypot(ax, az);
+  if (l > 1e-4) { ax /= l; az /= l; } else { ax = 0; az = 0; }
   const v = villageOf(sim, u);
-  let tx = u.x + dx * 8, tz = u.z + dz * 8;
-  if (v && Math.hypot(v.cx - x, v.cz - z) > 5) { tx = v.cx + 0.5 + dx * 2; tz = v.cz + 0.5 + dz * 2; }
-  // never flee into the water (unless at home there)
-  if (!aquatic(u.sp)) {
-    const w = sim.world;
-    const a0 = Math.atan2(tz - u.z, tx - u.x), d0 = Math.hypot(tx - u.x, tz - u.z);
-    for (let k = 0; k < 9; k++) {
-      const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
-      const xx = u.x + Math.cos(a) * d0, zz = u.z + Math.sin(a) * d0;
-      const t = w.tileAt(xx, zz);
-      if (t >= 0 && w.walkable(t)) { tx = xx; tz = zz; break; }
-    }
+  let hx = 0, hz = 0;
+  if (v && Math.hypot(v.cx - x, v.cz - z) > 5) {
+    hx = v.cx + 0.5 - u.x; hz = v.cz + 0.5 - u.z;
+    const hl = Math.hypot(hx, hz);
+    if (hl > 3) { hx /= hl; hz /= hl; } else { hx = 0; hz = 0; }
   }
-  setTask(sim, u, { k: 'flee', tx, tz });
+  const swim = aquatic(u.sp);
+  let best = -1e9, bx = u.x + ax * 6, bz = u.z + az * 6;
+  const a0 = ((u.id * 0.618) % 1) * 0.5;
+  for (let k = 0; k < 12; k++) {
+    const a = a0 + (k * Math.PI) / 6, cx = Math.cos(a), cz = Math.sin(a);
+    let run = 0;
+    for (let s = 1; s <= 8; s++) {
+      const t = w.tileAt(u.x + cx * s, u.z + cz * s);
+      if (t < 0) break;
+      if (swim ? !(w.isWater(t) || free(w, t)) : !free(w, t)) break;
+      if (w.fire[t] > 0 || w.mat[t] === Mat.Lava) break;
+      run = s;
+    }
+    if (run === 0) continue;
+    const score = (cx * ax + cz * az) * 2 + (cx * hx + cz * hz) + run * 0.35;
+    if (score > best) { best = score; bx = u.x + cx * run; bz = u.z + cz * run; }
+  }
+  setTask(sim, u, { k: 'flee', tx: bx, tz: bz });
 }
 
 export function panic(sim: Sim, u: Unit, x: number, z: number) {
-  const a = sim.rng.range(0, Math.PI * 2);
-  setTask(sim, u, { k: 'flee', tx: x + Math.cos(a) * 6, tz: z + Math.sin(a) * 6 });
+  fleeFrom(sim, u, x, z);
   u.anim = Anim.Panic;
 }
 
-function escapeWater(sim: Sim, u: Unit) {
+// ------------------------------------------------------------------ watchdog
+
+/**
+ * Last line of defence against frozen creatures. Every second each walker compares where it is with
+ * where it last made progress; a creature that has stood still for 20 s without a reason to (sleeping,
+ * working, fighting, guarding, chatting, in jail, ...) is rescued: its plan is dropped, a creature
+ * wedged into a sealed pocket steps out to open ground, and it gets a short walk to open space.
+ */
+const STILL_TASKS = new Set(['sleep', 'post', 'jailed', 'escorted', 'voyage', 'board', 'chat', 'love', 'dance']);
+function watchdog(sim: Sim, u: Unit) {
+  // an animation only counts as a reason to stand still when it matches what the creature is doing
+  // (a stale 'work' pose left over from an abandoned errand must not hide a frozen walker)
+  const k = u.task?.k;
+  const busy = (k !== undefined && STILL_TASKS.has(k))
+    || (u.anim === Anim.Work && (k === 'gather' || k === 'build' || k === 'farm' || k === 'idle'))
+    || (u.anim === Anim.Attack && (k === 'attack' || k === 'hunt' || k === 'raze'))
+    || (u.anim === Anim.Eat && (k === 'graze' || k === 'eat' || k === 'idle'));
+  if (u.wdT === undefined || busy || Math.abs(u.x - u.wdX!) + Math.abs(u.z - u.wdZ!) > 0.4) { u.wdX = u.x; u.wdZ = u.z; u.wdT = sim.tick; return; }
+  if (sim.tick - u.wdT < 200) return;
+  rescue(sim, u);
+  u.wdX = u.x; u.wdZ = u.z; u.wdT = sim.tick;
+}
+
+const pocketSeen: number[] = [];
+/** Free tiles reachable from t (4-neighbour flood, stops at `limit`). */
+function pocket(sim: Sim, t: number, limit: number): number {
   const w = sim.world;
-  const x0 = Math.floor(u.x), z0 = Math.floor(u.z);
-  for (let r = 1; r < 12; r++) {
-    for (let k = 0; k < 16; k++) {
-      const a = (k / 16) * Math.PI * 2;
-      const x = Math.floor(x0 + Math.cos(a) * r), z = Math.floor(z0 + Math.sin(a) * r);
-      if (!w.inside(x, z)) continue;
-      const t = w.idx(x, z);
-      if (w.walkable(t)) { u.task = { k: 'move', tx: x + 0.5, tz: z + 0.5 }; u.path = new Int32Array([t]); u.pathI = 0; return; }
+  pocketSeen.length = 0;
+  if (!free(w, t)) return 0;
+  pocketSeen.push(t);
+  for (let i = 0; i < pocketSeen.length && pocketSeen.length < limit; i++) {
+    const c = pocketSeen[i], x = c % w.W;
+    for (const n of [x > 0 ? c - 1 : -1, x < w.W - 1 ? c + 1 : -1, c - w.W, c + w.W]) {
+      if (n < 0 || n >= w.N || pocketSeen.includes(n) || !free(w, n)) continue;
+      pocketSeen.push(n);
     }
   }
+  return pocketSeen.length;
+}
+
+function rescue(sim: Sim, u: Unit) {
+  sim.stats.rescued++;
+  const w = sim.world;
+  u.path = null; u.stuck = 0; u.blocked = 0; u.pathWait = 0; u.idleRun = 0;
+  const t = w.tileAt(u.x, u.z);
+  const swim = aquatic(u.sp);
+  if (!(swim && t >= 0 && w.isWater(t)) && (t < 0 || pocket(sim, t, 24) < 24)) {
+    // sealed in (walls, water, a pocket between buildings): step out to the nearest open ground
+    const x0 = Math.floor(u.x), z0 = Math.floor(u.z);
+    search: for (let r = 1; r <= 14; r++) {
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r || !w.inside(x0 + dx, z0 + dz)) continue;
+        const c = w.idx(x0 + dx, z0 + dz);
+        if (!free(w, c) || w.fire[c] > 0 || pocket(sim, c, 24) < 24) continue;
+        u.x = u.px = x0 + dx + 0.5; u.z = u.pz = z0 + dz + 0.5;
+        sim.fx.push({ t: 'unstuck', x: u.x, z: u.z, u: u.id });
+        break search;
+      }
+    }
+  }
+  // then a short walk toward whichever side is most open
+  let best = 0, bx = u.x, bz = u.z;
+  const a0 = sim.rng.range(0, Math.PI * 2);
+  for (let k = 0; k < 8; k++) {
+    const a = a0 + (k * Math.PI) / 4, cx = Math.cos(a), cz = Math.sin(a);
+    let run = 0;
+    for (let s = 1; s <= 6; s++) { const c = w.tileAt(u.x + cx * s, u.z + cz * s); if (c < 0 || !(free(w, c) || (swim && w.isWater(c)))) break; run = s; }
+    if (run > best) { best = run; bx = u.x + cx * run; bz = u.z + cz * run; }
+  }
+  u.task = best > 0 ? { k: 'flee', tx: bx, tz: bz } : null;
+  u.anim = Anim.Walk;
+  u.think = 20;
+}
+
+/** Breath lost per tick in deep water (100 = full lungs). Strong swimmers last half a minute. */
+const BREATH: Partial<Record<number, number>> = {
+  [Sp.Human]: 0.45, [Sp.Elf]: 0.4, [Sp.Dwarf]: 0.7, [Sp.Orc]: 0.42, [Sp.Sheep]: 0.9, [Sp.Wolf]: 0.35, [Sp.Deer]: 0.35,
+  [Sp.Bear]: 0.3, [Sp.Chicken]: 1.4, [Sp.Rabbit]: 1.2, [Sp.Fox]: 0.5, [Sp.Boar]: 0.5,
+};
+
+/**
+ * Swim for it: the nearest dry ground that belongs to a real landmass (a one-tile sandbar is no
+ * refuge), straight across the water. Re-aimed if the stroke makes no headway.
+ */
+export function swimToShore(sim: Sim, u: Unit, requireBig = false): boolean {
+  const w = sim.world;
+  if (w.islandsDirty) w.computeIslands();
+  const x0 = Math.floor(u.x), z0 = Math.floor(u.z);
+  let best = -1, bd = 1e9, fallback = -1, fd = 1e9;
+  for (let r = 1; r <= 24 && best < 0; r++) {
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const xx = x0 + dx, zz = z0 + dz;
+      if (!w.inside(xx, zz)) continue;
+      const t = w.idx(xx, zz);
+      if (!free(w, t) || w.fire[t] > 0) continue;
+      const d = (xx + 0.5 - u.x) ** 2 + (zz + 0.5 - u.z) ** 2;
+      if ((w.islandSize[w.island[t]] ?? 0) >= 40) { if (d < bd) { bd = d; best = t; } }
+      else if (d < fd) { fd = d; fallback = t; }
+    }
+  }
+  if (requireBig && best < 0) return false;
+  const t = best >= 0 ? best : fallback;
+  if (t < 0) { u.task = { k: 'swim', tx: u.x + Math.cos(u.dir) * 8, tz: u.z + Math.sin(u.dir) * 8, n: 0 }; return true; }
+  u.task = { k: 'swim', tx: (t % w.W) + 0.5, tz: ((t / w.W) | 0) + 0.5, n: 0 };
+  u.path = null; u.stuck = 0;
+  return true;
+}
+
+/** Marooned on a speck of land (dropped there, or the sea rose): swim to a real landmass if one is in reach. */
+function maroonedEscape(sim: Sim, u: Unit): boolean {
+  if (aquatic(u.sp) || SPECIES[u.sp].undead || u.y > 0.5) return false;
+  const w = sim.world;
+  if (w.islandsDirty) w.computeIslands();
+  const t = w.tileAt(u.x, u.z);
+  if (t < 0 || w.island[t] < 0 || (w.islandSize[w.island[t]] ?? 0) >= 12) return false;
+  const v = sim.villages.get(u.village);
+  if (v && v.alive && w.island[w.idx(v.cx, v.cz)] === w.island[t]) return false; // home is here
+  return swimToShore(sim, u, true);
+}
+
+function runSwim(sim: Sim, u: Unit, t: Extract<Task, { k: 'swim' }>) {
+  const w = sim.world;
+  const here = w.tileAt(u.x, u.z);
+  if (here >= 0 && !w.isWater(here)) { u.task = null; u.think = 0; return; } // ashore
+  const def = SPECIES[u.sp];
+  const sp = def.speed * u.speedMul * TICK_DT * (u.air !== undefined && u.air < 30 ? 0.4 : 0.6);
+  const d0 = Math.hypot(t.tx - u.x, t.tz - u.z);
+  if (stepToward(w, u, t.tx, t.tz, sp, true) > 1e-5) u.dir = Math.atan2(t.tx - u.x, t.tz - u.z);
+  if (d0 - Math.hypot(t.tx - u.x, t.tz - u.z) < sp * 0.25) { if (++t.n > 15) swimToShore(sim, u); }
+  else t.n = 0;
+  if (u.anim !== Anim.Drown) u.anim = Anim.Swim;
 }
 
 function wanderNear(sim: Sim, u: Unit, cx: number, cz: number, r: number) {
   const w = sim.world;
+  // only aim for ground the creature can actually reach (same landmass, not burning)
+  if (w.islandsDirty) w.computeIslands();
+  const here = w.tileAt(u.x, u.z);
+  const isl = here >= 0 ? w.island[here] : -1;
   for (let i = 0; i < 6; i++) {
     const a = sim.rng.range(0, Math.PI * 2), d = sim.rng.range(1, r);
     const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
     const t = w.tileAt(x, z);
-    if (t >= 0 && w.walkable(t) && w.bld[t] < 0) { setTask(sim, u, { k: 'wander', tx: x, tz: z }); return; }
+    if (t < 0 || w.bld[t] >= 0 || w.fire[t] > 0) continue;
+    const ok = aquatic(u.sp) ? w.walkable(t) || w.isWater(t) : w.walkable(t) && (isl < 0 || w.island[t] === isl);
+    if (ok) { setTask(sim, u, { k: 'wander', tx: x, tz: z }); return; }
   }
   setTask(sim, u, { k: 'idle', t: 20 });
 }
@@ -469,8 +631,23 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   const dx0 = tx - u.x, dz0 = tz - u.z;
   if (dx0 * dx0 + dz0 * dz0 <= arriveDist * arriveDist) { u.path = null; return true; }
   const w = sim.world;
+  if (aquatic(u.sp)) {
+    // swimmers in the water steer straight (the land path planner cannot route through water)
+    const here = w.tileAt(u.x, u.z);
+    if (here >= 0 && w.isWater(here)) {
+      const sp = SPECIES[u.sp].speed * u.speedMul * speedMul * TICK_DT * 0.9;
+      const d0 = Math.hypot(dx0, dz0);
+      if (stepToward(w, u, tx, tz, sp, true) > 1e-5) { u.dir = Math.atan2(dx0, dz0); u.anim = Anim.Swim; }
+      if (d0 - Math.hypot(tx - u.x, tz - u.z) < sp * 0.25) { if (++u.stuck > 20) { u.stuck = 0; u.task = null; u.think = 0; } }
+      else u.stuck = 0;
+      return false;
+    }
+  }
   if (!u.path) {
-    if (sim.pathCalls > 60 || sim.pf.budget < 2500) { u.anim = Anim.Idle; return false; }
+    // the per-tick search budget is shared; whoever has waited longest may still go (fairness:
+    // otherwise the creatures late in the update order could starve for paths in a busy world)
+    if ((sim.pathCalls > 60 || sim.pf.budget < 2500) && (u.pathWait ?? 0) < 12) { u.pathWait = (u.pathWait ?? 0) + 1; u.anim = Anim.Idle; return false; }
+    u.pathWait = 0;
     sim.pathCalls++;
     // never aim into a wall: retarget to the nearest free tile
     let goal = w.tileAt(tx, tz);
@@ -487,6 +664,7 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
     if (sim.pathProbe) sim.pathProbe(u, performance.now() - t0, !!p);
     if (!p) {
       u.stuck++;
+      u.anim = Anim.Idle;
       if (u.stuck > 3) { u.task = null; u.think = 0; }
       return false;
     }
@@ -505,7 +683,8 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   else {
     const cx = (wt % w.W) + 0.5, cz = ((wt / w.W) | 0) + 0.5;
     const ox = ((u.look & 15) / 15 - 0.5) * 0.44, oz = (((u.look >> 4) & 15) / 15 - 0.5) * 0.44;
-    if (w.tileAt(cx + ox, cz + oz) === wt) { wx = cx + ox; wz = cz + oz; } else { wx = cx; wz = cz; }
+    // (dropped while making no headway: a lane offset can graze a corner and pin the walker against it)
+    if (u.stuck === 0 && w.tileAt(cx + ox, cz + oz) === wt) { wx = cx + ox; wz = cz + oz; } else { wx = cx; wz = cz; }
   }
   const dx = wx - u.x, dz = wz - u.z;
   const d = Math.hypot(dx, dz);
@@ -516,13 +695,15 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   if (u.flags & UF.Sick) sp *= 0.7;
   sp *= moodSpeed(u);
   const moved = stepToward(w, u, wx, wz, sp, true);
-  if (moved <= 1e-5) {
+  // headway = getting closer to the waypoint. Sliding sideways along a wall moves the body but gets
+  // nowhere; counted as blocked so the walker re-plans instead of shuffling there forever.
+  const gain = d - Math.hypot(wx - u.x, wz - u.z);
+  if (moved <= 1e-5 || gain < sp * 0.25) {
     // blocked: re-plan a few times, then give up on this errand
     if (++u.stuck > 6) { u.path = null; u.blocked = (u.blocked ?? 0) + 1; u.stuck = 0; }
     if ((u.blocked ?? 0) > 3) { u.blocked = 0; u.task = null; u.think = 0; }
-    return false;
-  }
-  u.blocked = 0;
+    if (moved <= 1e-5) return false;
+  } else { u.stuck = 0; u.blocked = 0; }
   if (d <= sp + 1e-4) {
     if (!last) u.pathI++;
     else { u.path = null; return Math.hypot(tx - u.x, tz - u.z) <= arriveDist + 0.05; }
@@ -543,7 +724,7 @@ function run(sim: Sim, u: Unit, t: Task) {
     case 'idle':
       u.anim = t.plant !== undefined ? Anim.Work : Anim.Idle;
       if (--t.t <= 0) {
-        if (t.plant !== undefined && w.feat[t.plant] === Feat.None) {
+        if (t.plant !== undefined && w.feat[t.plant] === Feat.None && w.dryForPlant(t.plant)) {
           const m = w.mat[t.plant];
           w.setFeat(t.plant, m === Mat.Savanna ? Feat.Acacia : u.sp === Sp.Elf ? (sim.rng.chance(0.5) ? Feat.Birch : Feat.Oak) : Feat.Oak, 30);
           sim.fx.push({ t: 'sprout', x: (t.plant % w.W) + 0.5, z: ((t.plant / w.W) | 0) + 0.5, u: t.plant });
@@ -564,8 +745,13 @@ function run(sim: Sim, u: Unit, t: Task) {
     case 'flee': {
       // panic runs straight away (sliding along obstacles) - no route planning, just legs
       const sp = SPECIES[u.sp].speed * u.speedMul * TICK_DT * 1.15 * (u.age < SPECIES[u.sp].adultAge ? 0.85 : 1);
+      const d0 = Math.hypot(t.tx - u.x, t.tz - u.z);
       const moved = stepToward(w, u, t.tx, t.tz, sp, aquatic(u.sp));
-      if (moved > 1e-5) { u.dir = Math.atan2(t.tx - u.x, t.tz - u.z); u.anim = Anim.Panic; u.stuck = 0; }
+      // progress = getting closer to safety; shuffling sideways along a wall is not progress
+      const gain = d0 - Math.hypot(t.tx - u.x, t.tz - u.z);
+      if (moved > 1e-5) { u.dir = Math.atan2(t.tx - u.x, t.tz - u.z); u.anim = Anim.Panic; }
+      t.n = (t.n ?? 0) + 1;
+      if (gain > sp * 0.3) u.stuck = 0;
       else if (++u.stuck > 3) {
         // cornered: veer off to one side and keep running
         const a = Math.atan2(t.tz - u.z, t.tx - u.x) + ((u.id & 1) ? 1.1 : -1.1), d = Math.max(3, Math.hypot(t.tx - u.x, t.tz - u.z));
@@ -573,7 +759,8 @@ function run(sim: Sim, u: Unit, t: Task) {
         u.blocked = (u.blocked ?? 0) + 1;
         if (u.blocked > 6) { u.blocked = 0; u.task = null; u.think = 0; }
       }
-      if (Math.hypot(t.tx - u.x, t.tz - u.z) < 0.6) { u.task = null; u.think = 0; }
+      // panic is short-lived: after a few seconds the creature looks around again
+      if (Math.hypot(t.tx - u.x, t.tz - u.z) < 0.6 || t.n > 70) { u.task = null; u.think = 0; }
       break;
     }
     case 'settle':
@@ -634,7 +821,7 @@ function run(sim: Sim, u: Unit, t: Task) {
           if (b.kind === Bk.Farm) {
             for (let dz = 0; dz < b.size; dz++) for (let dx = 0; dx < b.size; dx++) {
               const tt = w.idx(b.x + dx, b.z + dz);
-              w.setFeat(tt, Feat.Crop, 30);
+              if (w.dryForPlant(tt)) w.setFeat(tt, Feat.Crop, 30); // no rows sown in the surf
             }
           }
           u.task = null; u.think = 0;
@@ -758,6 +945,7 @@ function run(sim: Sim, u: Unit, t: Task) {
     case 'escort': runEscort(sim, u, t, moveTo); break;
     case 'trade': runTrade(sim, u, t, moveTo); break;
     case 'escorted': case 'jailed': case 'voyage': break;
+    case 'swim': runSwim(sim, u, t); break;
     case 'board': {
       const boat = sim.getUnit(t.boat);
       const dock = boat && sim.buildings.get(boat.home);

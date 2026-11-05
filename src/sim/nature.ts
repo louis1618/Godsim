@@ -40,7 +40,12 @@ export function natureTick(sim: Sim) {
     const K = Math.ceil(w.N / 380);
     for (let i = 0; i < K; i++) {
       const t = (rng.next() * w.N) | 0;
-      if (w.isWater(t)) continue;
+      if (w.isWater(t)) {
+        // plants caught under water (floods, sculpted lakes) drown and rot away
+        const f = w.feat[t];
+        if (f !== Feat.None && f !== Feat.Boulder && f !== Feat.Ore && rng.chance(0.5)) w.setFeat(t, Feat.None, 0);
+        continue;
+      }
       const f = w.feat[t], m = w.mat[t];
       if (sim.droughts.length && inDrought(sim, w.tx(t), w.tz(t))) {
         // parched: grass and berries wither, lush land browns, young trees die
@@ -54,6 +59,11 @@ export function natureTick(sim: Sim) {
       }
       // dried land recovers once the rains return
       if (m === Mat.Savanna && w.moist[t] > 150 && rng.chance(0.02 * growMul)) { w.mat[t] = Mat.Grass; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
+      if (isTree(f) && !w.dryForPlant(t, 0.02)) {
+        // roots in the surf (the shore moved): the tree dies back
+        if (rng.chance(0.3)) w.setFeat(t, Feat.None, 0);
+        continue;
+      }
       if (isTree(f) && f !== Feat.Dead) {
         const a = w.featAmt[t];
         if (a < 255 && rng.chance(growMul)) {
@@ -66,7 +76,7 @@ export function natureTick(sim: Sim) {
       } else if (f === Feat.Dead && rng.chance(0.02)) {
         w.setFeat(t, Feat.None, 0);
       } else if (f === Feat.None && w.owner[t] < 0 && w.bld[t] < 0 && rng.chance(0.004 * growMul)) {
-        if (m === Mat.Grass || m === Mat.Lush) w.setFeat(t, rng.chance(0.5) ? Feat.Flower : Feat.Berry, 120);
+        if ((m === Mat.Grass || m === Mat.Lush) && w.dryForPlant(t)) w.setFeat(t, rng.chance(0.5) ? Feat.Flower : Feat.Berry, 120);
       }
       // ground recovery
       if (m === Mat.Ash && rng.chance(0.06 * growMul)) { w.mat[t] = Mat.Grass; w.grass[t] = 60; w.markMat(w.tx(t), w.tz(t), w.tx(t), w.tz(t)); }
@@ -176,7 +186,7 @@ function spreadTree(sim: Sim, t: number, f: number) {
   if (!w.inside(nx, nz)) return;
   const n = nz * w.W + nx;
   if (w.feat[n] !== Feat.None && w.feat[n] !== Feat.Flower) return;
-  if (w.bld[n] >= 0 || !w.walkable(n) || w.fire[n] > 0 || w.besideBuilding(n)) return;
+  if (w.bld[n] >= 0 || !w.walkable(n) || w.fire[n] > 0 || w.besideBuilding(n) || !w.dryForPlant(n)) return;
   const m = w.mat[n];
   if (m === Mat.Rock || m === Mat.Farmland || m === Mat.Soil || m === Mat.Lava || m === Mat.Ash) return;
   // villages keep their core clear

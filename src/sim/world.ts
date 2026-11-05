@@ -34,6 +34,7 @@ export class World {
   wet: Uint8Array;        // rain wetness (temporary)
   plague: Uint8Array;     // contamination
   island: Int32Array;     // walkable connected-component id (-1 = not walkable)
+  islandSize: number[] = []; // tiles per island id
 
   // change tracking for renderers / caches
   dirtyTerrain = new DirtyRect();
@@ -45,6 +46,8 @@ export class World {
   navVersion = 0;
   /** bumps on height edits (physics collider rebuilds follow it) */
   terrainVersion = 0;
+  /** bumps when water levels change (floods, sculpting) - shoreline caches follow it */
+  waterVersion = 0;
   readonly CW: number;
   readonly CH: number;
 
@@ -90,6 +93,45 @@ export class World {
     return false;
   }
   isDeep(t: number) { return this.water[t] - this.height[t] > 1.2; }
+
+  /**
+   * Level of the visible water surface over (x,z), or -Infinity when no water is drawn there. The
+   * water mesh spreads each water tile's surface two tiles under the banks and lets the terrain clip
+   * it (natural shorelines), so the edge of a dry tile can still sit under water on screen.
+   */
+  visualWater(x: number, z: number): number {
+    const x0 = Math.floor(x), z0 = Math.floor(z);
+    let lvl = -Infinity;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x0 + dx, zz = z0 + dz;
+      if (xx < 0 || zz < 0 || xx >= this.W || zz >= this.H) continue;
+      const t = zz * this.W + xx;
+      if (this.water[t] > this.height[t]) { const l = this.water[t] - (Math.abs(dx) > 1 || Math.abs(dz) > 1 ? 0.02 : 0); if (l > lvl) lvl = l; }
+    }
+    if (lvl === -Infinity) return lvl;
+    return heightCubic(this.height, this.W, this.H, x, z) < lvl ? lvl : -Infinity;
+  }
+
+  /**
+   * Dry enough for a plant: not a water tile, and nowhere across the tile (where the trunk may stand)
+   * does the drawn ground dip under a neighbouring water surface. Keeps trees out of lakes and surf.
+   */
+  dryForPlant(t: number, margin = 0.12): boolean {
+    if (t < 0 || this.water[t] > this.height[t]) return false;
+    const x0 = t % this.W, z0 = (t / this.W) | 0;
+    let lvl = -Infinity;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x0 + dx, zz = z0 + dz;
+      if (xx < 0 || zz < 0 || xx >= this.W || zz >= this.H) continue;
+      const n = zz * this.W + xx;
+      if (this.water[n] > this.height[n] && this.water[n] > lvl) lvl = this.water[n];
+    }
+    if (lvl === -Infinity) return true;
+    for (const [ox, oz] of [[0.5, 0.5], [0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]]) {
+      if (heightCubic(this.height, this.W, this.H, x0 + ox, z0 + oz) < lvl + margin) return false;
+    }
+    return true;
+  }
   waterDepth(t: number) { return this.water[t] - this.height[t]; }
 
   /** Bilinear interpolation of height at tile centres (tile centre = x+0.5). */
@@ -137,6 +179,7 @@ export class World {
     this.islandsDirty = true;
     this.navVersion++;
     this.terrainVersion++;
+    this.waterVersion++;
     this.markFeat(x0, z0, x1, z1);
   }
   markMat(x0: number, z0: number, x1: number, z1: number) { this.dirtyMat.add(x0, z0, x1, z1); }
@@ -163,19 +206,23 @@ export class World {
     isl.fill(-1);
     const stack = new Int32Array(N);
     let id = 0;
+    const sizes: number[] = [];
     for (let s = 0; s < N; s++) {
       if (isl[s] !== -1 || !this.walkable(s)) continue;
-      let sp = 0; stack[sp++] = s; isl[s] = id;
+      let sp = 0, n = 0; stack[sp++] = s; isl[s] = id;
       while (sp > 0) {
         const t = stack[--sp];
+        n++;
         const x = t % W, z = (t / W) | 0;
         if (x > 0) { const n = t - 1; if (isl[n] === -1 && this.walkable(n)) { isl[n] = id; stack[sp++] = n; } }
         if (x < W - 1) { const n = t + 1; if (isl[n] === -1 && this.walkable(n)) { isl[n] = id; stack[sp++] = n; } }
         if (z > 0) { const n = t - W; if (isl[n] === -1 && this.walkable(n)) { isl[n] = id; stack[sp++] = n; } }
         if (z < H - 1) { const n = t + W; if (isl[n] === -1 && this.walkable(n)) { isl[n] = id; stack[sp++] = n; } }
       }
+      sizes.push(n);
       id++;
     }
+    this.islandSize = sizes;
     this.islandsDirty = false;
   }
 }

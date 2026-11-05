@@ -216,6 +216,7 @@ class AudioEngine {
     switch (t) {
       case 'hit': if (g > 0.05 && this.rate('hit', 60)) { this.burst({ type: 'bandpass', f: r(1500, 3000), q: 4, a: 0.001, d: 0.06, g: 0.1 * g * near, pan }); this.tone(r(150, 250), { type: 'triangle', d: 0.08, g: 0.08 * g * near, pan, to: 90 }); } break;
       case 'death': if (g > 0.05 && this.rate('death', 120)) this.tone(r(500, 700), { type: 'triangle', to: 200, d: 0.35, g: 0.07 * g * near, pan }); break;
+      case 'gasp': if (g > 0.15 && near === 1 && this.rate('gasp', 260)) { for (let i = 0; i < 3; i++) this.tone(r(500, 900), { type: 'sine', to: r(1100, 1600), d: 0.07, g: 0.035 * g, t: this.ctx!.currentTime + i * 0.06, pan }); this.burst({ type: 'bandpass', f: 900, q: 1.5, d: 0.12, g: 0.05 * g, pan }); } break;
       case 'birth': if (g > 0.1 && this.rate('birth', 400)) [84, 88, 91].forEach((m, i) => this.tone(mtof(m), { type: 'sine', d: 0.3, g: 0.04 * g, t: this.ctx!.currentTime + i * 0.07, pan, verb: 0.5 })); break;
       case 'hammer': if (g > 0.2 && near === 1 && this.rate('hammer', 140)) this.tone(r(900, 1300), { type: 'square', d: 0.03, g: 0.03 * g, pan }); break;
       case 'chop': if (g > 0.2 && near === 1 && this.rate('chop', 150)) { this.tone(r(350, 450), { type: 'triangle', d: 0.05, g: 0.06 * g, pan }); this.burst({ type: 'bandpass', f: 1200, q: 3, d: 0.04, g: 0.04 * g, pan }); } break;

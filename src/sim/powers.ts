@@ -227,7 +227,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     case 'rain': sim.rainClouds.push({ id: sim.id(), x, z, vx: sim.rng.range(-0.04, 0.04), vz: sim.rng.range(-0.04, 0.04), life: 600, r: 7, storm: false }); break;
     case 'storm': sim.rainClouds.push({ id: sim.id(), x, z, vx: sim.rng.range(-0.05, 0.05), vz: sim.rng.range(-0.05, 0.05), life: 600, r: 9, storm: true }); break;
     case 'forest': brush(sim, x, z, r, (t, k, tx, tz) => {
-      if (w.isWater(t) || w.bld[t] >= 0 || w.feat[t] !== Feat.None || sim.rng.next() > k * 0.25 || w.besideBuilding(t)) return;
+      if (w.isWater(t) || w.bld[t] >= 0 || w.feat[t] !== Feat.None || sim.rng.next() > k * 0.25 || w.besideBuilding(t) || !w.dryForPlant(t)) return;
       const m = w.mat[t];
       const f = m === Mat.Desert ? Feat.Cactus : m === Mat.Snow ? Feat.SnowPine : m === Mat.Sand ? Feat.Palm : m === Mat.Savanna ? Feat.Acacia : m === Mat.Rock || m === Mat.Lava ? Feat.None : sim.rng.pick([Feat.Oak, Feat.Oak, Feat.Pine, Feat.Birch]);
       if (f === Feat.None) return;
@@ -242,7 +242,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
       const f = w.feat[t];
       if (f >= 1 && f <= 7 && w.featAmt[t] < 255) { w.featAmt[t] = Math.min(255, w.featAmt[t] + 60); w.markFeatTile(t); }
       else if (f === Feat.Dead) w.setFeat(t, Feat.Oak, 80);
-      else if (f === Feat.None && w.bld[t] < 0 && sim.rng.chance(0.05 * k) && (w.mat[t] === Mat.Grass || w.mat[t] === Mat.Lush)) { w.setFeat(t, sim.rng.chance(0.6) ? Feat.Flower : Feat.Berry, 200); sim.fx.push({ t: 'sprout', x: tx + 0.5, z: tz + 0.5, u: t }); }
+      else if (f === Feat.None && w.bld[t] < 0 && sim.rng.chance(0.05 * k) && (w.mat[t] === Mat.Grass || w.mat[t] === Mat.Lush) && w.dryForPlant(t)) { w.setFeat(t, sim.rng.chance(0.6) ? Feat.Flower : Feat.Berry, 200); sim.fx.push({ t: 'sprout', x: tx + 0.5, z: tz + 0.5, u: t }); }
     }); sim.fx.push({ t: 'heal', x, z }); break;
     case 'heat': brush(sim, x, z, r, (t, k) => {
       if (k < 0.3) return;

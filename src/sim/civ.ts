@@ -717,7 +717,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
         let ripe = -1, tend = -1;
         for (let dz = 0; dz < b.size; dz++) for (let dx = 0; dx < b.size; dx++) {
           const t = w.idx(b.x + dx, b.z + dz);
-          if (claimedFarm.get(t)! > sim.tick) continue;
+          if (claimedFarm.get(t)! > sim.tick || !w.dryForPlant(t)) continue;
           if (w.feat[t] === Feat.Crop && w.featAmt[t] >= 230) ripe = t;
           else if (w.featAmt[t] < 200 && sim.rng.chance(0.3)) tend = t;
         }
@@ -758,7 +758,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
         const x = Math.floor(v.cx + Math.cos(a) * d), z = Math.floor(v.cz + Math.sin(a) * d);
         if (!w.inside(x, z)) continue;
         const tt = w.idx(x, z);
-        if (w.feat[tt] !== Feat.None || w.bld[tt] >= 0 || !w.walkable(tt) || w.besideBuilding(tt)) continue;
+        if (w.feat[tt] !== Feat.None || w.bld[tt] >= 0 || !w.walkable(tt) || w.besideBuilding(tt) || !w.dryForPlant(tt)) continue;
         const m = w.mat[tt];
         if (m !== Mat.Grass && m !== Mat.Lush && m !== Mat.Savanna && m !== Mat.Soil && m !== Mat.Ash) continue;
         return { k: 'move', tx: x + 0.5, tz: z + 0.5, then: { k: 'idle', t: 12, plant: tt } as Task };
