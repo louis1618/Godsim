@@ -315,6 +315,9 @@ export function claimTerritory(sim: Sim, v: Village) {
     const cur = w.owner[t];
     if (inside) {
       if (cur === v.id) continue;
+      // never take land out from under another village's buildings (even land it never claimed)
+      const ob = w.bld[t] >= 0 ? sim.buildings.get(w.bld[t]) : undefined;
+      if (ob && ob.village >= 0 && ob.village !== v.id && sim.villages.get(ob.village)?.alive) continue;
       if (cur < 0) { w.owner[t] = v.id; continue; }
       const o = sim.villages.get(cur);
       if (!o || !o.alive) { w.owner[t] = v.id; continue; }

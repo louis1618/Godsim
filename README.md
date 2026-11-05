@@ -51,6 +51,8 @@ npm run dev
 | `tools/p3test.ts` | 부족→교역, 부족→전쟁(대조군 포함), 체포→수감→석방, 시대→시설/직업 |
 | `tools/p4test.ts` | 관측된 사냥이 먹이사슬 표와 일치, 가뭄 연쇄(대조군 비교), 화산 회복, 핵 낙진 |
 | `tools/perftest.ts` | 월드 크기·개체 수별 틱당 비용 |
+| `tools/combattest.ts` | 포대·전함·폭격기·드래곤의 실제 피해, 홍수 침수·배수, 하늘에서 떨어지는 핵의 지연 |
+| `tools/territorytest.ts` | 영토 위생: 죽은 마을 땅, 한 칸 고립 영토, 지그재그 경계, 남의 땅 위 건물 |
 | `tools/soak.ts` | 무인 장시간 실행 + 저장→불러오기 후 결정론 확인: `npx tsx tools/soak.ts <years> <size>` |
 
 ## 그래픽 품질

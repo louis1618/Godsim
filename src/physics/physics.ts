@@ -26,7 +26,10 @@ const GROUPS_DEBRIS = (G_DEBRIS << 16) | (G_GROUND | G_DEBRIS);
 export class Physics {
   ready = false;
   private world!: RAPIER.World;
+  /** Cosmetic debris lives in its own world: what the camera happens to show must never touch the simulation. */
+  private fxWorld!: RAPIER.World;
   private ground: RAPIER.Collider | null = null;
+  private fxGround: RAPIER.Collider | null = null;
   private terrain!: World;
   ragdolls = new Map<number, Ragdoll>();
   debris: Debris[] = [];
@@ -37,6 +40,7 @@ export class Physics {
   async init() {
     await RAPIER.init();
     this.world = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 });
+    this.fxWorld = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 });
     this.ready = true;
   }
 
@@ -44,7 +48,7 @@ export class Physics {
     this.terrain = w;
     for (const r of this.ragdolls.values()) this.world.removeRigidBody(r.body);
     this.ragdolls.clear();
-    for (const d of this.debris) this.world.removeRigidBody(d.body);
+    for (const d of this.debris) this.fxWorld.removeRigidBody(d.body);
     this.debris = [];
     this.rebuildGround();
   }
@@ -54,6 +58,7 @@ export class Physics {
   private rebuildGround() {
     const w = this.terrain;
     if (this.ground) { this.world.removeCollider(this.ground, false); this.ground = null; }
+    if (this.fxGround) { this.fxWorld.removeCollider(this.fxGround, false); this.fxGround = null; }
     const nrows = w.H - 1, ncols = w.W - 1;
     const heights = new Float32Array(w.W * w.H);
     // column-major: (row = z, col = x)
@@ -61,6 +66,7 @@ export class Physics {
     const desc = RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, { x: w.W - 1, y: 1, z: w.H - 1 })
       .setTranslation(w.W / 2, 0, w.H / 2).setFriction(0.8).setRestitution(0.35);
     this.ground = this.world.createCollider(desc.setCollisionGroups(GROUPS_GROUND));
+    this.fxGround = this.fxWorld.createCollider(desc.setCollisionGroups(GROUPS_GROUND));
     this.groundDirty = false;
   }
 
@@ -120,9 +126,9 @@ export class Physics {
   spawnDebris(pos: THREE.Vector3, vel: THREE.Vector3, color: number, size = 0.15, life = 4) {
     if (!this.ready || this.debris.length > 220) return;
     // purely cosmetic: render-side randomness is fine here
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinearDamping(0.2).setAngularDamping(0.3));
+    const body = this.fxWorld.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinearDamping(0.2).setAngularDamping(0.3));
     const sx = size * (0.6 + Math.random() * 0.8), sy = size * (0.5 + Math.random() * 0.8), sz = size * (0.6 + Math.random() * 0.8);
-    this.world.createCollider(RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2).setDensity(2).setRestitution(0.3).setFriction(0.8).setCollisionGroups(GROUPS_DEBRIS), body);
+    this.fxWorld.createCollider(RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2).setDensity(2).setRestitution(0.3).setFriction(0.8).setCollisionGroups(GROUPS_DEBRIS), body);
     body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
     body.setAngvel({ x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10, z: (Math.random() - 0.5) * 10 }, true);
     this.debris.push({ body, color: new THREE.Color(color), size: new THREE.Vector3(sx, sy, sz), life, max: life });
@@ -145,6 +151,7 @@ export class Physics {
         }
       }
       this.world.step();
+      if (this.debris.length) this.fxWorld.step();
     }
     const dt = 0.1;
     for (const [id, r] of this.ragdolls) {
@@ -188,7 +195,7 @@ export class Physics {
     }
     for (const d of this.debris) d.life -= dt;
     const dead = this.debris.filter((d) => d.life <= 0);
-    for (const d of dead) this.world.removeRigidBody(d.body);
+    for (const d of dead) this.fxWorld.removeRigidBody(d.body);
     if (dead.length) this.debris = this.debris.filter((d) => d.life > 0);
   }
 

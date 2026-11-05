@@ -329,8 +329,10 @@ function boatTick(sim: Sim, u: Unit) {
       const e = findEnemy(sim, u.x, u.z, 7, kid);
       const b = e ? null : enemyBuilding(sim, u.x, u.z, 7, kid);
       if (e || b) {
-        const tx = e ? e.x : b!.x + b!.size / 2, tz = e ? e.z : b!.z + b!.size / 2;
-        fireShell(sim, u.x, u.z, 0.4, tx + sim.rng.range(-0.4, 0.4), tz + sim.rng.range(-0.4, 0.4), 45, 1.3, kid, 'cannon');
+        // lead a moving target by its velocity over the shell's flight time
+        const flight = e ? Math.max(3, Math.round(Math.hypot(e.x - u.x, e.z - u.z) * 0.9)) : 0;
+        const tx = e ? e.x + (e.x - e.px) * flight : b!.x + b!.size / 2, tz = e ? e.z + (e.z - e.pz) * flight : b!.z + b!.size / 2;
+        fireShell(sim, u.x, u.z, 0.4, tx + sim.rng.range(-0.25, 0.25), tz + sim.rng.range(-0.25, 0.25), 45, 1.6, kid, 'cannon');
         u.cd = 26; u.anim = Anim.Attack; u.animT = 6;
         u.dir = Math.atan2(tx - u.x, tz - u.z) + Math.PI / 2; // broadside
       }
@@ -452,9 +454,10 @@ function tankTick(sim: Sim, u: Unit) {
     const e = findEnemy(sim, u.x, u.z, 8, kid);
     const b = e ? null : enemyBuilding(sim, u.x, u.z, 8, kid);
     if (e || b) {
-      const tx = e ? e.x : b!.x + b!.size / 2, tz = e ? e.z : b!.z + b!.size / 2;
+      const flight = e ? Math.max(3, Math.round(Math.hypot(e.x - u.x, e.z - u.z) * 0.9)) : 0;
+      const tx = e ? e.x + (e.x - e.px) * flight : b!.x + b!.size / 2, tz = e ? e.z + (e.z - e.pz) * flight : b!.z + b!.size / 2;
       u.dir = Math.atan2(tx - u.x, tz - u.z);
-      fireShell(sim, u.x + Math.sin(u.dir) * 0.6, u.z + Math.cos(u.dir) * 0.6, 0.5, tx, tz, SPECIES[Sp.Tank].dmg, 1.4, kid);
+      fireShell(sim, u.x + Math.sin(u.dir) * 0.6, u.z + Math.cos(u.dir) * 0.6, 0.5, tx, tz, SPECIES[Sp.Tank].dmg, 1.5, kid);
       u.cd = 22; u.animT = 5;
       return;
     }

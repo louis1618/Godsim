@@ -64,12 +64,15 @@ export function unitTick(sim: Sim, u: Unit) {
 /** Work speed from mood (content workers are productive; miserable ones slack). */
 export function workRate(u: Unit) { const m = u.mood ?? 60; return m >= 70 ? 1.2 : m >= 40 ? 1 : m >= 20 ? 0.8 : 0.6; }
 
+/** Cold-blooded and small hunters burn less food than a wolf pack does. */
+const HUNGER_RATE: Partial<Record<number, number>> = { [Sp.Crocodile]: 0.35, [Sp.Fox]: 0.7, [Sp.Bear]: 0.8 };
+
 function metabolism(sim: Sim, u: Unit) {
   const def = SPECIES[u.sp];
   u.age += AGE_STEP;
   if (!def.undead) {
     const winter = sim.season === 3 ? 1.3 : 1;
-    u.hunger += (isCiv(u.sp) ? 0.62 : 0.7) * winter * (u.age < def.adultAge ? 0.6 : 1);
+    u.hunger += (isCiv(u.sp) ? 0.62 : 0.7 * (HUNGER_RATE[u.sp] ?? 1)) * winter * (u.age < def.adultAge ? 0.6 : 1);
     if (u.hunger >= 100) { u.hunger = 100; hurt(sim, u, 3, undefined, 'hunger'); }
     if (u.age > u.maxAge) { sim.killUnit(u, 'age'); return; }
     if (u.hp < u.maxHp && u.hunger < 70 && !(u.flags & UF.Sick)) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.015);
@@ -266,7 +269,7 @@ function decideAnimal(sim: Sim, u: Unit) {
       sim.near(u.x, u.z, range, (o, d2) => {
         if (o.sp === u.sp || o.flags & (UF.Held | UF.Jailed | UF.Aboard)) return;
         if (!eats(u.sp, o.sp, starving)) return;
-        if (o.sp === Sp.Fish && d2 > 16) return;          // fish only near the shore
+        if (o.sp === Sp.Fish && d2 > (aquatic(u.sp) ? 64 : 16)) return; // fish only near the shore (crocodiles swim)
         if (o.y > 1) return;                               // can't reach fliers
         const w2 = d2 * (SPECIES[o.sp].hp > SPECIES[u.sp].hp ? 3 : 1); // prefer manageable prey
         if (w2 < bd) { bd = w2; prey = o; }
@@ -275,7 +278,7 @@ function decideAnimal(sim: Sim, u: Unit) {
     }
   }
   // breeding
-  if (sim.laws.animals && u.breedT <= 0 && u.age >= def.adultAge && u.hunger < 45 && def.breedEvery > 0) {
+  if (sim.laws.animals && u.breedT <= 0 && u.age >= def.adultAge && u.hunger < (hunts(u.sp) ? 62 : 45) && def.breedEvery > 0) {
     const pop = sim.count(u.sp);
     const cap = speciesCap(sim, u.sp);
     if (pop < cap) {
@@ -305,8 +308,14 @@ function decideAnimal(sim: Sim, u: Unit) {
   }
   // hungry hunters roam far in search of prey
   const roam = hunts(u.sp) ? (u.hunger > 55 ? 26 : 10) : 6;
-  if (sim.rng.chance(u.hunger > 55 && hunts(u.sp) ? 0.1 : 0.35)) setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 30) });
+  // Activity LOD (camera-independent): a contented animal out in the wilds, far from any town,
+  // rests longer and reconsiders less often. Only what the creature is doing decides this - never
+  // where the camera is - so every view of the world sees exactly the same history.
+  const t = sim.world.tileAt(u.x, u.z);
+  const calm = t >= 0 && sim.world.owner[t] < 0 && u.hunger < 50 && u.hitT === 0;
+  if (sim.rng.chance(u.hunger > 55 && hunts(u.sp) ? 0.1 : calm ? 0.55 : 0.35)) setTask(sim, u, { k: 'idle', t: (10 + sim.rng.int(0, 30)) * (calm ? 2 : 1) });
   else wanderNear(sim, u, u.x, u.z, roam);
+  if (calm) u.think *= 2;
 }
 
 export function speciesCap(sim: Sim, sp: Sp) {
@@ -471,8 +480,11 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
     }
     const near = arriveDist >= 1.5 ? Math.floor(arriveDist) : 0;
     // idle strolls may not cost a full search: an unreachable stroll target is simply dropped
-    const budget = u.task?.k === 'wander' || u.task?.k === 'idle' ? 500 : 5000;
+    const tk = u.task?.k;
+    const budget = tk === 'wander' || tk === 'idle' ? 500 : tk === 'hunt' || tk === 'attack' ? 2000 : 5000;
+    const t0 = sim.pathProbe ? performance.now() : 0;
     const p = sim.pf.find(u.x, u.z, goal, budget, near);
+    if (sim.pathProbe) sim.pathProbe(u, performance.now() - t0, !!p);
     if (!p) {
       u.stuck++;
       if (u.stuck > 3) { u.task = null; u.think = 0; }
@@ -549,10 +561,21 @@ function run(sim: Sim, u: Unit, t: Task) {
         else { u.task = null; u.think = 0; }
       }
       break;
-    case 'flee':
-      if (moveTo(sim, u, t.tx, t.tz, 0.6, 1.15)) { u.task = null; u.think = 0; }
-      if (u.anim === Anim.Walk) u.anim = Anim.Panic;
+    case 'flee': {
+      // panic runs straight away (sliding along obstacles) - no route planning, just legs
+      const sp = SPECIES[u.sp].speed * u.speedMul * TICK_DT * 1.15 * (u.age < SPECIES[u.sp].adultAge ? 0.85 : 1);
+      const moved = stepToward(w, u, t.tx, t.tz, sp, aquatic(u.sp));
+      if (moved > 1e-5) { u.dir = Math.atan2(t.tx - u.x, t.tz - u.z); u.anim = Anim.Panic; u.stuck = 0; }
+      else if (++u.stuck > 3) {
+        // cornered: veer off to one side and keep running
+        const a = Math.atan2(t.tz - u.z, t.tx - u.x) + ((u.id & 1) ? 1.1 : -1.1), d = Math.max(3, Math.hypot(t.tx - u.x, t.tz - u.z));
+        t.tx = u.x + Math.cos(a) * d; t.tz = u.z + Math.sin(a) * d; u.stuck = 0;
+        u.blocked = (u.blocked ?? 0) + 1;
+        if (u.blocked > 6) { u.blocked = 0; u.task = null; u.think = 0; }
+      }
+      if (Math.hypot(t.tx - u.x, t.tz - u.z) < 0.6) { u.task = null; u.think = 0; }
       break;
+    }
     case 'settle':
       if (moveTo(sim, u, t.tx, t.tz, 1.5)) { u.task = null; tryFoundVillage(sim, u, true); }
       break;
@@ -813,8 +836,8 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   const def = SPECIES[u.sp];
   const d = Math.hypot(o.x - u.x, o.z - u.z);
   if (o.sp === Sp.Fish && hunting) {
-    // fishing from the shore: a quick swipe or net when close enough
-    if (d <= 2.2) {
+    // fishing from the shore: a quick swipe or net when close enough (a crocodile has to get its jaws on it)
+    if (d <= (aquatic(u.sp) ? 0.8 : 2.2)) {
       face(u, o.x, o.z); u.anim = Anim.Attack; u.animT = 6;
       sim.fx.push({ t: 'fish', x: o.x, z: o.z, u: u.id });
       sim.killUnit(o, 'eaten', u);
@@ -823,6 +846,11 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
       return;
     }
     if (++u.stuck > 60) { u.task = null; u.think = 0; u.stuck = 0; return; }
+    if (aquatic(u.sp)) {
+      // crocodiles slide into the water after it
+      if (stepToward(sim.world, u, o.x, o.z, def.speed * TICK_DT * 1.2, true) > 0) { face(u, o.x, o.z); u.anim = Anim.Swim; }
+      return;
+    }
     moveTo(sim, u, o.x, o.z, 2.0, 1);
     return;
   }

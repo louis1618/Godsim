@@ -67,6 +67,8 @@ export class Sim {
   deathCauses: Record<string, number> = {};
   onHistory: ((h: HistoryEntry) => void) | null = null;
   physics: PhysicsPort | null = null;
+  /** Optional profiling hook (tools only): told about every path search a creature makes. */
+  pathProbe: ((u: Unit, ms: number, ok: boolean) => void) | null = null;
 
   /** Throw a creature (explosions, tornadoes, quakes). Without a physics engine it just staggers. */
   fling(u: Unit, vx: number, vy: number, vz: number, spin = 8) {
