@@ -116,6 +116,7 @@ export class Controller {
     }
     if (e.code === 'BracketLeft') { this.bumpBrush(-1); return; }
     if (e.code === 'BracketRight') { this.bumpBrush(1); return; }
+    if (e.code === 'Home') { g.gr.rig.resetYaw(); return; }
     if (e.code === 'Comma') { this.setSpeed(-1); return; }
     if (e.code === 'Period') { this.setSpeed(1); return; }
     const p = POWERS.find((p) => p.key === e.code);

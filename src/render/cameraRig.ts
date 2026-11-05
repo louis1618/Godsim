@@ -25,6 +25,7 @@ export class CameraRig {
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private tmp = new THREE.Vector3();
+  private euler = new THREE.Euler();
   vel = new THREE.Vector2();
   // derived
   z01 = 1;
@@ -50,13 +51,25 @@ export class CameraRig {
   zoomFrom(V: number) { return clamp01(Math.log(V / this.vMin) / Math.log(this.vMax / this.vMin)); }
   vFromZoom(z: number) { return this.vMin * Math.pow(this.vMax / this.vMin, clamp01(z)); }
 
-  /** Zoom by factor keeping the world point under the cursor fixed. */
+  /**
+   * Zoom by factor keeping the world point under the cursor fixed. A cursor near (or above) the
+   * horizon of a tilted view would anchor on a point far away and fling the view: those zooms
+   * centre on the screen middle instead.
+   */
   zoomAt(ndcX: number, ndcY: number, factor: number) {
     this.tV = clamp(this.tV * factor, this.vMin, this.vMax);
     const hit = this.pick(ndcX, ndcY);
-    if (hit) this.anchor = { ndc: new THREE.Vector2(ndcX, ndcY), world: hit.clone() };
+    const ok = hit && Math.hypot(hit.x - this.focus.x, hit.z - this.focus.z) < this.V * 2.2;
+    // keep the anchor of an ongoing zoom gesture (re-anchoring every wheel tick drifts)
+    if (ok && (!this.anchor || this.anchor.ndc.distanceTo(new THREE.Vector2(ndcX, ndcY)) > 0.02)) this.anchor = { ndc: new THREE.Vector2(ndcX, ndcY), world: hit!.clone() };
+    else if (!ok) this.anchor = null;
     this.flyRate = 0;
   }
+
+  /** The heading the camera actually looks along (title orbit included). */
+  viewYaw = 0;
+  /** Turn back to north-up. */
+  resetYaw() { this.tYaw = Math.round(this.yaw / (Math.PI * 2)) * Math.PI * 2; }
 
   /** Ray-cast the screen point against the horizontal plane through the focus. */
   pick(ndcX: number, ndcY: number, out = new THREE.Vector3()): THREE.Vector3 | null {
@@ -75,7 +88,10 @@ export class CameraRig {
     if (!this.dragStart) return;
     const p = this.pick(ndcX, ndcY, this.tmp);
     if (!p) return;
-    const dx = this.dragStart.x - p.x, dz = this.dragStart.z - p.z;
+    let dx = this.dragStart.x - p.x, dz = this.dragStart.z - p.z;
+    // grazing rays near the horizon turn a pixel of mouse travel into miles: cap one step
+    const lim = this.V * 0.6, m = Math.hypot(dx, dz);
+    if (m > lim) { dx *= lim / m; dz *= lim / m; }
     this.focus.x += dx; this.focus.z += dz;
     this.tFocus.x = this.focus.x; this.tFocus.z = this.focus.z;
     if (dt > 0) this.vel.set(dx / dt, dz / dt).multiplyScalar(0.5).add(this.vel.clone().multiplyScalar(0.5));
@@ -129,6 +145,9 @@ export class CameraRig {
     if (Math.abs(this.V - this.tV) < this.tV * 0.002) this.V = this.tV;
     this.focus.x = damp(this.focus.x, this.tFocus.x, rate, dt);
     this.focus.z = damp(this.focus.z, this.tFocus.z, rate, dt);
+    // keep both angles in one turn of each other so damping never takes the long way round
+    while (this.tYaw - this.yaw > Math.PI) this.tYaw -= Math.PI * 2;
+    while (this.tYaw - this.yaw < -Math.PI) this.tYaw += Math.PI * 2;
     this.yaw = dampAngle(this.yaw, this.tYaw, 10, dt);
     this.tilt = damp(this.tilt, this.tTilt, 10, dt);
     if (this.flyRate > 0 && Math.abs(this.V - this.tV) < this.tV * 0.01 && this.focus.distanceTo(this.tFocus) < 0.5) this.flyRate = 0;
@@ -166,7 +185,9 @@ export class CameraRig {
     this.pitch = lerp(nearPitch, 90, tp * tp * (2 - tp));
     let fov = lerp(52, 30, smoothstep(0.15, 0.9, z));
     const cam = this.camera;
-    let yaw = this.yaw * (1 - smoothstep(0.72, 0.95, z));
+    // The heading is never hidden: the map view keeps the user's rotation, so zooming out and back
+    // in can not spring a forgotten turn on them, and WASD / drag / audio always match the screen.
+    let yaw = this.yaw;
     let V = this.V;
     const ob = this.orbit;
     if (ob > 0) {
@@ -194,8 +215,10 @@ export class CameraRig {
     // never clip into hills
     const under = Math.max(this.ground(cam.position.x, cam.position.z), 0) * this.heightScale + 0.9;
     if (cam.position.y < under) cam.position.y = under;
-    cam.quaternion.setFromEuler(new THREE.Euler(-pr, yaw, 0, 'YXZ'));
-    if (this.pitch < 89.9) cam.lookAt(this.focus);
+    // orientation straight from (yaw, pitch): no lookAt, so no flip when the view is top-down
+    this.euler.set(-pr, yaw, 0, 'YXZ');
+    cam.quaternion.setFromEuler(this.euler);
+    this.viewYaw = yaw;
     cam.near = Math.max(0.05, dist * 0.02);
     cam.far = Math.max(600, dist * 8);
     cam.updateProjectionMatrix();

@@ -79,6 +79,7 @@ export class Game {
     // physics runs inside sim ticks; here we only interpolate ragdolls for drawing
     this.physics.interpolate(this.alpha, this.units.physics, this.units.heldId);
     this.units.orbit = rig.orbit;
+    this.units.viewYaw = rig.viewYaw;
     this.units.update(sim, this.alpha, rig.camera.position, rig.focus, rig.V, rig.z01, pxScale, dt);
     this.buildings.update(sim);
     // fx hand-off

@@ -339,7 +339,7 @@ export class AppCtl {
     } else this.autoAt = 0;
     // audio listener + ambience estimate around the view
     const rig = this.gr.rig;
-    audio.listener.x = rig.focus.x; audio.listener.z = rig.focus.z; audio.listener.span = rig.V; audio.listener.z01 = rig.z01; audio.listener.yaw = rig.yaw;
+    audio.listener.x = rig.focus.x; audio.listener.z = rig.focus.z; audio.listener.span = rig.V; audio.listener.z01 = rig.z01; audio.listener.yaw = rig.viewYaw;
     const w = sim.world;
     let water = 0, forest = 0, village = 0, fire = 0, n = 0;
     const R = Math.min(40, rig.V * 0.6);

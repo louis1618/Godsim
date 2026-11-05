@@ -313,6 +313,8 @@ export class UnitRenderer {
   }
 
   orbit = 0;
+  /** camera heading (set by the game each frame) */
+  viewYaw = 0;
 
   update(sim: Sim, alpha: number, camPos: THREE.Vector3, focus: THREE.Vector3, viewV: number, z01: number, pixelScale: number, dt: number) {
     const show3D = z01 < 0.86 || this.orbit > 0.5;
@@ -336,7 +338,7 @@ export class UnitRenderer {
       counts.fill(0);
     }
     // camera-right on the ground plane: breath bubbles line up across the screen
-    const rx = Math.cos(this.orbitYaw(camPos, focus)), rz = -Math.sin(this.orbitYaw(camPos, focus));
+    const rx = Math.cos(this.viewYaw), rz = -Math.sin(this.viewYaw);
     for (const u of sim.units) {
       if (u.flags & UF.Dead) continue;
       const def = SPECIES[u.sp];
@@ -468,7 +470,6 @@ export class UnitRenderer {
     void time;
   }
 
-  private orbitYaw(cam: THREE.Vector3, focus: THREE.Vector3) { return Math.atan2(cam.x - focus.x, cam.z - focus.z); }
 
   private takeCorpses(sim: Sim, focus: THREE.Vector3, radius: number, time: number) {
     const g = sim.graveyard;
