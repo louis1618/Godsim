@@ -145,6 +145,9 @@ export class FxRenderer {
   private arrowMesh: THREE.InstancedMesh;
   private shells: Arrow[] = [];
   private shellMesh: THREE.InstancedMesh;
+  private nukeMesh: THREE.InstancedMesh;
+  private bombMesh: THREE.InstancedMesh;
+  private reticles: THREE.InstancedMesh;
   private meteorMesh: THREE.InstancedMesh;
   private tornadoMesh: THREE.InstancedMesh;
   private debrisMesh: THREE.InstancedMesh;
@@ -212,6 +215,27 @@ export class FxRenderer {
     this.shellMesh = new THREE.InstancedMesh(sb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.5 }), 128);
     this.shellMesh.frustumCulled = false; this.shellMesh.count = 0;
     this.group.add(this.shellMesh);
+    // ordnance falling from the sky: a striped warhead and a finned bomb, plus a red target ring
+    const nb = new ModelBuilder(6);
+    nb.add(geo.cyl(0.32, 0.32, 1.9, 16), { color: (p) => (Math.floor((p.y + 0.95) * 3.2) % 2 ? new THREE.Color(0xf2c230) : new THREE.Color(0x2a2a30)) }, T(0, 0, 0));
+    nb.add(geo.cone(0.32, 0.8, 16), { color: 0xd8d4cc }, T(0, 1.35, 0));
+    nb.add(geo.sphere(0.06, 8, 6), { color: 0xff3a2a }, T(0, 1.76, 0));
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; nb.add(geo.box(0.04, 0.6, 0.42), { color: 0x6a6e74 }, new THREE.Matrix4().makeRotationY(a).multiply(T(0, -0.85, 0.36))); }
+    nb.add(geo.cyl(0.22, 0.28, 0.2, 12), { color: 0x3a3c40 }, T(0, -1.05, 0));
+    this.nukeMesh = new THREE.InstancedMesh(nb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.35 }), 8);
+    this.nukeMesh.frustumCulled = false; this.nukeMesh.count = 0;
+    this.group.add(this.nukeMesh);
+    const bb = new ModelBuilder(7);
+    bb.add(geo.capsule(0.16, 0.5, 4, 12), { color: 0x3a4030 }, T(0, 0, 0));
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; bb.add(geo.box(0.02, 0.24, 0.2), { color: 0x2a2c30 }, new THREE.Matrix4().makeRotationY(a).multiply(T(0, -0.42, 0.14))); }
+    bb.add(geo.torus(0.16, 0.02, 4, 12), { color: 0xd8c84a }, T(0, 0.12, 0, Math.PI / 2));
+    this.bombMesh = new THREE.InstancedMesh(bb.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 }), 32);
+    this.bombMesh.frustumCulled = false; this.bombMesh.count = 0;
+    this.group.add(this.bombMesh);
+    const rg = new THREE.RingGeometry(0.86, 1, 64); rg.rotateX(-Math.PI / 2);
+    this.reticles = new THREE.InstancedMesh(rg, new THREE.MeshBasicMaterial({ color: 0xff3a2a, transparent: true, opacity: 0.75, depthWrite: false }), 48);
+    this.reticles.frustumCulled = false; this.reticles.count = 0; this.reticles.renderOrder = 45;
+    this.group.add(this.reticles);
     // meteors
     const mb = new ModelBuilder(4);
     mb.add(geo.ico(0.8, 1), { color: 0x4a3a32, jitter: 0.15, flat: true }, T());
@@ -491,6 +515,15 @@ export class FxRenderer {
         this.burst(e.x, y + 0.3, e.z, 40, { color: 0xd8f0ff, frame: PF.Drop, speed: (e.a ?? 11) * 0.4, up: 3, life: 1.2, size: 0.14, grav: -8, spread: 6 });
         this.rig.shake = Math.max(this.rig.shake, 0.4);
         break;
+      case 'launch': {
+        // a flash high in the sky where the ordnance appears
+        const big = e.a === 1;
+        const sy = big ? 70 : 34;
+        this.burst(e.x, sy, e.z, big ? 18 : 8, { color: 0xfff2c0, frame: PF.Spark, speed: big ? 4 : 2, up: 0, life: 0.6, size: big ? 0.6 : 0.3, add: true, drag: 2 });
+        this.burst(e.x, sy, e.z, big ? 12 : 5, { color: 0xd8d4cc, frame: PF.Smoke, speed: 1.5, up: 0.3, life: 2.5, size: 1.2, size1: 3, drag: 1, alpha: 0.6 });
+        if (big) this.flashAt(e.x, sy, e.z, 60, 120);
+        break;
+      }
       case 'nuke': {
         const r = e.a ?? 12;
         this.screenFlash = 1;
@@ -664,6 +697,38 @@ export class FxRenderer {
     }
     this.shells = this.shells.filter((a) => a.t < a.dur);
     this.shellMesh.count = ns; this.shellMesh.instanceMatrix.needsUpdate = true;
+
+    // ordnance in flight + target rings on the ground
+    let nn = 0, nb = 0, nrt = 0;
+    const down = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+    for (const ms of sim.missiles) {
+      const big = ms.kind === 'nuke';
+      const arming = ms.arm > 0;
+      const wob = arming ? Math.sin(U.uTime.value * 6 + ms.id) * 0.08 : 0;
+      q.copy(down).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(wob, U.uTime.value * (arming ? 1.5 : 4), wob)));
+      p.set(ms.x, ms.y * hs, ms.z); s.setScalar(big ? 1.6 : 1.4);
+      m.compose(p, q, s);
+      if (big) this.nukeMesh.setMatrixAt(nn++, m); else this.bombMesh.setMatrixAt(nb++, m);
+      // smoke trail (and a rocket glow while diving)
+      if (!arming) {
+        this.alpha.spawn(ms.x + (Math.random() - 0.5) * 0.2, ms.y + (big ? 2 : 0.8), ms.z + (Math.random() - 0.5) * 0.2, 0, 0.5, 0, { life: big ? 3 : 1.6, size: big ? 0.8 : 0.35, size1: big ? 2.8 : 1, color: 0xd8d4cc, frame: PF.Smoke, alpha: 0.7, drag: 0.6 });
+        if (big) this.add.spawn(ms.x, ms.y + 2.1, ms.z, 0, 2, 0, { life: 0.25, size: 1.2, size1: 0.3, color: 0xffb050, frame: PF.Flame });
+      }
+      // target ring pulses faster as impact nears
+      const gy = this.gy(sim, ms.x, ms.z);
+      const R = big ? 11 : 2.6;
+      const k = Math.min(1, Math.max(0, (ms.y - gy) / (big ? 70 : 34)));
+      for (const f of [1, 0.55]) {
+        const pulse = 1 + Math.sin(U.uTime.value * (10 - k * 6)) * 0.06;
+        p.set(ms.x, gy * hs + 0.15, ms.z); q.identity(); s.set(R * f * pulse, 1, R * f * pulse);
+        m.compose(p, q, s);
+        if (nrt < 48) this.reticles.setMatrixAt(nrt++, m);
+      }
+    }
+    this.nukeMesh.count = nn; this.nukeMesh.instanceMatrix.needsUpdate = true;
+    this.bombMesh.count = nb; this.bombMesh.instanceMatrix.needsUpdate = true;
+    this.reticles.count = nrt; this.reticles.instanceMatrix.needsUpdate = true;
+    (this.reticles.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(U.uTime.value * 12) * 0.25;
 
     // meteors
     let nm = 0;

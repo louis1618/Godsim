@@ -2,7 +2,7 @@ import { Sim, setTimeout0 } from './sim';
 import { Unit, Task, Job, Anim, Emote, UF, Res, Mem } from './entities';
 import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, isVehicle, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
 import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf, loot } from './civ';
-import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free } from './nav';
+import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free, separate } from './nav';
 import { mindTick, socialise, remember } from './mind';
 import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedTick, suspectFlee } from './jobs';
 import { vehicleTick } from './vehicles';
@@ -55,8 +55,10 @@ export function unitTick(sim: Sim, u: Unit) {
   }
   if (--u.think <= 0 || !u.task) decide(sim, u);
   if (u.task) run(sim, u, u.task);
-  // walking animations only while the creature really changes position
+  // walking animations only while the creature really changes position (judged before the
+  // separation nudge, so being shuffled aside never shows as walking in place)
   if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && Math.abs(u.x - u.px) + Math.abs(u.z - u.pz) < 1e-4) u.anim = Anim.Idle;
+  separate(sim, u);
 }
 
 /** Work speed from mood (content workers are productive; miserable ones slack). */

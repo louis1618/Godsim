@@ -1,7 +1,7 @@
 import { Sim, setTimeout0 } from './sim';
 import { Unit, Building, Village, Anim, UF } from './entities';
 import { Sp, SPECIES, Bk, TICK_DT, isCiv, isVehicle } from './defs';
-import { stepToward } from './nav';
+import { stepToward, separate } from './nav';
 import { completed } from './jobs';
 
 /**
@@ -262,6 +262,7 @@ export function vehicleTick(sim: Sim, u: Unit) {
   if (u.sp === Sp.Boat) boatTick(sim, u);
   else if (u.sp === Sp.Tank) tankTick(sim, u);
   else planeTick(sim, u);
+  if (u.sp !== Sp.Plane && !(u.flags & UF.Dead)) separate(sim, u);
   // keep riders on deck
   const t = u.task;
   if (t && t.k === 'voyage' && t.riders) {

@@ -79,6 +79,16 @@ export class World {
   }
 
   isWater(t: number) { return this.water[t] > this.height[t]; }
+  /** A building on this tile or one of its 8 neighbours (trees and rocks keep this ring clear). */
+  besideBuilding(t: number) {
+    const x = t % this.W, z = (t / this.W) | 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, zz = z + dz;
+      if (xx < 0 || zz < 0 || xx >= this.W || zz >= this.H) continue;
+      if (this.bld[zz * this.W + xx] >= 0) return true;
+    }
+    return false;
+  }
   isDeep(t: number) { return this.water[t] - this.height[t] > 1.2; }
   waterDepth(t: number) { return this.water[t] - this.height[t]; }
 

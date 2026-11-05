@@ -176,7 +176,7 @@ function spreadTree(sim: Sim, t: number, f: number) {
   if (!w.inside(nx, nz)) return;
   const n = nz * w.W + nx;
   if (w.feat[n] !== Feat.None && w.feat[n] !== Feat.Flower) return;
-  if (w.bld[n] >= 0 || !w.walkable(n) || w.fire[n] > 0) return;
+  if (w.bld[n] >= 0 || !w.walkable(n) || w.fire[n] > 0 || w.besideBuilding(n)) return;
   const m = w.mat[n];
   if (m === Mat.Rock || m === Mat.Farmland || m === Mat.Soil || m === Mat.Lava || m === Mat.Ash) return;
   // villages keep their core clear

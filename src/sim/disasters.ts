@@ -79,6 +79,16 @@ export function infect(sim: Sim, x: number, z: number, r: number) {
   sim.log('plague', { a: k?.id, x, z, text: k?.name ?? '' });
 }
 
+/**
+ * Launch ordnance at (x,z): it appears high in the sky, arms for a moment (warning on the ground),
+ * then falls. A nuke takes about four seconds from launch to impact, a bomb under two.
+ */
+export function spawnMissile(sim: Sim, x: number, z: number, kind: 'nuke' | 'bomb') {
+  const nuke = kind === 'nuke';
+  sim.missiles.push({ id: sim.id(), x, z, y: nuke ? 70 : 34, vy: 0, kind, arm: nuke ? 14 : 4 });
+  sim.fx.push({ t: 'launch', x, z, a: nuke ? 1 : 0 });
+}
+
 export function spawnMeteor(sim: Sim, x: number, z: number, size = 1) {
   sim.meteors.push({ id: sim.id(), x, z, y: 120, vy: -2.5, size });
   sim.fx.push({ t: 'meteorStart', x, z, a: size });
@@ -221,9 +231,27 @@ function disasterExtras(sim: Sim) {
   sim.floods = sim.floods.filter((f) => f.life > 0);
 }
 
+let nukeImpact: (sim: Sim, x: number, z: number) => void = () => {};
+export function setNukeImpact(fn: (sim: Sim, x: number, z: number) => void) { nukeImpact = fn; }
+
 export function disasterTick(sim: Sim) {
   const w = sim.world;
   disasterExtras(sim);
+  // falling ordnance
+  if (sim.missiles.length) {
+    for (const m of sim.missiles) {
+      if (m.arm > 0) { m.arm--; continue; }
+      m.vy -= m.kind === 'nuke' ? 0.32 : 0.45;
+      m.y += m.vy;
+      const ground = Math.max(0, w.heightAt(m.x, m.z), w.water[w.tileAt(m.x, m.z)] ?? 0);
+      if (m.y <= ground) {
+        m.y = -999;
+        if (m.kind === 'nuke') nukeImpact(sim, m.x, m.z);
+        else explode(sim, m.x, m.z, 2.6, 110, { crater: 1.2, fire: true });
+      }
+    }
+    sim.missiles = sim.missiles.filter((m) => m.y > -900);
+  }
   // meteors falling
   for (const m of sim.meteors) {
     m.y += m.vy; m.vy -= 0.12;

@@ -1,6 +1,6 @@
 import { Sim, setTimeout0 } from './sim';
 import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res, Mem } from './entities';
-import { SPECIES, Sp, Bk, BUILDINGS, BUILDING_KINDS, Feat, Mat, isCiv, isWoodTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
+import { SPECIES, Sp, Bk, BUILDINGS, BUILDING_KINDS, Feat, Mat, isCiv, isWoodTree, isTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
 import { eats } from './foodchain';
 import { guardWork, traderWork, postWork, unrestTick, tryCrushRebellion, completed } from './jobs';
 import { shipyardTick, overseasSite, launchFerry } from './vehicles';
@@ -80,7 +80,15 @@ export function placeBuilding(sim: Sim, v: Village | null, kind: Bk, x: number, 
       w.bld[t] = b.id;
       if (kind === Bk.Farm) w.mat[t] = Mat.Farmland;
       else if (w.mat[t] !== Mat.Sand) w.mat[t] = Mat.Soil;
-    } else if (w.bld[t] < 0) w.height[t] = w.height[t] * 0.5 + avg * 0.5;
+    } else if (w.bld[t] < 0) {
+      w.height[t] = w.height[t] * 0.5 + avg * 0.5;
+      // nothing grows into the walls: trees and rocks in the ring around the footprint are cleared
+      const f = w.feat[t];
+      if (f !== Feat.None && f !== Feat.Crop) {
+        if (isTree(f)) sim.fx.push({ t: 'uproot', x: x + dx + 0.5, z: z + dz + 0.5, a: f });
+        w.setFeat(t, Feat.None, 0);
+      }
+    }
   }
   w.markTerrain(x - 2, z - 2, x + def.size + 2, z + def.size + 2);
   sim.buildings.set(b.id, b);
@@ -276,17 +284,58 @@ function crown(sim: Sim, k: Kingdom, u: Unit) {
   k.aggression = 0.5 + (b & Trait.Bloodlust ? 0.35 : 0) + (b & Trait.Brave ? 0.1 : 0) - (b & Trait.Peaceful ? 0.35 : 0) - (b & Trait.Wise ? 0.1 : 0) + (u.sp === Sp.Orc ? 0.2 : u.sp === Sp.Elf ? -0.1 : 0);
 }
 
+/** Smooth value noise (6-tile cells) so borders form soft blobs, not speckled tile fringes. */
+function borderNoise(x: number, z: number, seed: number) {
+  const S = 6, gx = Math.floor(x / S), gz = Math.floor(z / S), fx = x / S - gx, fz = z / S - gz;
+  const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const a = hash2(gx, gz, seed), b = hash2(gx + 1, gz, seed), c = hash2(gx, gz + 1, seed), d = hash2(gx + 1, gz + 1, seed);
+  return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+}
+
+/** How deep inside village v's natural reach a tile is (< 1 inside). */
+function reach(v: Village, x: number, z: number) {
+  const n = 0.86 + borderNoise(x, z, v.id) * 0.28;
+  return Math.hypot(x - v.cx, z - v.cz) / Math.max(1, v.radius * n);
+}
+
+/**
+ * A village claims the land within its reach. Where two reaches meet, the tile goes to whichever
+ * village it is relatively closer to (a clean shared border instead of interleaved tiles); land
+ * under another village's buildings always stays with that village.
+ */
 export function claimTerritory(sim: Sim, v: Village) {
   const w = sim.world;
-  const R = Math.ceil(v.radius + 3);
+  const R = Math.ceil(v.radius * 1.15 + 3);
   for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
     const x = v.cx + dx, z = v.cz + dz;
     if (!w.inside(x, z)) continue;
     const t = w.idx(x, z);
-    const n = hash2(x, z, v.id) * 0.35 + 0.82;
-    const inside = Math.hypot(dx, dz) <= v.radius * n && w.height[t] > -0.4;
-    if (inside && w.owner[t] < 0) w.owner[t] = v.id;
-    else if (!inside && w.owner[t] === v.id) w.owner[t] = -1;
+    const mine = reach(v, x, z);
+    const inside = mine <= 1 && w.height[t] > -0.4;
+    const cur = w.owner[t];
+    if (inside) {
+      if (cur === v.id) continue;
+      if (cur < 0) { w.owner[t] = v.id; continue; }
+      const o = sim.villages.get(cur);
+      if (!o || !o.alive) { w.owner[t] = v.id; continue; }
+      const b = w.bld[t] >= 0 ? sim.buildings.get(w.bld[t]) : undefined;
+      if (b && b.village === o.id) continue;
+      if (mine < reach(o, x, z)) w.owner[t] = v.id;
+    } else if (cur === v.id) {
+      // keep tiles under our own buildings
+      const b = w.bld[t] >= 0 ? sim.buildings.get(w.bld[t]) : undefined;
+      if (!b || b.village !== v.id) w.owner[t] = -1;
+    }
+  }
+  // tidy: a lone foreign tile surrounded by our land joins us (no single-tile enclaves)
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const x = v.cx + dx, z = v.cz + dz;
+    if (x < 1 || z < 1 || x >= w.W - 1 || z >= w.H - 1) continue;
+    const t = w.idx(x, z);
+    if (w.owner[t] === v.id || w.bld[t] >= 0 || w.height[t] <= -0.4) continue;
+    let n = 0;
+    if (w.owner[t - 1] === v.id) n++; if (w.owner[t + 1] === v.id) n++; if (w.owner[t - w.W] === v.id) n++; if (w.owner[t + w.W] === v.id) n++;
+    if (n >= 3) w.owner[t] = v.id;
   }
   w.ownerDirty = true;
 }
@@ -706,7 +755,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
         const x = Math.floor(v.cx + Math.cos(a) * d), z = Math.floor(v.cz + Math.sin(a) * d);
         if (!w.inside(x, z)) continue;
         const tt = w.idx(x, z);
-        if (w.feat[tt] !== Feat.None || w.bld[tt] >= 0 || !w.walkable(tt)) continue;
+        if (w.feat[tt] !== Feat.None || w.bld[tt] >= 0 || !w.walkable(tt) || w.besideBuilding(tt)) continue;
         const m = w.mat[tt];
         if (m !== Mat.Grass && m !== Mat.Lush && m !== Mat.Savanna && m !== Mat.Soil && m !== Mat.Ash) continue;
         return { k: 'move', tx: x + 0.5, tz: z + 0.5, then: { k: 'idle', t: 12, plant: tt } as Task };

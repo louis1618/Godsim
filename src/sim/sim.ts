@@ -55,6 +55,8 @@ export class Sim {
   meteors: { id: number; x: number; z: number; y: number; vy: number; size: number }[] = [];
   rainClouds: { id: number; x: number; z: number; vx: number; vz: number; life: number; r: number; storm: boolean }[] = [];
   volcanoes: { id: number; x: number; z: number; life: number }[] = [];
+  /** Ordnance dropped from the sky: hangs (arms) high up, then plunges to its target. */
+  missiles: { id: number; x: number; z: number; y: number; vy: number; kind: 'nuke' | 'bomb'; arm: number }[] = [];
   droughts: { id: number; x: number; z: number; r: number; life: number }[] = [];
   floods: { id: number; x: number; z: number; r: number; life: number; tiles: number[]; base: number[]; level: number }[] = [];
   // spatial hash

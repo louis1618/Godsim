@@ -62,8 +62,15 @@ export class MapLabels {
     const full = this.acc > 0.25;
     if (full) this.acc = 0;
     const seen = new Set<number>();
-    for (const vil of sim.villages.values()) {
-      if (!vil.alive) continue;
+    // most important towns claim their spot first; a plate that would overlap one already placed is hidden
+    const order = [...sim.villages.values()].filter((v) => v.alive).sort((a, b) => {
+      const ka = sim.kingdoms.get(a.kingdom), kb = sim.kingdoms.get(b.kingdom);
+      const pa = (ka?.capital === a.id ? 1000 : 0) + a.level * 100 + a.residents.length;
+      const pb = (kb?.capital === b.id ? 1000 : 0) + b.level * 100 + b.residents.length;
+      return pb - pa;
+    });
+    const placed: [number, number, number, number][] = [];
+    for (const vil of order) {
       seen.add(vil.id);
       let p = this.plates.get(vil.id);
       if (!p) {
@@ -79,12 +86,19 @@ export class MapLabels {
       }
       this.v.set(vil.cx + 0.5, Math.max(0, sim.world.heightAt(vil.cx + 0.5, vil.cz + 0.5)) * hs + 2, vil.cz + 0.5).project(cam);
       const off = this.v.z > 1 || this.v.x < -1.2 || this.v.x > 1.2 || this.v.y < -1.2 || this.v.y > 1.2;
-      p.el.style.display = off ? 'none' : '';
-      if (off) continue;
       const big = vil.level >= 2;
+      const sx = (this.v.x + 1) / 2 * W, sy = (1 - this.v.y) / 2 * H - 18;
+      // approximate plate box (anchored bottom-centre)
+      const bw = (vil.name.length * 7.5 + 58) * (big ? 1 : 0.85), bh = 26 * (big ? 1 : 0.85);
+      const box: [number, number, number, number] = [sx - bw / 2, sy - bh, sx + bw / 2, sy];
+      const hit = placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1]);
+      const hide = off || hit;
+      p.el.style.display = hide ? 'none' : '';
+      if (hide) continue;
+      placed.push(box);
       p.el.classList.toggle('mini', vil.level === 0 && rig.z01 > 0.9);
-      p.el.style.transform = `translate(${(this.v.x + 1) / 2 * W}px, ${(1 - this.v.y) / 2 * H - 18}px) translate(-50%, -100%) scale(${big ? 1 : 0.85})`;
-      if (full) {
+      p.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%) scale(${big ? 1 : 0.85})`;
+      if (full || !p.name.textContent) {
         const k = sim.kingdoms.get(vil.kingdom);
         const col = k ? hex(KINGDOM_COLORS[k.color][0]) : '#aaa';
         p.flag.style.background = col;

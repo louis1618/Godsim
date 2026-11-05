@@ -3,7 +3,7 @@ import { Sp, Mat, Feat, Trait, isCiv, SPECIES, Bk } from './defs';
 import { spawnVehicle } from './vehicles';
 import { Unit, UF, Emote, Job } from './entities';
 import { ignite } from './nature';
-import { explode, lightning, earthquake, infect, spawnMeteor, spawnTornado, spawnVolcano, spawnDrought, spawnFlood } from './disasters';
+import { explode, lightning, earthquake, infect, spawnMeteor, spawnTornado, spawnVolcano, spawnDrought, spawnFlood, spawnMissile, setNukeImpact } from './disasters';
 import { declareWar, makePeace, makeAlliance, villageOf, destroyVillage, rebelVillage, placeBuilding } from './civ';
 import { panic } from './ai';
 import { smoothstep } from '../core/math';
@@ -227,7 +227,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     case 'rain': sim.rainClouds.push({ id: sim.id(), x, z, vx: sim.rng.range(-0.04, 0.04), vz: sim.rng.range(-0.04, 0.04), life: 600, r: 7, storm: false }); break;
     case 'storm': sim.rainClouds.push({ id: sim.id(), x, z, vx: sim.rng.range(-0.05, 0.05), vz: sim.rng.range(-0.05, 0.05), life: 600, r: 9, storm: true }); break;
     case 'forest': brush(sim, x, z, r, (t, k, tx, tz) => {
-      if (w.isWater(t) || w.bld[t] >= 0 || w.feat[t] !== Feat.None || sim.rng.next() > k * 0.25) return;
+      if (w.isWater(t) || w.bld[t] >= 0 || w.feat[t] !== Feat.None || sim.rng.next() > k * 0.25 || w.besideBuilding(t)) return;
       const m = w.mat[t];
       const f = m === Mat.Desert ? Feat.Cactus : m === Mat.Snow ? Feat.SnowPine : m === Mat.Sand ? Feat.Palm : m === Mat.Savanna ? Feat.Acacia : m === Mat.Rock || m === Mat.Lava ? Feat.None : sim.rng.pick([Feat.Oak, Feat.Oak, Feat.Pine, Feat.Birch]);
       if (f === Feat.None) return;
@@ -268,7 +268,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
     }); sim.near(x, z, r, (u) => { u.hunger += 3; if (u.flags & UF.Burning) u.flags &= ~UF.Burning; }); break;
     case 'lightning': lightning(sim, x, z); break;
     case 'fire': brush(sim, x, z, Math.max(0.6, r * 0.6), (t, k) => { if (k > 0.3) ignite(sim, t, 230); }); sim.near(x, z, r * 0.7, (u) => { u.flags |= UF.Burning; panic(sim, u, x, z); }); break;
-    case 'bomb': explode(sim, x, z, 2.6, 110, { crater: 1.2, fire: true }); break;
+    case 'bomb': spawnMissile(sim, x, z, 'bomb'); break;
     case 'meteor': spawnMeteor(sim, x, z, 1); break;
     case 'tornado': spawnTornado(sim, x, z); break;
     case 'quake': earthquake(sim, x, z, 10); break;
@@ -292,7 +292,7 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
       placeBuilding(sim, v, Bk.Cannon, tx, tz, v.race, 1).aim = sim.rng.range(0, Math.PI * 2);
       break;
     }
-    case 'nuke': nuke(sim, x, z); break;
+    case 'nuke': spawnMissile(sim, x, z, 'nuke'); break;
     case 'bless': {
       let any = false;
       sim.near(x, z, r, (u) => { if (!SPECIES[u.sp].undead) { u.traits |= Trait.Blessed; u.flags &= ~UF.Sick; sim.applyTraits(u); u.hp = u.maxHp; sim.emote(u, Emote.Star, 20); any = true; } });
@@ -386,6 +386,8 @@ export function nuke(sim: Sim, x: number, z: number) {
   sim.near(x, z, R * 1.2, (u) => { if (!SPECIES[u.sp].undead && u.sp < Sp.Boat) { u.flags |= UF.Sick; sim.emote(u, Emote.Sick, 40); } });
   sim.log('nuke', { x, z, text: '☢' });
 }
+
+setNukeImpact(nuke);
 
 export function incite(sim: Sim, vid: number): boolean {
   const v = sim.villages.get(vid);

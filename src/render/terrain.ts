@@ -151,24 +151,32 @@ col = mix(col, col * vec3(0.55, 0.72, 0.78), smoothstep(-0.2, -3.5, h));
 float lat = abs(gp.y / uMapSize.y - 0.5) * 2.0;
 float snowAmt = uSnow * smoothstep(0.5, 0.75, lat * 0.85 + max(h, 0.0) * 0.045 + (gsNoise(gp * 0.8) - 0.5) * 0.3) * step(0.15, h) * (1.0 - rockAmt * 0.7);
 col = mix(col, vec3(0.93, 0.95, 0.99), snowAmt);
-// territory
+// territory: tinted land, a soft glow along the inside of the frontier, and a bold two-tone border
 vec4 own = texelFetch(uOwnerTex, gsClampT(ti), 0);
 if (own.a > 0.0) {
   vec2 fp = fract(gp);
-  float bw = mix(0.12, 0.3, uMapMode);
+  float bw = mix(0.16, 0.34, uMapMode);
   float b = 0.0;
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(-1, 0)), 0))) b = max(b, 1.0 - smoothstep(0.0, bw, fp.x));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(1, 0)), 0))) b = max(b, smoothstep(1.0 - bw, 1.0, fp.x));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(0, -1)), 0))) b = max(b, 1.0 - smoothstep(0.0, bw, fp.y));
   if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + ivec2(0, 1)), 0))) b = max(b, smoothstep(1.0 - bw, 1.0, fp.y));
+  // within two tiles of the frontier?
+  float nearB = 0.0;
+  for (int k = 0; k < 8; k++) {
+    ivec2 o2 = k == 0 ? ivec2(2, 0) : k == 1 ? ivec2(-2, 0) : k == 2 ? ivec2(0, 2) : k == 3 ? ivec2(0, -2) : k == 4 ? ivec2(2, 2) : k == 5 ? ivec2(-2, 2) : k == 6 ? ivec2(2, -2) : ivec2(-2, -2);
+    if (!gsSameK(own, texelFetch(uOwnerTex, gsClampT(ti + o2), 0))) nearB = 1.0;
+  }
   float wtr = step(0.0, h);
   float tk = clamp(uTerritory, 0.0, 1.0);
-  // soft tinted fill with a faint diagonal hatch in map view, bold border with an ink edge
   float hatch = step(0.5, fract((gp.x + gp.y) * 1.5)) * 0.06 * uMapMode;
-  col = mix(col, own.rgb, (0.36 + hatch) * tk * wtr);
+  col = mix(col, own.rgb, (0.38 + hatch) * tk * wtr);
+  col = mix(col, own.rgb, nearB * 0.2 * max(tk, 0.35) * wtr);
+  // the border stays readable up close too: a painted band in kingdom colour with an ink rim outside
+  float bStrength = max(clamp(tk * 1.8, 0.0, 1.0), 0.7);
   float edge = b * b;
-  vec3 bcol = mix(own.rgb, own.rgb * 0.35, smoothstep(0.75, 1.0, edge));
-  col = mix(col, bcol, b * clamp(tk * 1.8, 0.0, 1.0) * wtr);
+  vec3 bcol = mix(own.rgb * 1.08, own.rgb * 0.3, smoothstep(0.7, 1.0, edge));
+  col = mix(col, bcol, b * bStrength * wtr);
 }
 diffuseColor.rgb = col;
 `)

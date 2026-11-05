@@ -158,7 +158,7 @@ class AudioEngine {
       case 'rain': case 'storm': this.burst({ type: 'bandpass', f: 1800, q: 0.5, a: 0.3, d: 1.2, g: 0.15, pan }); break;
       case 'lightning': case 'smite': this.thunder(big, pan); break;
       case 'fire': if (this.rate(id, 80)) this.burst({ type: 'bandpass', f: r(1500, 3000), q: 3, a: 0.002, d: 0.05, g: 0.12 * big, pan }); break;
-      case 'bomb': this.boom(big, pan, 0.8); break;
+      case 'bomb': case 'nuke': this.tone(220, { type: 'square', to: 880, d: 0.18, g: 0.05, pan }); break; // launch click; the blast plays on impact
       case 'meteor': this.burst({ type: 'bandpass', f: 300, to: 1600, q: 1.2, a: 0.8, d: 0.4, g: 0.2 }); break;
       case 'meteorHit': this.boom(big, pan, 1.4); break;
       case 'tornado': this.burst({ type: 'bandpass', f: 500, to: 300, q: 1, a: 0.6, d: 1.8, g: 0.22, pan }); break;
@@ -242,6 +242,10 @@ class AudioEngine {
       case 'ash': if (g > 0.1 && this.rate('ash', 900)) this.burst({ f: 120, to: 50, a: 0.1, d: 1.2, g: 0.25 * g, pan, rate: 0.5 }); break;
       case 'flood': this.burst({ type: 'bandpass', f: 400, to: 200, q: 0.7, a: 0.2, d: 2.5, g: 0.3, pan }); break;
       case 'drought': this.burst({ type: 'bandpass', f: 1600, q: 0.5, a: 0.6, d: 2, g: 0.1, pan }); break;
+      case 'launch':
+        if (a === 1) { for (let i = 0; i < 3; i++) this.tone(600, { type: 'sawtooth', to: 900, glide: 0.5, d: 0.6, g: 0.05, t: this.ctx!.currentTime + i * 0.6 }); }
+        this.tone(a === 1 ? 1500 : 1800, { type: 'sine', to: a === 1 ? 300 : 500, d: a === 1 ? 3.4 : 1.5, g: 0.05 * Math.max(0.4, g), pan });
+        break;
       case 'nuke': this.boom(1, 0, 2.2); this.boom(1, 0, 1.6); this.burst({ f: 90, to: 30, a: 0.3, d: 4, g: 0.5, rate: 0.4 }); break;
       case 'era': [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => this.tone(mtof(m), { type: 'triangle', d: 0.7, g: 0.09, t: this.ctx!.currentTime + i * 0.09, verb: 0.8 })); break;
       case 'fish': if (g > 0.25 && this.rate('fish', 400)) this.burst({ type: 'bandpass', f: 1400, q: 2, d: 0.15, g: 0.05 * g, pan }); break;
