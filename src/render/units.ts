@@ -305,7 +305,8 @@ export class UnitRenderer {
     if (!u) return null;
     const ph = this.physics.get(id);
     if (ph) return out.copy(ph.pos);
-    const x = u.px + (u.x - u.px) * alpha, z = u.pz + (u.z - u.pz) * alpha;
+    const a = lodAlpha(sim, u, alpha);
+    const x = u.px + (u.x - u.px) * a, z = u.pz + (u.z - u.pz) * a;
     const w = sim.world;
     this.ensureShore(w);
     const y = this.groundY(w, x, z);
@@ -346,7 +347,8 @@ export class UnitRenderer {
       let x: number, y: number, z: number;
       if (ph) { x = ph.pos.x; y = ph.pos.y; z = ph.pos.z; }
       else {
-        x = u.px + (u.x - u.px) * alpha; z = u.pz + (u.z - u.pz) * alpha;
+        const a = lodAlpha(sim, u, alpha);
+        x = u.px + (u.x - u.px) * a; z = u.pz + (u.z - u.pz) * a;
         // far outside the 3D view and no map pins wanted: skip the ground lookup entirely
         if (!markersOn) { const ddx = x - focus.x, ddz = z - focus.z; if (ddx * ddx + ddz * ddz > radius * radius) continue; }
         y = this.groundY(w, x, z) + u.y;
@@ -435,18 +437,26 @@ export class UnitRenderer {
     }
     if (show3D) this.drawCorpses(w, time, counts);
     this.bubbles.count = show3D ? nb : 0;
-    this.bubbles.instanceMatrix.needsUpdate = true;
+    this.bubbles.visible = this.bubbles.count > 0;
+    if (nb > 0) { this.bubbles.instanceMatrix.clearUpdateRanges(); this.bubbles.instanceMatrix.addUpdateRange(0, nb * 16); this.bubbles.instanceMatrix.needsUpdate = true; }
     let total = 0;
     for (let sp = 0; sp < SPECIES_COUNT; sp++) {
       const p = this.pools[sp];
       if (!p) continue;
-      p.mesh.count = show3D ? counts[sp] : 0;
-      total += p.mesh.count;
-      p.mesh.instanceMatrix.needsUpdate = true;
-      p.cloth.needsUpdate = p.skin.needsUpdate = p.hair.needsUpdate = p.misc.needsUpdate = true;
+      const n = show3D ? counts[sp] : 0;
+      p.mesh.count = n;
+      p.mesh.visible = n > 0; // empty pools cost a draw call (and a shadow pass) otherwise
+      total += n;
+      // upload only the live instances, never the whole (doubling) capacity
+      if (n > 0) {
+        p.mesh.instanceMatrix.clearUpdateRanges(); p.mesh.instanceMatrix.addUpdateRange(0, n * 16); p.mesh.instanceMatrix.needsUpdate = true;
+        for (const a of [p.cloth, p.skin, p.hair]) { a.clearUpdateRanges(); a.addUpdateRange(0, n * 3); a.needsUpdate = true; }
+        p.misc.clearUpdateRanges(); p.misc.addUpdateRange(0, n * 4); p.misc.needsUpdate = true;
+      }
     }
     this.visibleCount = total;
     this.crowns.count = Math.min(crowns, 64);
+    this.crowns.visible = this.crowns.count > 0;
     // follow star
     const fu = this.followId >= 0 ? sim.getUnit(this.followId) : undefined;
     const fp = fu ? this.unitPos(sim, fu.id, alpha, this.tmpP) : null;
@@ -459,7 +469,7 @@ export class UnitRenderer {
       const s = 1 + Math.max(0, Math.sin(time * 6)) * 0.08;
       this.star.scale.setScalar(s * Math.max(1, Math.min(3, viewV / 14)));
     }
-    this.crowns.instanceMatrix.needsUpdate = true;
+    if (this.crowns.count > 0) this.crowns.instanceMatrix.needsUpdate = true;
     const g = this.markers.geometry;
     g.setDrawRange(0, mk);
     (g.attributes.position as THREE.BufferAttribute).needsUpdate = true;
@@ -537,6 +547,12 @@ export class UnitRenderer {
     this.corpses.length = j;
     void w;
   }
+}
+
+/** Interpolation factor; half-rate (LOD) creatures move over two ticks per update. */
+function lodAlpha(sim: Sim, u: { lod?: number; lodTick?: number }, alpha: number) {
+  if (!u.lod || u.lodTick === undefined) return alpha;
+  return Math.min(1, ((sim.tick - u.lodTick) + alpha) / 2);
 }
 
 const GREY = new THREE.Color(0xdddddd);

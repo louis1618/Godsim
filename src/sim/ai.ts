@@ -25,10 +25,13 @@ export function unitTick(sim: Sim, u: Unit) {
     if (!b) { u.flags &= ~UF.Aboard; u.y = 0; u.task = null; u.think = 0; }
     return;
   }
-  if (u.cd > 0) u.cd--;
-  if (u.hitT > 0) u.hitT--;
-  if (u.emoteT > 0 && --u.emoteT === 0) u.emote = Emote.None;
-  if (u.animT > 0) u.animT--;
+  // half-rate creatures (activity LOD) live two ticks per update
+  const L = u.lod ? 2 : 1;
+  if (u.lod) u.lodTick = sim.tick;
+  if (u.cd > 0) u.cd = Math.max(0, u.cd - L);
+  if (u.hitT > 0) u.hitT = Math.max(0, u.hitT - L);
+  if (u.emoteT > 0 && (u.emoteT = Math.max(0, u.emoteT - L)) === 0) u.emote = Emote.None;
+  if (u.animT > 0) u.animT = Math.max(0, u.animT - L);
   const def = SPECIES[u.sp];
   if ((sim.tick + u.id) % 10 === 0) {
     metabolism(sim, u);
@@ -68,7 +71,11 @@ export function unitTick(sim: Sim, u: Unit) {
     }
     if (u.flags & UF.Dead) return;
   }
-  if (u.task?.k !== 'swim' && (--u.think <= 0 || !u.task)) decide(sim, u);
+  if (u.task?.k !== 'swim' && ((u.think -= L) <= 0 || !u.task)) {
+    decide(sim, u);
+    // nothing chosen (e.g. a settler between plans): rest briefly rather than re-deciding every tick
+    if (!u.task && !(u.flags & UF.Dead)) u.task = { k: 'idle', t: 4 + (u.id % 5) };
+  }
   if (u.task) run(sim, u, u.task);
   // walking animations only while the creature really changes position (judged before the
   // separation nudge, so being shuffled aside never shows as walking in place)
@@ -110,6 +117,7 @@ function metabolism(sim: Sim, u: Unit) {
 
 export function hurt(sim: Sim, u: Unit, dmg: number, by?: Unit, cause = 'attack') {
   if (u.flags & UF.Dead) return;
+  if (u.lod) { u.lod = 0; u.think = 0; } // hurt: back to full attention at once
   if (u.traits & Trait.Lucky && sim.rng.chance(0.15)) return;
   u.hp -= dmg;
   u.hitT = 6;
@@ -121,6 +129,7 @@ export function hurt(sim: Sim, u: Unit, dmg: number, by?: Unit, cause = 'attack'
 
 function decide(sim: Sim, u: Unit) {
   u.think = 8 + (u.id % 6);
+  u.lod = 0;
   const def = SPECIES[u.sp];
   const civ = isCiv(u.sp);
   const adult = u.age >= def.adultAge;
@@ -162,7 +171,7 @@ function decide(sim: Sim, u: Unit) {
   // keep committed work going; only idle/wander are re-decided
   if (u.task && u.task.k !== 'idle' && u.task.k !== 'wander' && taskValid(sim, u, u.task)) return;
 
-  if (!civ) return decideAnimal(sim, u);
+  if (!civ) { decideAnimal(sim, u); activityLod(sim, u); return; }
 
   // 2. homeless civ: join or found a village
   if (u.village < 0) {
@@ -254,6 +263,25 @@ function decide(sim: Sim, u: Unit) {
   }
   if ((u.idleRun ?? 0) < 2 && sim.rng.chance(0.5)) { setTask(sim, u, { k: 'idle', t: 10 + sim.rng.int(0, 20) }); u.idleRun = (u.idleRun ?? 0) + 1; }
   else { wanderNear(sim, u, v.cx + 0.5, v.cz + 0.5, v.radius * 0.7); u.idleRun = 0; }
+  activityLod(sim, u);
+}
+
+/**
+ * Activity LOD: a creature that has just settled on a calm stroll, rest or graze (unhurt, healthy,
+ * not starving) is updated every other tick, moving and resting twice as far per update. It is
+ * decided by the creature's own state only - never by the camera - so every view of the world
+ * sees the same history; any blow, threat or new decision puts it back on every tick.
+ */
+export const lodOpts = { enabled: true };
+function activityLod(sim: Sim, u: Unit) {
+  if (!lodOpts.enabled) return;
+  const t = u.task;
+  if (!t || u.hitT > 0 || u.hunger > 60 || u.flags & (UF.Sick | UF.Burning | UF.Mad) || ((sim.tick + u.id) & 1)) return;
+  const ok = t.k === 'idle' && t.plant === undefined || t.k === 'graze' || (t.k === 'wander' && Math.hypot(t.tx - u.x, t.tz - u.z) <= 12);
+  if (!ok) return;
+  const here = sim.world.tileAt(u.x, u.z);
+  if (here < 0 || sim.world.isWater(here) || sim.world.fire[here] > 0) return;
+  u.lod = 1; u.lodTick = sim.tick;
 }
 
 function decideAnimal(sim: Sim, u: Unit) {
@@ -355,12 +383,34 @@ export function speciesCap(sim: Sim, sp: Sp) {
   }
 }
 
+const SCAN_SKIP = UF.Held | UF.Ragdoll | UF.Dead;
 function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
   const def = SPECIES[u.sp];
   let best: Unit | null = null, bd = 1e9;
-  const r = isCiv(u.sp) ? (u.job === Job.Warrior ? 9 : 6) : 6;
-  sim.near(u.x, u.z, r, (o, d2) => {
-    if (o === u || o.flags & (UF.Held | UF.Ragdoll)) return;
+  const uCiv = isCiv(u.sp), mad = u.flags & UF.Mad;
+  const r = uCiv ? (u.job === Job.Warrior ? 9 : 6) : 6;
+  // direct walk over the spatial hash with cheap rejections first: in a busy town nearly every
+  // neighbour is a fellow citizen, and each used to pay for the full hostility test
+  const C = sim.cellSize, r2 = r * r;
+  const cx0 = Math.max(0, ((u.x - r) / C) | 0), cx1 = Math.min(sim.cw - 1, ((u.x + r) / C) | 0);
+  const cz0 = Math.max(0, ((u.z - r) / C) | 0), cz1 = Math.min(sim.ch - 1, ((u.z + r) / C) | 0);
+  const units = sim.units, head = sim.cellHead, next = sim.cellNext;
+  for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) for (let i = head[cz * sim.cw + cx]; i >= 0; i = next[i]) {
+    const o = units[i];
+    if (!o || o === u || o.flags & SCAN_SKIP) continue;
+    const ddx = o.x - u.x, ddz = o.z - u.z, d2 = ddx * ddx + ddz * ddz;
+    if (d2 > r2 || d2 >= bd) continue;
+    if (!mad && !(o.flags & UF.Mad)) {
+      if (uCiv && o.kingdom === u.kingdom && u.kingdom >= 0 && isCiv(o.sp)) continue; // own people
+      if (o.sp === u.sp && !uCiv) continue;                                          // own kind
+    }
+    if (threatens(sim, u, o, def, d2)) { bd = d2; best = o; }
+  }
+  return best ? { enemy: best, dist: Math.sqrt(bd) } : null;
+}
+
+function threatens(sim: Sim, u: Unit, o: Unit, def: typeof SPECIES[number], d2: number): boolean {
+  {
     let threat = sim.hostile(u, o);
     if (!threat) {
       const od = SPECIES[o.sp];
@@ -374,9 +424,8 @@ function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
       if (!isCiv(u.sp) && eats(o.sp, u.sp) && (d2 < 16 || ((o.task?.k === 'hunt' || o.task?.k === 'attack') && (o.task as any).u === u.id))) threat = true;
       if (o.sp === Sp.Dragon) threat = d2 < 49;
     }
-    if (threat && d2 < bd) { bd = d2; best = o; }
-  });
-  return best ? { enemy: best, dist: Math.sqrt(bd) } : null;
+    return threat;
+  }
 }
 
 function taskValid(sim: Sim, u: Unit, t: Task): boolean {
@@ -388,6 +437,7 @@ function taskValid(sim: Sim, u: Unit, t: Task): boolean {
 
 export function setTask(sim: Sim, u: Unit, t: Task) {
   u.task = t;
+  u.lod = 0;
   u.path = null; u.pathI = 0; u.stuck = 0;
   if (t.k === 'flee' || t.k === 'attack' || t.k === 'hunt') u.think = 6;
 }
@@ -452,7 +502,7 @@ function watchdog(sim: Sim, u: Unit) {
     || (u.anim === Anim.Work && (k === 'gather' || k === 'build' || k === 'farm' || k === 'idle'))
     || (u.anim === Anim.Attack && (k === 'attack' || k === 'hunt' || k === 'raze'))
     || (u.anim === Anim.Eat && (k === 'graze' || k === 'eat' || k === 'idle'));
-  if (u.wdT === undefined || busy || Math.abs(u.x - u.wdX!) + Math.abs(u.z - u.wdZ!) > 0.4) { u.wdX = u.x; u.wdZ = u.z; u.wdT = sim.tick; return; }
+  if (u.wdT < 0 || busy || Math.abs(u.x - u.wdX) + Math.abs(u.z - u.wdZ) > 0.4) { u.wdX = u.x; u.wdZ = u.z; u.wdT = sim.tick; return; }
   if (sim.tick - u.wdT < 200) return;
   rescue(sim, u);
   u.wdX = u.x; u.wdZ = u.z; u.wdT = sim.tick;
@@ -713,6 +763,30 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
   return false;
 }
 
+/** Direct-steered short walk (wander). Returns true when there or when it can get no closer. */
+function stroll(sim: Sim, u: Unit, tx: number, tz: number): boolean {
+  const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz);
+  if (d <= 0.3) return true;
+  // far strolls (a hunter roaming, a lonely animal seeking a mate) still deserve a route
+  if (d > 12 || u.path) { u.lod = 0; return moveTo(sim, u, tx, tz, 0.3, 0.6); }
+  const w = sim.world;
+  const t = w.tileAt(u.x, u.z);
+  const cost = t >= 0 ? (w.isWater(t) ? 2.2 : w.walkCost(t)) : 1;
+  const def = SPECIES[u.sp];
+  let sp = def.speed * u.speedMul * 0.6 * TICK_DT * (u.lod ? 2 : 1) / Math.sqrt(cost);
+  if (u.age < def.adultAge) sp *= 0.85;
+  if (u.flags & UF.Sick) sp *= 0.7;
+  sp *= moodSpeed(u);
+  const moved = stepToward(w, u, tx, tz, sp, aquatic(u.sp));
+  const gain = d - Math.hypot(tx - u.x, tz - u.z);
+  if (moved > 1e-5) { u.dir = Math.atan2(dx, dz); u.anim = Anim.Walk; }
+  if (gain < sp * 0.25) {
+    // something in the way: take the planned route once, then give up
+    if (++u.stuck > 4) { u.stuck = 0; if ((u.blocked ?? 0) > 0) { u.blocked = 0; return true; } u.blocked = 1; return moveTo(sim, u, tx, tz, 0.3, 0.6); }
+  } else u.stuck = 0;
+  return false;
+}
+
 /** Mood nudges walking pace a little (happy folk stride, miserable folk drag their feet). */
 export function moodSpeed(u: Unit) { return 0.9 + Math.max(0, Math.min(1, (u.mood ?? 60) / 100)) * 0.2; }
 
@@ -723,7 +797,7 @@ function run(sim: Sim, u: Unit, t: Task) {
   switch (t.k) {
     case 'idle':
       u.anim = t.plant !== undefined ? Anim.Work : Anim.Idle;
-      if (--t.t <= 0) {
+      if ((t.t -= u.lod ? 2 : 1) <= 0) {
         if (t.plant !== undefined && w.feat[t.plant] === Feat.None && w.dryForPlant(t.plant)) {
           const m = w.mat[t.plant];
           w.setFeat(t.plant, m === Mat.Savanna ? Feat.Acacia : u.sp === Sp.Elf ? (sim.rng.chance(0.5) ? Feat.Birch : Feat.Oak) : Feat.Oak, 30);
@@ -733,9 +807,13 @@ function run(sim: Sim, u: Unit, t: Task) {
       }
       break;
     case 'wander':
+      // a short stroll needs no route planning: walk straight, sliding along anything in the way,
+      // and call it a day when the way is blocked (by far the most common activity in the world)
+      if (stroll(sim, u, t.tx, t.tz)) { u.anim = Anim.Idle; u.task = null; u.think = 0; }
+      break;
     case 'move':
     case 'rally':
-      if (moveTo(sim, u, t.tx, t.tz, 0.3, t.k === 'wander' ? 0.6 : 1)) {
+      if (moveTo(sim, u, t.tx, t.tz, 0.3, 1)) {
         u.anim = Anim.Idle;
         if (t.k === 'move' && t.then) setTask(sim, u, t.then);
         else if (t.k === 'rally') { u.task = { k: 'idle', t: 30 }; }
@@ -882,7 +960,7 @@ function run(sim: Sim, u: Unit, t: Task) {
     case 'graze': {
       u.anim = Anim.Eat;
       const tt = w.tileAt(u.x, u.z);
-      if (++t.work > 30) {
+      if ((t.work += u.lod ? 2 : 1) > 30) {
         if (tt >= 0 && w.grass[tt] > 20) { w.grass[tt] = Math.max(0, w.grass[tt] - 70); u.hunger = Math.max(0, u.hunger - 60); }
         u.task = null; u.think = 0;
       }

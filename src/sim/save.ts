@@ -1,4 +1,4 @@
-import { Sim } from './sim';
+import { Sim, blankUnit } from './sim';
 import { World } from './world';
 import { fireTiles } from './nature';
 
@@ -48,7 +48,12 @@ export function deserialize(json: string): Sim {
   const U0 = { y: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60, energy: 80, social: 70, mems: [], partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1 };
   const V0 = { avgMood: 55, forest: 0.2, homeless: false, famineT: -1e9, crime: 0, coastal: true, wanted: [], captureT: 0, blessT: 0, lastAttacked: -1e9, industry: 0 };
   const K0 = { lastKing: -1, era: 0, tech: 0, tradeBoost: 1, trade: {} };
-  for (const u of d.units) { fill(u, U0); sim.units.push(u); sim.unitMap.set(u.id, u); }
+  for (const raw of d.units) {
+    // rebuild every unit on the canonical shape (fast property access), then old-save defaults
+    const u = Object.assign(blankUnit(), fill(raw, U0));
+    if (u.wdT < 0) { u.wdX = u.x; u.wdZ = u.z; u.wdT = d.tick; }
+    sim.units.push(u); sim.unitMap.set(u.id, u);
+  }
   for (const b of d.buildings) sim.buildings.set(b.id, b);
   for (const v of d.villages) sim.villages.set(v.id, fill(v, V0));
   for (const k of d.kingdoms) sim.kingdoms.set(k.id, fill(k, K0));

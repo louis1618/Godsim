@@ -89,7 +89,12 @@ export class BuildingRenderer {
     return np;
   }
 
+  private lastTick = -1; private lastSize = -1; private lastSim: Sim | null = null;
+  private one = new THREE.Vector3(1, 1, 1);
   update(sim: Sim) {
+    // buildings only change on simulation ticks: frames in between keep last frame's instances
+    if (sim === this.lastSim && sim.tick === this.lastTick && sim.buildings.size === this.lastSize) return;
+    this.lastSim = sim; this.lastTick = sim.tick; this.lastSize = sim.buildings.size;
     const counts = new Map<Pool, number>();
     const w = sim.world;
     const all: [Pool, number][] = [];
@@ -131,16 +136,20 @@ export class BuildingRenderer {
         const sp = this.scaffolds[b.size];
         const j = counts.get(sp) ?? 0;
         counts.set(sp, j + 1);
-        this.m.compose(this.p, this.q, new THREE.Vector3(1, 1, 1));
+        this.m.compose(this.p, this.q, this.one);
         sp.mesh.setMatrixAt(j, this.m);
         sp.cloth.setXYZ(j, 1, 1, 1);
         sp.misc.setXYZW(j, 99, 0, 0, 0);
       }
     }
     for (const pool of [...this.pools.values(), ...this.scaffolds.slice(1)]) {
-      pool.mesh.count = counts.get(pool) ?? 0;
-      pool.mesh.instanceMatrix.needsUpdate = true;
-      pool.cloth.needsUpdate = true; pool.misc.needsUpdate = true;
+      const n = counts.get(pool) ?? 0;
+      pool.mesh.count = n;
+      pool.mesh.visible = n > 0;
+      if (!n) continue;
+      pool.mesh.instanceMatrix.clearUpdateRanges(); pool.mesh.instanceMatrix.addUpdateRange(0, n * 16); pool.mesh.instanceMatrix.needsUpdate = true;
+      pool.cloth.clearUpdateRanges(); pool.cloth.addUpdateRange(0, n * 3); pool.cloth.needsUpdate = true;
+      pool.misc.clearUpdateRanges(); pool.misc.addUpdateRange(0, n * 4); pool.misc.needsUpdate = true;
     }
     void all;
   }

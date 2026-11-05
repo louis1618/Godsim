@@ -89,11 +89,13 @@ export interface Unit {
   crimes: number;           // crimes committed (police / prison)
   jailUntil: number;        // tick until release when imprisoned (-1 free)
   mother: number;           // convenience: mother id or -1
-  blocked?: number;         // consecutive blocked re-plans
-  pathWait?: number;        // ticks spent waiting for a share of the path-search budget
-  wdX?: number; wdZ?: number; wdT?: number; // watchdog anchor: last place/time real progress was seen
-  idleRun?: number;         // consecutive idle decisions (restless after a while)
-  air?: number;             // breath left (0..100) while under deep water
+  blocked: number;          // consecutive blocked re-plans
+  pathWait: number;         // ticks spent waiting for a share of the path-search budget
+  wdX: number; wdZ: number; wdT: number; // watchdog anchor: last place/time real progress was seen (wdT < 0 = unset)
+  idleRun: number;          // consecutive idle decisions (restless after a while)
+  air: number | undefined;  // breath left (0..100) while under deep water; undefined = breathing freely
+  lod: number;              // 1 = half-rate update (calm wildlife); see sim.step
+  lodTick: number;          // tick of the last half-rate update (render interpolation)
 }
 
 export const enum Mem { Grief = 1, Wedding = 2, NewBaby = 3, Victory = 4, Defeat = 5, Injured = 6, Blessed = 7, Famine = 8, Homeless = 9, Jailed = 10, Robbed = 11, Party = 12, Fire = 13, Disaster = 14, Trade = 15 }

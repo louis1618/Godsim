@@ -35,7 +35,14 @@ export class FloraRenderer {
   private projScreen = new THREE.Matrix4();
   private lastKey = '';
   private dirty = true;
-  growth = new Map<number, number>(); // tile -> spawn animation start time
+  /** sprout animations: chunk -> (tile -> start time) */
+  private growth = new Map<number, Map<number, number>>();
+  /** pools / chunks touched since the last upload (partial refresh) */
+  private changedPools = new Set<number>();
+  private changedChunks = new Set<number>();
+  private hiChunks = new Set<number>();
+  /** at most this many chunk rebuilds per frame (the rest wait a frame; fast-forward stays smooth) */
+  static REBUILDS_PER_FRAME = 6;
 
   constructor(private world: World) {
     const models = buildFeatureModels();
@@ -84,6 +91,7 @@ export class FloraRenderer {
     const thinCol: number[][] = this.pools.map(() => []);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
+    const grow = this.growth.get(ci);
     let minY = Infinity, maxY = -Infinity;
     for (let z = cz * CHUNK; z < Math.min(w.H, (cz + 1) * CHUNK); z++) {
       for (let x = cx * CHUNK; x < Math.min(w.W, (cx + 1) * CHUNK); x++) {
@@ -101,12 +109,12 @@ export class FloraRenderer {
         if (isTree(f)) sc *= 0.35 + 0.65 * Math.min(1, amt / 200);
         if (f === Feat.Crop) sc = 0.25 + 0.75 * Math.min(1, amt / 255);
         if (f === Feat.Boulder || f === Feat.Ore) sc *= 0.6 + 0.4 * Math.min(1, amt / 160);
-        const born = this.growth.get(t);
+        const born = grow?.get(t);
         let stretch = 1;
         if (born !== undefined) {
           // springy pop: overshoot, wobble, settle (squash & stretch on the way)
           const k = Math.min(1, (time - born) / 0.95);
-          if (k >= 1) this.growth.delete(t);
+          if (k >= 1) grow!.delete(t);
           else {
             const el = k === 0 ? 0 : Math.pow(2, -9 * k) * Math.sin((k * 9 - 0.75) * ((2 * Math.PI) / 3)) + 1;
             sc *= Math.max(0.01, el);
@@ -132,6 +140,10 @@ export class FloraRenderer {
         if (py < minY) minY = py; if (py > maxY) maxY = py;
       }
     }
+    if (grow && grow.size === 0) this.growth.delete(ci);
+    // which pools changed (had or now have instances here)
+    for (let pi = 0; pi < this.pools.length; pi++) if ((cache.counts[pi] ?? 0) > 0 || lists[pi].length > 0) this.changedPools.add(pi);
+    this.changedChunks.add(ci);
     cache.mats = lists.map((l) => new Float32Array(l));
     cache.cols = colLists.map((l) => new Float32Array(l));
     cache.counts = lists.map((l) => l.length / 16);
@@ -142,17 +154,31 @@ export class FloraRenderer {
     cache.box.max.set((cx + 1) * CHUNK, Math.max(maxY, 0) + 3, (cz + 1) * CHUNK);
   }
 
-  markGrow(t: number, time: number) { this.growth.set(t, time); }
+  markGrow(t: number, time: number) {
+    const w = this.world;
+    const ci = ((((t / w.W) | 0) / CHUNK) | 0) * w.CW + (((t % w.W) / CHUNK) | 0);
+    // only sprouts in view up close get the springy pop; elsewhere the tree simply appears
+    if (!this.hiChunks.has(ci)) return;
+    let g = this.growth.get(ci);
+    if (!g) { g = new Map(); this.growth.set(ci, g); }
+    g.set(t, time);
+  }
 
+  private rebuildCursor = 0;
   update(camera: THREE.Camera, heightScale: number, z01: number, time: number) {
     const w = this.world;
     let changed = false;
-    for (let ci = 0; ci < w.featChunkDirty.length; ci++) {
-      if (w.featChunkDirty[ci] || (this.growth.size && this.chunkHasGrowth(ci))) {
-        w.featChunkDirty[ci] = 0;
-        this.rebuildChunk(ci, time);
-        changed = true;
-      }
+    // animating sprouts first (they are on screen), then other edits round-robin within the budget
+    let budget = this.lastKey === '' ? Infinity : FloraRenderer.REBUILDS_PER_FRAME;
+    for (const ci of [...this.growth.keys()]) { if (budget <= 0) break; w.featChunkDirty[ci] = 0; this.rebuildChunk(ci, time); changed = true; budget--; }
+    const n = w.featChunkDirty.length;
+    for (let k = 0; k < n && budget > 0; k++) {
+      const ci = (this.rebuildCursor + k) % n;
+      if (!w.featChunkDirty[ci]) continue;
+      w.featChunkDirty[ci] = 0;
+      this.rebuildChunk(ci, time);
+      changed = true; budget--;
+      this.rebuildCursor = (ci + 1) % n;
     }
     const cp = camera.position;
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -173,45 +199,56 @@ export class FloraRenderer {
     }
     const mapView = z01 > 0.82;
     sig += mapView ? 'M' : '';
+    this.hiChunks.clear();
+    for (const [ci, hi] of order) if (hi) this.hiChunks.add(ci);
     if (!changed && !this.dirty && sig === this.lastKey) return;
+    // the view changed: every pool is re-gathered; only content changed: just the touched pools,
+    // and each uploads from the first touched chunk onward instead of the whole buffer
+    const full = this.dirty || sig !== this.lastKey;
     this.lastKey = sig;
     this.dirty = false;
     const counts = this.pools.map(() => [0, 0]);
     for (let pi = 0; pi < this.pools.length; pi++) {
+      if (!full && !this.changedPools.has(pi)) continue;
       const pool = this.pools[pi];
       let nh = 0, nl = 0;
       for (const [ci, hi] of order) { const c = this.chunks[ci]; const n = (hi || !mapView ? c.counts[pi] : c.thinCounts[pi]) || 0; if (hi) nh += n; else nl += n; }
-      this.ensureCap(pool, Math.max(nh, nl));
-      let oh = 0, ol = 0;
+      const fresh = this.ensureCap(pool, Math.max(nh, nl));
+      let oh = 0, ol = 0, fh = full || fresh ? 0 : -1, fl = full || fresh ? 0 : -1;
       const hm = pool.hi.instanceMatrix.array as Float32Array, lm = pool.lo.instanceMatrix.array as Float32Array;
       const hc = pool.hi.instanceColor!.array as Float32Array, lc = pool.lo.instanceColor!.array as Float32Array;
       for (const [ci, hi] of order) {
         const c = this.chunks[ci];
         const thinned = !hi && mapView;
         const n = (thinned ? c.thinCounts[pi] : c.counts[pi]) || 0;
+        const touched = this.changedChunks.has(ci);
+        if (hi) { if (touched && fh < 0) fh = oh; }
+        else if (touched && fl < 0) fl = ol;
         if (!n) continue;
         if (hi) { hm.set(c.mats[pi], oh * 16); hc.set(c.cols[pi], oh * 3); oh += n; }
         else if (thinned) { lm.set(c.thinMats[pi], ol * 16); lc.set(c.thinCols[pi], ol * 3); ol += n; }
         else { lm.set(c.mats[pi], ol * 16); lc.set(c.cols[pi], ol * 3); ol += n; }
       }
-      pool.hi.count = oh; pool.lo.count = ol;
-      pool.hi.instanceMatrix.needsUpdate = true; pool.lo.instanceMatrix.needsUpdate = true;
-      pool.hi.instanceColor!.needsUpdate = true; pool.lo.instanceColor!.needsUpdate = true;
+      const upload = (mesh: THREE.InstancedMesh, from: number, count: number, prevCount: number) => {
+        const end = Math.max(count, prevCount);
+        mesh.visible = count > 0;
+        if (from < 0 || end <= from) { mesh.count = count; return; }
+        const im = mesh.instanceMatrix, ic = mesh.instanceColor!;
+        im.clearUpdateRanges(); ic.clearUpdateRanges();
+        im.addUpdateRange(from * 16, (end - from) * 16); ic.addUpdateRange(from * 3, (end - from) * 3);
+        im.needsUpdate = true; ic.needsUpdate = true;
+        mesh.count = count;
+      };
+      upload(pool.hi, fh, oh, pool.hi.count); upload(pool.lo, fl, ol, pool.lo.count);
       counts[pi] = [oh, ol];
     }
+    this.changedPools.clear();
+    this.changedChunks.clear();
   }
 
-  private chunkHasGrowth(ci: number) {
-    const w = this.world;
-    for (const t of this.growth.keys()) {
-      const cx = ((t % w.W) / CHUNK) | 0, cz = ((t / w.W / CHUNK) | 0);
-      if (cz * w.CW + cx === ci) return true;
-    }
-    return false;
-  }
-
-  private ensureCap(pool: Pool, n: number) {
-    if (n <= pool.cap && pool.hi.instanceColor) return;
+  /** Grow the pool's buffers if needed; true when they were recreated (needs a full upload). */
+  private ensureCap(pool: Pool, n: number): boolean {
+    if (n <= pool.cap && pool.hi.instanceColor) return false;
     let cap = pool.cap;
     while (cap < n) cap *= 2;
     pool.cap = cap;
@@ -228,5 +265,6 @@ export class FloraRenderer {
       this.group.add(m);
       pool[key] = m;
     }
+    return true;
   }
 }

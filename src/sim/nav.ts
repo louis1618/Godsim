@@ -89,25 +89,25 @@ export function standAtFeature(sim: Sim, u: Unit, t: number): [number, number] {
 /**
  * Advance toward (wx,wz) by at most `sp`, sliding along obstacles. Returns the distance moved.
  */
+function stepOk(w: World, x: number, z: number, allowWater: boolean): boolean {
+  const t = w.tileAt(x, z);
+  if (t < 0) return false;
+  if (w.bld[t] >= 0 && !w.bldPassable(t)) return false;
+  return allowWater ? true : w.walkable(t);
+}
 export function stepToward(w: World, u: Unit, wx: number, wz: number, sp: number, allowWater: boolean): number {
   const dx = wx - u.x, dz = wz - u.z;
   const d = Math.hypot(dx, dz);
   if (d < 1e-6) return 0;
   const k = Math.min(1, sp / d);
-  const ok = (x: number, z: number) => {
-    const t = w.tileAt(x, z);
-    if (t < 0) return false;
-    if (w.bld[t] >= 0 && !w.bldPassable(t)) return false;
-    return allowWater ? true : w.walkable(t);
-  };
   const nx = u.x + dx * k, nz = u.z + dz * k;
   const here = w.tileAt(u.x, u.z);
   // already stuck inside something: let the unit walk out freely
-  const inside = here >= 0 && !ok(u.x, u.z);
-  if (inside || ok(nx, nz)) { u.x = nx; u.z = nz; return d * k; }
+  const inside = here >= 0 && !stepOk(w, u.x, u.z, allowWater);
+  if (inside || stepOk(w, nx, nz, allowWater)) { u.x = nx; u.z = nz; return d * k; }
   // slide along whichever axis is open
-  if (ok(nx, u.z)) { const m = Math.abs(nx - u.x); u.x = nx; return m; }
-  if (ok(u.x, nz)) { const m = Math.abs(nz - u.z); u.z = nz; return m; }
+  if (stepOk(w, nx, u.z, allowWater)) { const m = Math.abs(nx - u.x); u.x = nx; return m; }
+  if (stepOk(w, u.x, nz, allowWater)) { const m = Math.abs(nz - u.z); u.z = nz; return m; }
   return 0;
 }
 
@@ -137,28 +137,39 @@ export function bodyRadius(sp: Sp): number {
  * goes into walls or (for walkers) into water. Deterministic: depends only on the simulation.
  */
 export const navOpts = { separation: true };
+const NOPUSH = UF.Ragdoll | UF.Held | UF.Aboard | UF.Jailed | UF.Dead;
 export function separate(sim: Sim, u: Unit) {
-  if (!navOpts.separation || (sim.tick + u.id) & 1) return;
+  // every 4th tick (pushes are twice as strong): a fifth of the old cost for the same drift speed
+  if (!navOpts.separation || (sim.tick + u.id) & 3) return;
   if (u.flags & (UF.Ragdoll | UF.Held | UF.Jailed | UF.Aboard | UF.Escorted | UF.Dead) || u.y > 1) return;
   if (u.anim === Anim.Work || u.anim === Anim.Attack || u.anim === Anim.Sleep || u.anim === Anim.Eat) return;
   const r = bodyRadius(u.sp);
   const boat = u.sp === Sp.Boat;
   let px = 0, pz = 0;
-  sim.near(u.x, u.z, r + 0.8, (o, d2) => {
-    if (o === u || o.flags & (UF.Ragdoll | UF.Held | UF.Aboard | UF.Jailed) || o.y > 1) return;
-    if ((o.sp === Sp.Boat) !== boat || o.sp === Sp.Fish) return; // boats only shove boats; fish swim under
-    const rr = r + bodyRadius(o.sp);
-    if (d2 >= rr * rr) return;
-    let d = Math.sqrt(d2), nx: number, nz: number;
-    if (d < 1e-4) { const a = ((u.id * 2654435761) >>> 0) / 4294967296 * Math.PI * 2; nx = Math.cos(a); nz = Math.sin(a); d = 0; }
-    else { nx = (u.x - o.x) / d; nz = (u.z - o.z) / d; }
-    // the one standing still (working, fighting) does not budge, so the mover takes the whole push
-    const share = o.anim === Anim.Work || o.anim === Anim.Attack || o.anim === Anim.Sleep ? 1 : 0.5;
-    const k = (rr - d) * share;
-    px += nx * k; pz += nz * k;
-  });
+  // walk the spatial hash directly (no closure, no allocation: this runs for every creature)
+  const R = r + 0.8, CELLS = sim.cellSize;
+  const cx0 = Math.max(0, ((u.x - R) / CELLS) | 0), cx1 = Math.min(sim.cw - 1, ((u.x + R) / CELLS) | 0);
+  const cz0 = Math.max(0, ((u.z - R) / CELLS) | 0), cz1 = Math.min(sim.ch - 1, ((u.z + R) / CELLS) | 0);
+  const units = sim.units, head = sim.cellHead, next = sim.cellNext;
+  for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) {
+    for (let i = head[cz * sim.cw + cx]; i >= 0; i = next[i]) {
+      const o = units[i];
+      if (!o || o === u || o.flags & NOPUSH || o.y > 1) continue;
+      if ((o.sp === Sp.Boat) !== boat || o.sp === Sp.Fish) continue; // boats only shove boats; fish swim under
+      const dx = u.x - o.x, dz = u.z - o.z, d2 = dx * dx + dz * dz;
+      const rr = r + bodyRadius(o.sp);
+      if (d2 >= rr * rr) continue;
+      let d = Math.sqrt(d2), nx: number, nz: number;
+      if (d < 1e-4) { const a = ((u.id * 2654435761) >>> 0) / 4294967296 * Math.PI * 2; nx = Math.cos(a); nz = Math.sin(a); d = 0; }
+      else { nx = dx / d; nz = dz / d; }
+      // the one standing still (working, fighting) does not budge, so the mover takes the whole push
+      const share = o.anim === Anim.Work || o.anim === Anim.Attack || o.anim === Anim.Sleep ? 1 : 0.5;
+      const k = (rr - d) * share;
+      px += nx * k; pz += nz * k;
+    }
+  }
   if (px === 0 && pz === 0) return;
-  const m = Math.hypot(px, pz), cap = Math.min(m, 0.08);
+  const m = Math.hypot(px, pz), cap = Math.min(m, 0.16);
   const tx = u.x + (px / m) * cap, tz = u.z + (pz / m) * cap;
   const w = sim.world;
   const t = w.tileAt(tx, tz);

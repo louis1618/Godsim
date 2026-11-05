@@ -35,6 +35,25 @@ export interface PhysicsPort {
 }
 
 /** The whole simulation state + fixed-step update. No rendering code here. */
+/**
+ * A unit with every field present, in one fixed order. All units share this shape (V8 hidden class),
+ * so the hot simulation code stays monomorphic; optional fields start as undefined/0 instead of
+ * being bolted on later in a different order for each creature.
+ */
+export function blankUnit(): Unit {
+  return {
+    id: 0, sp: 0 as Sp, x: 0, z: 0, px: 0, pz: 0, y: 0, dir: 0, hp: 1, maxHp: 1, age: 0, maxAge: 1, hunger: 0, name: '', female: false,
+    kingdom: -1, village: -1, job: Job.None, task: null, path: null, pathI: 0, carry: Res.None, carryAmt: 0, traits: 0, kills: 0, xp: 0, level: 1,
+    flags: 0, cd: 0, anim: Anim.Idle, animT: 0, emote: Emote.None, emoteT: 0, home: -1, born: 0, think: 0, look: 0, stuck: 0, lastHit: -1,
+    breedT: 0, hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60, energy: 80, social: 70, mems: [],
+    partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1,
+    blocked: 0, pathWait: 0, wdX: 0, wdZ: 0, wdT: -1, idleRun: 0, air: undefined, lod: 0, lodTick: 0,
+  };
+}
+
+/** Tick profiler switch (tools only): per-subsystem totals and worst ticks in ms. */
+export const profile = { on: false, byKind: false, t: {} as Record<string, number>, max: {} as Record<string, number>, n: {} as Record<string, number> };
+
 export class Sim {
   world: World;
   rng: Rng;
@@ -63,6 +82,7 @@ export class Sim {
   cw: number; ch: number;
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
+  readonly cellSize = CELL;
   stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0 };
   deathCauses: Record<string, number> = {};
   /** recent deaths for death animations (drained by the renderer; never saved) */
@@ -75,6 +95,7 @@ export class Sim {
   /** Throw a creature (explosions, tornadoes, quakes). Without a physics engine it just staggers. */
   fling(u: Unit, vx: number, vy: number, vz: number, spin = 8) {
     if (isVehicle(u.sp)) return;
+    u.lod = 0;
     this.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, a: vy });
     if (this.physics) { this.physics.fling(this, u, vx, vy, vz, spin); return; }
     const nx = u.x + vx * 0.15, nz = u.z + vz * 0.15;
@@ -115,7 +136,8 @@ export class Sim {
     const def = SPECIES[sp];
     const r = this.rng;
     const adult = opts.age === undefined;
-    const u: Unit = {
+    const u: Unit = blankUnit();
+    Object.assign(u, {
       id: this.id(), sp, x, z, px: x, pz: z, y: 0, dir: r.range(0, Math.PI * 2),
       hp: def.hp, maxHp: def.hp,
       age: adult ? def.adultAge + r.range(0, def.lifespan[0] * 0.3) : 0,
@@ -127,8 +149,9 @@ export class Sim {
       think: r.int(1, 10), look: r.int(0, 1 << 20), stuck: 0, lastHit: -1, breedT: Math.floor(def.breedEvery * YEAR_TICKS * r.range(0.5, 1.2)),
       hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60,
       energy: r.range(60, 100), social: r.range(50, 90), mems: [], partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1,
-      ...opts,
-    };
+      wdX: x, wdZ: z, wdT: this.tick,
+    });
+    Object.assign(u, opts);
     if (isCiv(sp) && opts.traits === undefined) {
       const pool = [Trait.Brave, Trait.Strong, Trait.Fast, Trait.Wise, Trait.Lucky, Trait.Greedy, Trait.Peaceful, Trait.Bloodlust, Trait.Fertile, Trait.Weak];
       const n = r.chance(0.6) ? 1 : r.chance(0.3) ? 2 : 0;
@@ -320,21 +343,44 @@ export class Sim {
   scheduled: { at: number; fn: () => void }[] = [];
 
   step() {
+    const P = profile.on;
+    let t0 = P ? performance.now() : 0;
+    const lap = (k: string) => { const t = performance.now(), d = t - t0; profile.t[k] = (profile.t[k] ?? 0) + d; if (d > (profile.max[k] ?? 0)) profile.max[k] = d; t0 = t; };
     this.tick++;
     this.pathCalls = 0;
     // shared search budget per tick: busy worlds spread path planning over a few ticks instead of stalling one
     this.pf.budget = 60000;
     this.rebuildCells();
+    if (P) lap('cells');
     const units = this.units;
-    for (let i = 0; i < units.length; i++) {
+    if (P && profile.byKind) {
+      // per-activity breakdown (tools only)
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        if (u.flags & UF.Dead) continue;
+        const k = 'u:' + (isVehicle(u.sp) ? 'vehicle' : u.sp === Sp.Fish ? 'fish' : (u.task?.k ?? 'none'));
+        if (u.lod && ((this.tick + u.id) & 1)) continue;
+        const a = performance.now();
+        unitTick(this, u);
+        const d = performance.now() - a;
+        profile.t[k] = (profile.t[k] ?? 0) + d; profile.n[k] = (profile.n[k] ?? 0) + 1;
+        if (d > (profile.max[k] ?? 0)) profile.max[k] = d;
+      }
+      t0 = performance.now();
+    } else for (let i = 0; i < units.length; i++) {
       const u = units[i];
       if (u.flags & UF.Dead) continue;
+      // activity LOD: calm wildlife is updated on its own parity of ticks only
+      if (u.lod && ((this.tick + u.id) & 1)) continue;
       unitTick(this, u);
     }
+    if (P) lap('units');
     // villages / kingdoms (staggered)
     for (const v of this.villages.values()) if (v.alive && (this.tick + v.id * 7) % 20 === 0) villageThink(this, v);
+    if (P) lap('villages');
     for (const k of this.kingdoms.values()) if (k.alive && (this.tick + k.id * 13) % 50 === 0) kingdomThink(this, k);
     if (this.tick % 100 === 0) diplomacyThink(this);
+    if (P) lap('kingdoms');
     // buildings
     for (const b of this.buildings.values()) {
       if (b.kind === Bk.Cannon) cannonTick(this, b);
@@ -344,8 +390,11 @@ export class Sim {
         if (this.weather.rain > 0.5 && this.rng.chance(0.05)) b.fire = 0;
       }
     }
+    if (P) lap('buildings');
     natureTick(this);
+    if (P) lap('nature');
     disasterTick(this);
+    if (P) lap('disasters');
     this.physics?.tick(this);
     if (this.scheduled.length) {
       const due = this.scheduled.filter((s) => s.at <= this.tick);
@@ -361,6 +410,7 @@ export class Sim {
       }
       units.length = j;
     }
+    if (P) lap('scheduled+gc');
   }
 
   /** Living creatures (of one species): counted once per tick, then served from a cache. */

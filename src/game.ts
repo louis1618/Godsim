@@ -19,6 +19,10 @@ export class Game {
   speed = 1;
   paused = false;
   private acc = 0;
+  private ownerT = 0;
+  /** milliseconds of simulation allowed per rendered frame */
+  static SIM_BUDGET_MS = 9;
+  stepsLast = 0;
   alpha = 0;
   frameMs = 0;
   simMs = 0;
@@ -57,14 +61,23 @@ export class Game {
     const t0 = performance.now();
     if (!this.paused) {
       this.acc += dt * this.speed;
+      // Fixed timestep with a per-frame time budget: the frame never stalls on a burst of ticks
+      // (a hitch used to be followed by up to 30 back-to-back ticks, which caused the next hitch).
+      // Ticks that do not fit wait for the next frame; a backlog is capped so the game simply runs
+      // a little slower instead of spiralling when a machine cannot keep up.
+      const owed = TICK_DT * Math.max(3, this.speed * 1.5);
+      if (this.acc > owed) this.acc = owed;
       let steps = 0;
-      const maxSteps = Math.max(4, Math.ceil(this.speed * 3));
-      while (this.acc >= TICK_DT && steps < maxSteps) { sim.step(); this.acc -= TICK_DT; steps++; }
-      if (steps >= maxSteps) this.acc = 0;
-      // ownership colours change when villages are captured etc.
-      if (sim.tick % 20 === 0) sim.world.ownerDirty = true;
+      while (this.acc >= TICK_DT) {
+        sim.step(); this.acc -= TICK_DT; steps++;
+        if (performance.now() - t0 > Game.SIM_BUDGET_MS) break;
+      }
+      this.stepsLast = steps;
+      // ownership colours change when villages are captured etc. (refreshed on the wall clock)
+      this.ownerT += dt;
+      if (this.ownerT > 0.5) { this.ownerT = 0; sim.world.ownerDirty = true; }
     }
-    this.alpha = this.acc / TICK_DT;
+    this.alpha = Math.min(1, this.acc / TICK_DT);
     // creature animation follows game time: frozen when paused, brisker when fast-forwarded
     if (!this.paused) U.uAnimTime.value += dt * Math.min(this.speed, 3);
     this.simMs = performance.now() - t0;
