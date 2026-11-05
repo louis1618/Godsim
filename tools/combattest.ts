@@ -127,6 +127,10 @@ const countShots = (sim: Sim) => { const o = sim.fx.length; return () => sim.fx.
   const w = sim.world;
   const before = new Float32Array(w.water);
   const hp0 = [...v.buildings].reduce((a, id) => a + (sim.buildings.get(id)?.hp ?? 0), 0);
+  // count the damage the water does (the town keeps building, so total hit points can still rise)
+  let floodDmg = 0;
+  const dmgB = sim.damageBuilding.bind(sim);
+  sim.damageBuilding = (b, d, by) => { if (!by) floodDmg += d; dmgB(b, d, by); };
   spawnFlood(sim, v.cx + 0.5, v.cz + 0.5, 11);
   const f = sim.floods[0];
   const flooded = f.tiles.filter((t) => w.isWater(t)).length;
@@ -137,7 +141,7 @@ const countShots = (sim: Sim) => { const o = sim.fx.length; return () => sim.fx.
   let restored = 0, diff = 0;
   for (const t of f.tiles) { if (Math.abs(w.water[t] - before[t]) < 1e-6) restored++; else diff++; }
   const hp1 = [...v.buildings].reduce((a, id) => a + (sim.buildings.get(id)?.hp ?? 0), 0);
-  check('flood rises, damages, drains', peakTiles > 20 && hp1 < hp0 && diff === 0 && sim.floods.length === 0, `tiles under water ${peakTiles} (still ${mid} after 15 s), town building hp ${Math.round(hp0)} -> ${Math.round(hp1)}, water restored on ${restored}/${f.tiles.length} tiles`);
+  check('flood rises, damages, drains', peakTiles > 20 && floodDmg > 0 && diff === 0 && sim.floods.length === 0, `tiles under water ${peakTiles} (still ${mid} after 15 s), damage to buildings ${Math.round(floodDmg)} (town hp ${Math.round(hp0)} -> ${Math.round(hp1)} incl. new construction), water restored on ${restored}/${f.tiles.length} tiles`);
 }
 
 // ---------------- F. falling nuke

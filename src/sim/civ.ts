@@ -498,7 +498,9 @@ export function villageThink(sim: Sim, v: Village) {
     const ok = (kind: Bk) => pop >= BUILDINGS[kind].minPop && era >= (BUILDINGS[kind].era ?? 0);
     const plan: [Bk, boolean, boolean][] = [
       [Bk.House, pop >= housing - 1, true],
-      [Bk.Farm, farms < Math.ceil(pop / 5) && ok(Bk.Farm), true],
+      // the first fields are essential; a big town's further fields queue behind its civic buildings
+      // (a town boxed in at its full radius otherwise filled the last free ground with farmland)
+      [Bk.Farm, farms < Math.min(Math.ceil(pop / 5), 6) && ok(Bk.Farm), true],
       [Bk.Storage, counts[Bk.Storage] < 1 + Math.floor(pop / 45) && ok(Bk.Storage), false],
       [Bk.Market, counts[Bk.Market] < 1 && ok(Bk.Market), false],
       [Bk.Prison, counts[Bk.Prison] < 1 && ok(Bk.Prison) && ((v.crime ?? 0) > 0.5 || v.loyalty < 45 || pop >= 30), false],
@@ -509,6 +511,7 @@ export function villageThink(sim: Sim, v: Village) {
       [Bk.Tower, counts[Bk.Tower] < (atWar ? 3 : 1) + Math.floor(pop / 30) && ok(Bk.Tower), false],
       [Bk.Temple, counts[Bk.Temple] < 1 && ok(Bk.Temple), false],
       [Bk.Cannon, counts[Bk.Cannon] < (atWar ? 3 : 1) + (v.level >= 3 ? 1 : 0) && ok(Bk.Cannon), false],
+      [Bk.Farm, farms < Math.ceil(pop / 5) && ok(Bk.Farm), v.food < pop * 0.5],
       [Bk.House, pop >= housing - 3 && counts[Bk.House] + counts[Bk.Apartment] < 16, false],
     ];
     // saving up: materials earmarked for a more important project are not spent on lesser ones
@@ -573,7 +576,9 @@ export function jobItem(u: Unit, era = 0): number {
 
 function sendSettlers(sim: Sim, v: Village, adults: Unit[]) {
   const w = sim.world;
-  const cands = adults.filter((u) => u.job !== Job.Warrior && !(u.flags & UF.King));
+  // soldiers, the watch, and anyone in the middle of a duty (an arrest, an escort, a caravan) stay
+  const busy = (u: Unit) => { const k = u.task?.k; return k === 'arrest' || k === 'escort' || k === 'trade' || k === 'board'; };
+  const cands = adults.filter((u) => u.job !== Job.Warrior && u.job !== Job.Guard && !(u.flags & UF.King) && !busy(u));
   if (cands.length < 5) return;
   let site: [number, number] | null = null;
   for (let i = 0; i < 40 && !site; i++) {

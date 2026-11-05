@@ -46,8 +46,9 @@ const make = (seed: number, tribes: number) => { fireTiles.clear(); clearClaims(
 
 // ---------------- B
 {
+  let runSeed = 57;
   const run = (drought: boolean) => {
-    const sim = make(57, 4);
+    const sim = make(runSeed, 4);
     for (let i = 0; i < YEAR_TICKS * 5; i++) sim.step();
     const v = [...sim.villages.values()].filter((x) => x.alive).sort((a, b) => b.residents.length - a.residents.length)[0];
     const cx = v.cx, cz = v.cz, R = 22;
@@ -71,9 +72,12 @@ const make = (seed: number, tribes: number) => { fireTiles.clear(); clearClaims(
     const grazers = count(sim, cx, cz, R + 15, (u) => [Sp.Sheep, Sp.Deer, Sp.Rabbit, Sp.Chicken, Sp.Boar].includes(u.sp));
     return { grass: Math.round(grass / 1000), crops, grazers0, grazers, food: Math.round(v.food), pop: v.residents.length, hunger: Math.round(hungerSum / Math.max(1, hungerN)), predHunger: Math.round(predHunger / Math.max(1, predN)), famine, crime: +((v.crime ?? 0) - crimeStart).toFixed(1), thefts, trades: (sim.stats.trades ?? 0) - trades0, raid };
   };
-  const ctl = run(false), dr = run(true);
-  console.log('   control', JSON.stringify(ctl));
-  console.log('   drought', JSON.stringify(dr));
+  // one pair of worlds is a coin toss for wildlife counts; sum three seeds
+  const sum = (a: Record<string, number>, b: Record<string, number>) => { for (const k in b) a[k] = (a[k] ?? 0) + b[k]; return a; };
+  let ctl: any = {}, dr: any = {};
+  for (const seed of [57, 58, 59]) { runSeed = seed; ctl = sum(ctl, run(false)); dr = sum(dr, run(true)); }
+  console.log('   control (3 seeds summed)', JSON.stringify(ctl));
+  console.log('   drought (3 seeds summed)', JSON.stringify(dr));
   const plants = dr.grass < ctl.grass * 0.8 && dr.crops < ctl.crops;
   const animals = dr.grazers < ctl.grazers;
   const people = dr.food < ctl.food || dr.hunger > ctl.hunger;

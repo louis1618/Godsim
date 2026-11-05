@@ -12,8 +12,13 @@ import { Bk, Sp, YEAR_TICKS } from '../src/sim/defs';
 import { Job, UF, Village, Kingdom } from '../src/sim/entities';
 import { placeBuilding, findSite, diplomacyThink, declareWar, makePeace, addResident } from '../src/sim/civ';
 import { addWanted } from '../src/sim/jobs';
+import { fireTiles } from '../src/sim/nature';
+import { clearClaims } from '../src/sim/ai';
+import { clearFarmClaims } from '../src/sim/civ';
 
 function world(seed: number) {
+  // module-level caches (work claims, fire tiles) must not leak from one world into the next
+  fireTiles.clear(); clearClaims(); clearFarmClaims();
   const w = generateWorld({ size: 192, shape: 'pangaea', seed });
   const sim = new Sim(w, seed);
   seedLife(sim, { tribes: 4 });
@@ -46,17 +51,18 @@ for (const seedA of [101, 102, 103, 104, 105]) {
     rich.food = 400; rich.wood = 300; poor.food = 0; poor.wood = 2;
     sim.laws.wars = false; // isolate trade from war
     const before = sim.stats.trades ?? 0;
-    let poorGot = 0;
+    let poorGot = 0, abMax = 0;
     for (let i = 0; i < YEAR_TICKS * 5; i++) {
       const f0 = poor.food;
       sim.step();
+      abMax = Math.max(abMax, ka.trade?.[kb.id] ?? 0); // the record decays: keep the peak
       if (ka.wars.includes(kb.id)) makePeace(sim, ka, kb);
       ka.opinion[kb.id] = Math.max(ka.opinion[kb.id] ?? 0, 10); kb.opinion[ka.id] = Math.max(kb.opinion[ka.id] ?? 0, 10); // friendly neighbours
       if (poor.food > f0 + 3) poorGot += poor.food - f0;
     }
     const traders = rich.residents.filter((id) => sim.getUnit(id)?.job === Job.Trader).length;
     console.log('   rich town', rich.name, 'pop', rich.residents.length, 'jobs', JSON.stringify(rich.residents.reduce((m: Record<number, number>, id) => { const u = sim.getUnit(id); if (u) m[u.job] = (m[u.job] ?? 0) + 1; return m; }, {})));
-    check(`shortage->trade (seed ${seedA})`, (sim.stats.trades ?? 0) - before >= 2 && (ka.trade?.[kb.id] ?? 0) > 0, `caravans=${(sim.stats.trades ?? 0) - before} traders=${traders} tradeAB=${(ka.trade?.[kb.id] ?? 0).toFixed(1)} opinion ${ka.opinion[kb.id]?.toFixed(0)} poor town received ~${poorGot.toFixed(0)} goods`);
+    check(`shortage->trade (seed ${seedA})`, (sim.stats.trades ?? 0) - before >= 2 && abMax > 0, `caravans=${(sim.stats.trades ?? 0) - before} traders=${traders} tradeAB peak=${abMax.toFixed(1)} opinion ${ka.opinion[kb.id]?.toFixed(0)} poor town received ~${poorGot.toFixed(0)} goods`);
     break;
   } else console.log(`   seed ${seedA}: no foreign town within reach, next world`);
 }
@@ -108,11 +114,17 @@ for (const seedB of [202, 203, 204, 205, 206, 207]) {
   const prison = build(sim, v, Bk.Prison);
   // two guards
   const adults = v.residents.map((id) => sim.getUnit(id)!).filter((u) => u && u.age >= 9 && !(u.flags & UF.King));
+  // make sure the thief is not one of the two guards (small towns may have few grown-ups)
+  while (adults.length < 4) { const u = sim.spawnUnit(v.race, v.cx + 0.5, v.cz + 1.5, { kingdom: v.kingdom, age: 20 }); addResident(sim, v, u); adults.push(u); }
   for (const g of adults.slice(0, 2)) { g.job = Job.Guard; g.task = null; g.think = 0; }
   const thief = adults[adults.length - 1];
   thief.crimes = 2; thief.traits = 0;
   addWanted(sim, v, thief);
-  let arrestedAt = -1, jailedAt = -1, releasedAt = -1, escorted = false;
+  let arrestedAt = -1, jailedAt = -1, releasedAt = -1, escorted = false, deathCause = '';
+  const kill0 = sim.killUnit.bind(sim);
+  sim.killUnit = (u, cause, by) => { if (u === thief && !(u.flags & UF.Dead)) deathCause = `${cause}${by ? ' by ' + by.sp + '/' + (by.kingdom === thief.kingdom ? 'own' : 'foe') : ''}`; kill0(u, cause, by); };
+  sim.laws.wars = false;
+  for (const o of [...sim.kingdoms.values()]) if (k.wars.includes(o.id)) makePeace(sim, k, o);
   for (let i = 0; i < YEAR_TICKS * 4 && releasedAt < 0; i++) {
     // keep the guard role assigned (village planner may reshuffle jobs)
     for (const g of adults.slice(0, 2)) if (g.job !== Job.Guard && !(g.flags & UF.Dead)) g.job = Job.Guard;
@@ -122,9 +134,10 @@ for (const seedB of [202, 203, 204, 205, 206, 207]) {
     if (jailedAt < 0 && thief.flags & UF.Jailed) jailedAt = sim.tick;
     if (jailedAt >= 0 && releasedAt < 0 && !(thief.flags & UF.Jailed)) releasedAt = sim.tick;
     if (thief.flags & UF.Dead) break;
+    if (process.env.TRACE && (i % 120 === 0 || (thief.flags & UF.Escorted && i % 20 === 0))) console.log('   ', sim.tick, 'thief', thief.task?.k, thief.flags & (UF.Escorted | UF.Jailed), thief.x.toFixed(1), thief.z.toFixed(1), '| guards', adults.slice(0, 2).map((g) => `${g.id}:${g.task?.k}@${g.x.toFixed(1)},${g.z.toFixed(1)} v${g.village}`).join(' '), '| prison', prison?.x, prison?.z, 'v', v.id);
   }
   const inYard = prison ? Math.abs(thief.x - (prison.x + 1)) < 2 : false;
-  check('crime->arrest->prison->release', !!prison && escorted && jailedAt > 0 && releasedAt > jailedAt, `prison=${!!prison} escorted=${escorted} arrested@${arrestedAt} jailed@${jailedAt} released@${releasedAt} (sentence ${((releasedAt - jailedAt) / YEAR_TICKS).toFixed(1)}y) dead=${!!(thief.flags & UF.Dead)} nearPrisonAfter=${inYard}`);
+  check('crime->arrest->prison->release', !!prison && escorted && jailedAt > 0 && releasedAt > jailedAt, `prison=${!!prison} escorted=${escorted} arrested@${arrestedAt} jailed@${jailedAt} released@${releasedAt} (sentence ${((releasedAt - jailedAt) / YEAR_TICKS).toFixed(1)}y) dead=${!!(thief.flags & UF.Dead)}${deathCause ? ' (' + deathCause + ')' : ''} nearPrisonAfter=${inYard}`);
 }
 
 // ---------------- D. development
