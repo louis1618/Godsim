@@ -66,6 +66,16 @@ function items(b: ModelBuilder, hx: number, hy: number, hz: number, s = 1) {
   add(16, geo.cyl(0.006, 0.01, 0.5, 4), 0x9a6a3a, at(0, 0.2, 0.08, 0.6));
   add(16, geo.cyl(0.002, 0.002, 0.22, 3), 0xeeeeee, at(0, 0.32, 0.36));
   add(16, geo.sphere(0.018, 6, 4), 0xe23a3a, at(0, 0.21, 0.36));
+  // staff (mages): gnarled shaft, glowing orb in a claw
+  add(18, geo.cyl(0.011, 0.014, 0.5, 5), 0x6a4426, at(0, 0.16, 0.03, 0.12));
+  add(18, geo.sphere(0.04, 10, 8), 0xffb84a, at(0, 0.43, 0.06));
+  add(18, geo.sphere(0.022, 8, 6), 0xfff4c8, at(0.01, 0.44, 0.08));
+  for (const a of [0, 2.1, 4.2]) add(18, geo.cone(0.008, 0.06, 4), 0x4a2e18, at(Math.cos(a) * 0.035, 0.42, 0.06 + Math.sin(a) * 0.035, 0, 0, Math.cos(a) * 0.5));
+  // ray gun (aliens): bulbous emitter rings
+  add(19, geo.rbox(0.035, 0.07, 0.05, 0.012, 1), 0x9aa4b0, at(0, 0.02, 0.0, 1.25));
+  add(19, geo.cyl(0.016, 0.022, 0.12, 8), 0xc8d0da, at(0, 0.08, 0.07, 1.25));
+  for (const k of [0, 1]) add(19, geo.torus(0.026, 0.007, 4, 10), 0x4af0a0, at(0, 0.075 + k * 0.025, 0.06 + k * 0.03, 1.25 + Math.PI / 2));
+  add(19, geo.sphere(0.014, 6, 4), 0x9affd0, at(0, 0.12, 0.13));
   // book (scholar)
   add(17, geo.box(0.09, 0.11, 0.025), 0x3a5aa8, T(hx + 0.02, hy + 0.02, hz + 0.05, -0.4, 0, 0, s));
   add(17, geo.box(0.08, 0.1, 0.027), 0xf3ecd8, T(hx + 0.022, hy + 0.02, hz + 0.05, -0.4, 0, 0, s));
@@ -139,7 +149,7 @@ function plane(): THREE.BufferGeometry {
 
 interface HumanoidOpts {
   height: number; width: number; headR: number; skinDefault: number;
-  style: 'human' | 'elf' | 'dwarf' | 'orc' | 'skeleton' | 'troll';
+  style: 'human' | 'elf' | 'dwarf' | 'orc' | 'skeleton' | 'troll' | 'zombie' | 'mage' | 'alien' | 'demon' | 'coldone';
 }
 
 function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
@@ -149,6 +159,8 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
   const hipY = legH;
   const skel = o.style === 'skeleton';
   const troll = o.style === 'troll';
+  const st = o.style;
+  const bare = st === 'demon' || st === 'coldone'; // no tailoring: skin all over
   // legs (stubby) + feet
   for (const side of [-1, 1]) {
     const part = side < 0 ? P.LLeg : P.RLeg;
@@ -161,12 +173,34 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     b.add(geo.capsule(Wd * 0.18, bodyH * 0.5, 3, 8), { color: 0xe6e1d2 }, T(0, hipY + bodyH * 0.5, 0, 0, 0, 0, 1, 1, 0.8));
     for (let i = 0; i < 3; i++) b.add(geo.torus(Wd * 0.2, 0.012, 4, 10), { color: 0xd5cfbd }, T(0, hipY + bodyH * (0.35 + i * 0.18), 0, Math.PI / 2, 0, 0, 1, 1, 0.75));
   } else {
-    b.add(geo.lathe(troll ? [[0, 0], [Wd * 0.4, 0.01], [Wd * 0.5, bodyH * 0.4], [Wd * 0.46, bodyH * 0.85], [Wd * 0.3, bodyH], [0, bodyH]] : [[0, 0], [Wd * 0.34, 0.01], [Wd * 0.4, bodyH * 0.35], [Wd * 0.36, bodyH * 0.8], [Wd * 0.22, bodyH], [0, bodyH]], 14), { color: troll ? 0x7f9a98 : W, slot: troll ? 0 : 1, ao: [hipY, hipY + bodyH, 0.82] }, T(0, hipY, 0));
+    b.add(geo.lathe(troll ? [[0, 0], [Wd * 0.4, 0.01], [Wd * 0.5, bodyH * 0.4], [Wd * 0.46, bodyH * 0.85], [Wd * 0.3, bodyH], [0, bodyH]] : st === 'coldone' ? [[0, 0], [Wd * 0.38, 0.01], [Wd * 0.48, bodyH * 0.45], [Wd * 0.46, bodyH * 0.85], [Wd * 0.3, bodyH], [0, bodyH]] : [[0, 0], [Wd * 0.34, 0.01], [Wd * 0.4, bodyH * 0.35], [Wd * 0.36, bodyH * 0.8], [Wd * 0.22, bodyH], [0, bodyH]], 14), { color: troll ? 0x7f9a98 : W, slot: troll ? 0 : bare ? 2 : 1, ao: [hipY, hipY + bodyH, 0.82] }, T(0, hipY, 0));
+    if (st === 'mage') {
+      // a long robe down to the ankles, with a trimmed hem and a rope belt
+      b.add(geo.lathe([[0, 0], [Wd * 0.46, 0], [Wd * 0.4, legH * 0.9], [Wd * 0.36, legH + bodyH * 0.3], [0, legH + bodyH * 0.3]], 14), { color: W, slot: 1, ao: [0, hipY, 0.85] }, T(0, 0.004, 0));
+      b.add(geo.torus(Wd * 0.45, Wd * 0.03, 4, 14), { color: W, slot: 5 }, T(0, 0.02, 0, Math.PI / 2));
+    }
+    if (st === 'zombie') {
+      // torn, faded rags: dark patches and a ripped hem
+      for (const [x, y, z] of [[0.6, 0.45, 0.85], [-0.5, 0.7, 0.8], [0.2, 0.2, -0.9]] as [number, number, number][]) b.add(geo.sphere(Wd * 0.12, 6, 4), { color: 0x4a3e30 }, T(x * Wd * 0.4, hipY + bodyH * y, z * Wd * 0.38, 0, 0, 0, 1, 1, 0.35));
+      for (let i = 0; i < 5; i++) b.add(geo.cone(Wd * 0.06, Wd * 0.14, 3), { color: W, slot: 1 }, T(Math.cos(i * 1.3) * Wd * 0.36, hipY - Wd * 0.02, Math.sin(i * 1.3) * Wd * 0.36, Math.PI));
+    }
+    if (st === 'demon') {
+      // loincloth, chest plates of brimstone
+      b.add(geo.cyl(Wd * 0.42, Wd * 0.46, bodyH * 0.22, 12), { color: 0x2a1a1a }, T(0, hipY + bodyH * 0.1, 0));
+      for (const sx of [-1, 1]) b.add(geo.sphere(Wd * 0.14, 8, 6), { color: 0x7a1a14 }, T(sx * Wd * 0.17, hipY + bodyH * 0.72, Wd * 0.3, 0, 0, 0, 1, 0.7, 0.5));
+    }
+    if (st === 'coldone') {
+      // ice crystals jutting from the shoulders and back
+      for (const [x, y, z, rz] of [[0.42, 0.95, -0.05, -0.6], [-0.42, 0.95, -0.05, 0.6], [0.15, 0.8, -0.4, -0.2], [-0.2, 0.6, -0.42, 0.3], [0, 1.05, -0.3, 0]] as number[][])
+        b.add(geo.cone(Wd * 0.09, Wd * 0.42, 5), { color: 0xd8f6ff, flat: true }, T(x * Wd, hipY + bodyH * y, z * Wd, -0.5, 0, rz));
+    }
     if (troll) b.add(geo.cyl(Wd * 0.42, Wd * 0.48, bodyH * 0.35, 12), { color: 0x6b4a2e }, T(0, hipY + bodyH * 0.18, 0));
     // belt + collar trim
-    b.add(geo.torus(Wd * 0.385, Wd * 0.04, 5, 14), { color: 0x5b3b24 }, T(0, hipY + bodyH * 0.3, 0, Math.PI / 2));
-    b.add(geo.torus(Wd * 0.24, Wd * 0.04, 5, 12), { color: W, slot: 5 }, T(0, hipY + bodyH * 0.95, 0, Math.PI / 2));
-    if (!troll) {
+    if (!bare) {
+      b.add(geo.torus(Wd * 0.385, Wd * 0.04, 5, 14), { color: st === 'mage' ? 0xd9b84a : 0x5b3b24 }, T(0, hipY + bodyH * 0.3, 0, Math.PI / 2));
+      b.add(geo.torus(Wd * 0.24, Wd * 0.04, 5, 12), { color: W, slot: 5 }, T(0, hipY + bodyH * 0.95, 0, Math.PI / 2));
+    }
+    if (!troll && !bare && st !== 'alien') {
       // buckle, buttons, a pouch on the belt and a hem stripe: clothes with some tailoring
       b.add(geo.rbox(Wd * 0.14, Wd * 0.1, Wd * 0.05, Wd * 0.015, 1), { color: 0xd9b84a }, T(0, hipY + bodyH * 0.3, Wd * 0.39));
       for (const k of [0.55, 0.74]) b.add(geo.sphere(Wd * 0.035, 6, 4), { color: W, slot: 5 }, T(0, hipY + bodyH * k, Wd * 0.385 - (k - 0.55) * Wd * 0.1));
@@ -183,15 +217,23 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
   // eyes
   for (const side of [-1, 1]) {
     if (skel) b.add(geo.sphere(hr * 0.22, 8, 6), { color: 0x221b22, part: P.Head, pivot: headPiv }, T(side * hr * 0.36, hy + hr * 0.05, hr * 0.8, 0, 0, 0, 1, 1.15, 0.5));
-    else {
+    else if (st === 'alien') {
+      // huge, glossy almond eyes
+      b.add(geo.sphere(hr * 0.3, 10, 8), { color: 0x0c0a14, part: P.Head, pivot: headPiv }, T(side * hr * 0.4, hy + hr * 0.02, hr * 0.78, 0, 0, side * 0.5, 1.5, 0.85, 0.5));
+      b.add(geo.sphere(hr * 0.06, 5, 4), { color: 0xffffff, part: P.Head, pivot: headPiv }, T(side * hr * 0.33, hy + hr * 0.12, hr * 0.94));
+    } else if (st === 'zombie' || st === 'demon' || st === 'coldone') {
+      // glowing eyes: sickly green, ember yellow, frost cyan
+      const glow = st === 'zombie' ? 0xc8ff5a : st === 'demon' ? 0xffd23a : 0x8af0ff;
+      b.add(geo.sphere(hr * 0.15, 8, 6), { color: glow, part: P.Head, pivot: headPiv }, T(side * hr * 0.36, hy + hr * 0.04, hr * 0.88, 0, 0, side * 0.3, 1.2, 0.8, 0.55));
+    } else {
       b.add(geo.sphere(hr * 0.13, 8, 6), { color: 0x1d1a24, part: P.Head, pivot: headPiv }, T(side * hr * 0.36, hy + hr * 0.02, hr * 0.9, 0, 0, 0, 0.9, 1.25, 0.6));
       b.add(geo.sphere(hr * 0.045, 5, 4), { color: 0xffffff, part: P.Head, pivot: headPiv }, T(side * hr * 0.33, hy + hr * 0.08, hr * 0.97));
       // rosy cheeks
       b.add(geo.sphere(hr * 0.12, 6, 4), { color: 0xf09a8c, part: P.Head, pivot: headPiv }, T(side * hr * 0.55, hy - hr * 0.2, hr * 0.78, 0, 0, 0, 1, 0.6, 0.4));
     }
   }
-  if (!skel) b.add(geo.sphere(hr * 0.12, 8, 6), { color: W, slot: 2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.08, hr * 0.98, 0, 0, 0, 1, 0.8, 0.8));
-  if (!skel && !troll) {
+  if (!skel && st !== 'alien') b.add(geo.sphere(hr * 0.12, 8, 6), { color: W, slot: 2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.08, hr * 0.98, 0, 0, 0, 1, 0.8, 0.8));
+  if (!skel && !troll && (st === 'human' || st === 'elf' || st === 'dwarf' || st === 'orc' || st === 'mage')) {
     // brows (hair-coloured) and a small smile give every face an expression
     for (const side of [-1, 1]) b.add(geo.capsule(hr * 0.04, hr * 0.2, 2, 5), { color: W, slot: 3, part: P.Head, pivot: headPiv }, T(side * hr * 0.37, hy + hr * 0.3, hr * 0.86, -0.2, 0, Math.PI / 2 + side * 0.18));
     b.add(geo.torus(hr * 0.13, hr * 0.028, 4, 10, Math.PI), { color: 0x5a2a2a, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.26, hr * 0.92, -0.25, 0, Math.PI));
@@ -229,6 +271,43 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
     case 'skeleton':
       b.add(geo.box(hr * 0.9, hr * 0.25, hr * 0.5), { color: 0xe6e1d2, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.75, hr * 0.32));
       break;
+    case 'zombie':
+      // matted hair, a gaping mouth, stitches across the brow
+      b.add(geo.sphere(hr * 1.02, 12, 8), hairSlot, T(0.02, hy + hr * 0.25, -hr * 0.15, -0.3, 0, 0.15, 1, 0.65, 0.95));
+      b.add(geo.sphere(hr * 0.2, 8, 6), { color: 0x2a1a1a, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.42, hr * 0.85, 0, 0, 0, 1.2, 0.9, 0.5));
+      b.add(geo.box(hr * 0.7, hr * 0.05, hr * 0.06), { color: 0x3a2a2a, part: P.Head, pivot: headPiv }, T(0, hy + hr * 0.5, hr * 0.84, -0.3, 0, 0.2));
+      break;
+    case 'mage':
+      // tall pointed hat with a crooked tip and a wide brim; a long beard
+      b.add(geo.cyl(hr * 1.45, hr * 1.45, hr * 0.1, 18), { color: W, slot: 4, part: P.HeadAtt, pivot: headPiv }, T(0, hy + hr * 0.62, 0));
+      b.add(geo.cone(hr * 0.85, hr * 2.0, 14), { color: W, slot: 4, part: P.HeadAtt, pivot: headPiv }, T(0.0, hy + hr * 1.6, -hr * 0.05, -0.15, 0, 0.12));
+      b.add(geo.torus(hr * 0.86, hr * 0.08, 4, 16), { color: 0xd9b84a, part: P.HeadAtt, pivot: headPiv }, T(0, hy + hr * 0.72, 0, Math.PI / 2));
+      b.add(geo.sphere(hr * 0.75, 12, 10), hairSlot, T(0, hy - hr * 0.6, hr * 0.45, 0.35, 0, 0, 0.95, 1.25, 0.7));
+      b.add(geo.cone(hr * 0.45, hr * 0.9, 8), hairSlot, T(0, hy - hr * 1.3, hr * 0.55, Math.PI - 0.3, 0, 0));
+      break;
+    case 'alien':
+      // a tall egg-shaped cranium, slit mouth, two little antennae
+      b.add(geo.sphere(hr * 1.05, 16, 12), { color: W, slot: 2, part: P.Head, pivot: headPiv }, T(0, hy + hr * 0.45, -hr * 0.1, -0.2, 0, 0, 0.95, 1.2, 1.0));
+      b.add(geo.box(hr * 0.3, hr * 0.03, hr * 0.05), { color: 0x2a3a2a, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.42, hr * 0.86));
+      for (const side of [-1, 1]) {
+        b.add(geo.cyl(hr * 0.03, hr * 0.03, hr * 0.7, 4), { color: W, slot: 2, part: P.HeadAtt, pivot: headPiv }, T(side * hr * 0.35, hy + hr * 1.55, -hr * 0.1, 0, 0, -side * 0.35));
+        b.add(geo.sphere(hr * 0.1, 6, 4), { color: 0x7affb0, part: P.HeadAtt, pivot: headPiv }, T(side * hr * 0.48, hy + hr * 1.88, -hr * 0.1));
+      }
+      break;
+    case 'demon':
+      // curling horns, pointed ears, a sharp grin
+      for (const side of [-1, 1]) {
+        b.add(geo.cone(hr * 0.2, hr * 0.85, 7), { color: 0x2a1a14, part: P.HeadAtt, pivot: headPiv }, T(side * hr * 0.55, hy + hr * 0.95, -hr * 0.05, -0.3, 0, -side * 0.55));
+        b.add(geo.cone(hr * 0.12, hr * 0.45, 5), { color: 0xf0e0c0, part: P.HeadAtt, pivot: headPiv }, T(side * hr * 0.82, hy + hr * 1.35, -hr * 0.25, -0.9, 0, -side * 0.2));
+        b.add(geo.cone(hr * 0.13, hr * 0.5, 5), { color: W, slot: 2, part: P.HeadAtt, pivot: headPiv }, T(side * hr * 1.0, hy + hr * 0.2, -hr * 0.1, 0, 0, -side * 1.3));
+      }
+      b.add(geo.torus(hr * 0.22, hr * 0.03, 4, 10, Math.PI), { color: 0xfff0d0, part: P.Head, pivot: headPiv }, T(0, hy - hr * 0.3, hr * 0.9, -0.2, 0, Math.PI));
+      break;
+    case 'coldone':
+      // a crown of ice shards and a frosted beard
+      for (let i = 0; i < 5; i++) b.add(geo.cone(hr * 0.16, hr * (0.7 + (i % 2) * 0.4), 5), { color: 0xe8fbff, part: P.HeadAtt, pivot: headPiv, flat: true }, T(Math.cos(i * 0.75 - 1.5) * hr * 0.6, hy + hr * 0.95, Math.sin(i * 0.75 - 1.5) * hr * 0.4 - hr * 0.1, -0.2, 0, -Math.cos(i * 0.75 - 1.5) * 0.4));
+      b.add(geo.ico(hr * 0.55, 0), { color: 0xc8eeff, part: P.Head, pivot: headPiv, flat: true }, T(0, hy - hr * 0.62, hr * 0.42, 0.3, 0, 0, 1, 1.2, 0.7));
+      break;
     case 'troll':
       // heavy brow, underbite with tusks, warty nose, tuft of moss hair
       b.add(geo.box(hr * 1.5, hr * 0.28, hr * 0.5), { color: 0x6f8a8a, part: P.Head, pivot: headPiv }, T(0, hy + hr * 0.3, hr * 0.62, 0.35));
@@ -240,14 +319,40 @@ function humanoid(o: HumanoidOpts): THREE.BufferGeometry {
   }
   // hands
   const shoulderY = hipY + bodyH * 0.82;
+  const reach = st === 'zombie'; // the hungry dead walk with arms outstretched
   for (const side of [-1, 1]) {
     const part = side < 0 ? P.LHand : P.RHand;
-    const hx = side * Wd * 0.5, hyy = hipY + bodyH * 0.3;
-    b.add(geo.sphere(Wd * 0.12, 10, 8), { color: skel ? 0xe6e1d2 : W, slot: skinSlot, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(hx, hyy, 0.02));
-    if (!skel) b.add(geo.capsule(Wd * 0.085, (shoulderY - hyy) * 0.6, 3, 8), { color: W, slot: 1, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.45, (shoulderY + hyy) / 2 + 0.01, 0, 0, 0, side * 0.12));
-    if (!skel && !troll) b.add(geo.torus(Wd * 0.085, Wd * 0.025, 4, 10), { color: W, slot: 5, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.48, hyy + Wd * 0.13, 0.01, Math.PI / 2, 0, side * 0.12));
+    const hx = side * Wd * (reach ? 0.38 : 0.5), hyy = reach ? shoulderY - 0.01 : hipY + bodyH * 0.3;
+    const fwd = reach ? Wd * 0.75 : 0.02;
+    b.add(geo.sphere(Wd * 0.12, 10, 8), { color: skel ? 0xe6e1d2 : W, slot: skinSlot, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(hx, hyy, fwd));
+    if (reach) b.add(geo.capsule(Wd * 0.085, Wd * 0.5, 3, 8), { color: W, slot: 1, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.38, shoulderY, fwd * 0.5, Math.PI / 2, 0, 0));
+    else if (!skel) b.add(geo.capsule(Wd * 0.085, (shoulderY - hyy) * 0.6, 3, 8), { color: W, slot: bare ? 2 : 1, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.45, (shoulderY + hyy) / 2 + 0.01, 0, 0, 0, side * 0.12));
+    if (!skel && !troll && !bare && !reach) b.add(geo.torus(Wd * 0.085, Wd * 0.025, 4, 10), { color: W, slot: 5, part, pivot: [side * Wd * 0.38, shoulderY, 0] }, T(side * Wd * 0.48, hyy + Wd * 0.13, 0.01, Math.PI / 2, 0, side * 0.12));
+  }
+  if (st === 'demon') {
+    // a whip of a tail and small leathery wings
+    const tp: [number, number, number] = [0, hipY + bodyH * 0.15, -Wd * 0.35];
+    b.add(geo.capsule(Wd * 0.05, Wd * 1.1, 3, 6), { color: W, slot: 2, part: P.Tail, pivot: tp }, T(0, hipY + bodyH * 0.05, -Wd * 0.8, Math.PI / 2 + 0.5));
+    b.add(geo.cone(Wd * 0.12, Wd * 0.25, 3), { color: 0x2a1a14, part: P.Tail, pivot: tp, flat: true }, T(0, hipY - bodyH * 0.12, -Wd * 1.35, -Math.PI / 2));
+    for (const side of [-1, 1]) b.add(geo.extrude([[0, 0], [0.55, 0.35], [0.9, 0.1], [0.7, -0.05], [0.5, -0.2], [0.3, -0.12], [0, -0.05]], 0.012), { color: 0x5a1612, part: P.HeadAtt, pivot: [0, hipY + bodyH * 0.8, -Wd * 0.3] }, T(side * Wd * 0.2, hipY + bodyH * 0.8, -Wd * 0.32, 0, side > 0 ? -0.5 : Math.PI + 0.5, 0.3, Wd * 1.1, Wd * 1.1, 1));
   }
   items(b, Wd * 0.5, hipY + bodyH * 0.3, 0.02, H / 0.62);
+  return b.build();
+}
+
+/** Flying saucer: steel disc, glass dome, a spinning ring of lights (part 7), glowing belly. */
+function ufo(): THREE.BufferGeometry {
+  const b = new ModelBuilder(23, true);
+  b.add(geo.lathe([[0, -0.08], [0.22, -0.07], [0.44, -0.02], [0.5, 0.0], [0.44, 0.04], [0.22, 0.08], [0, 0.09]], 28), { color: 0xb8c2cc }, T(0, 0.35, 0));
+  b.add(geo.torus(0.47, 0.03, 6, 32), { color: 0x6f7a86 }, T(0, 0.35, 0, Math.PI / 2));
+  b.add(new THREE.SphereGeometry(0.2, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), { color: 0x9fe8ff }, T(0, 0.42, 0));
+  b.add(geo.sphere(0.07, 10, 8), { color: 0x6ad87a }, T(0, 0.47, 0.02, 0, 0, 0, 1, 1.2, 1));
+  b.add(geo.cyl(0.16, 0.12, 0.05, 20), { color: 0x9affd0 }, T(0, 0.25, 0));
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    b.add(geo.sphere(0.035, 6, 4), { color: i % 2 ? 0xffe05a : 0x5affb0, part: P.Tail, pivot: [0, 0.35, 0] }, T(Math.cos(a) * 0.4, 0.35, Math.sin(a) * 0.4));
+  }
+  for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2 + 0.5; b.add(geo.cyl(0.012, 0.02, 0.18, 5), { color: 0x6f7a86 }, T(Math.cos(a) * 0.26, 0.2, Math.sin(a) * 0.26, Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3)); }
   return b.build();
 }
 
@@ -468,6 +573,12 @@ export function buildCreatureModels(): Record<number, THREE.BufferGeometry> {
     [Sp.Crocodile]: wildlife(Sp.Crocodile),
     [Sp.Fish]: wildlife(Sp.Fish),
     [Sp.Dragon]: wildlife(Sp.Dragon),
+    [Sp.Zombie]: humanoid({ height: 0.62, width: 0.2, headR: 0.125, skinDefault: 0x8aa66a, style: 'zombie' }),
+    [Sp.Mage]: humanoid({ height: 0.64, width: 0.2, headR: 0.12, skinDefault: 0xeebd94, style: 'mage' }),
+    [Sp.UFO]: ufo(),
+    [Sp.Alien]: humanoid({ height: 0.56, width: 0.16, headR: 0.14, skinDefault: 0x9ad6a0, style: 'alien' }),
+    [Sp.Demon]: humanoid({ height: 0.68, width: 0.24, headR: 0.12, skinDefault: 0xc8322a, style: 'demon' }),
+    [Sp.ColdOne]: humanoid({ height: 0.7, width: 0.27, headR: 0.12, skinDefault: 0x9fd8f0, style: 'coldone' }),
   };
 }
 
@@ -477,11 +588,18 @@ export const SKIN_TONES: Record<number, number[]> = {
   [Sp.Dwarf]: [0xf0c3a0, 0xe0a882, 0xc78e68],
   [Sp.Orc]: [0x7fae5a, 0x6d9b4e, 0x8fb565, 0x5f8a49],
   [Sp.Troll]: [0x7f9a98, 0x6f8a8a, 0x8aa6a2],
+  [Sp.Zombie]: [0x8aa66a, 0x7a9a6a, 0x9aae7a, 0x6f8a5a],
+  [Sp.Mage]: [0xf7d3b5, 0xeebd94, 0xd59c6f],
+  [Sp.Alien]: [0x9ad6a0, 0xa8b4c0, 0x8ac8b8],
+  [Sp.Demon]: [0xc8322a, 0xb02a24, 0xd84a2a],
+  [Sp.ColdOne]: [0x9fd8f0, 0xb8e8f8, 0x8ac8e8],
 };
 export const HAIR_TONES: Record<number, number[]> = {
   [Sp.Human]: [0x3a2618, 0x5b3920, 0x8a5a2e, 0xd9b05a, 0x1f1a1a, 0xb54a22],
   [Sp.Elf]: [0xf2e2a8, 0xe8e8f0, 0xc9e0a0, 0xd9a85a],
   [Sp.Dwarf]: [0xb54a22, 0x8a5a2e, 0x5b3920, 0xd9b05a, 0x9a9a9a],
   [Sp.Orc]: [0x1f1a1a, 0x3a2618, 0x4a3a2a],
+  [Sp.Zombie]: [0x2a2420, 0x4a3a2a, 0x5a5048],
+  [Sp.Mage]: [0xf0f0f4, 0xd8d8e0, 0xbcbcc8],
 };
 void hex;

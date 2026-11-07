@@ -209,6 +209,25 @@ function makeIcons(): Record<string, Maker> {
   m['troll'] = () => creature(models, Sp.Troll, 0xffffff, 0x7f9a98, 0xffffff, 8);
   for (const [k, sp] of [['rabbit', Sp.Rabbit], ['fox', Sp.Fox], ['boar', Sp.Boar], ['crocodile', Sp.Crocodile], ['fish', Sp.Fish], ['dragon', Sp.Dragon]] as [string, Sp][])
     m[k] = () => { const o = creature(models, sp, 0xffffff, 0xffffff, 0xffffff); o.rotation.y = sp === Sp.Crocodile || sp === Sp.Fish ? -1.0 : -0.6; return o; };
+  // monsters
+  m['zombie'] = () => creature(models, Sp.Zombie, 0x5f6f7a, 0x8aa66a, 0x2a2420);
+  m['mage'] = () => creature(models, Sp.Mage, 0x5a3ab0, 0xeebd94, 0xf0f0f4, 18);
+  m['demon'] = () => creature(models, Sp.Demon, 0x5a1612, 0xc8322a, 0x000000);
+  m['coldone'] = () => creature(models, Sp.ColdOne, 0xa8e0f8, 0x9fd8f0, 0xffffff);
+  m['alien'] = () => creature(models, Sp.Alien, 0xb8c4d0, 0x9ad6a0, 0xffffff, 19);
+  m['ufo'] = () => { const o = creature(models, Sp.UFO, 0xffffff, 0xffffff, 0xffffff); o.rotation.x = 0.35; o.position.y = -0.2; o.scale.setScalar(1.5); return o; };
+  m['invasion'] = () => {
+    const g = new THREE.Group();
+    for (const [x, y, sc] of [[-0.3, 0.25, 0.9], [0.32, 0.55, 1.1], [0.0, -0.05, 0.75]] as const) { const o = m['ufo'](); o.position.set(x, y - 0.2, 0); o.scale.setScalar(sc); g.add(o); }
+    return g;
+  };
+  m['outbreak'] = () => {
+    const g = new THREE.Group();
+    const a = creature(models, Sp.Zombie, 0x5f6f7a, 0x8aa66a, 0x2a2420); a.position.set(-0.22, 0, -0.1);
+    const b2 = creature(models, Sp.Zombie, 0x6a5a7a, 0x7a9a6a, 0x4a3a2a); b2.position.set(0.25, 0, 0.12); b2.scale.multiplyScalar(0.9);
+    g.add(a, b2);
+    return g;
+  };
   m['manual'] = () => {
     const b = new ModelBuilder(1);
     b.add(geo.rbox(0.9, 0.12, 0.66, 0.04, 1), { color: 0x8a3a2a }, T(0, 0.06, 0, 0, 0.2, 0));
@@ -315,6 +334,14 @@ function makeIcons(): Record<string, Maker> {
   // ---------------- nature
   m['rain'] = () => { const b = cloud(); for (let i = 0; i < 4; i++) b.add(geo.sphere(0.06, 8, 6), { color: 0x5ab4ff }, T(-0.3 + i * 0.2, 0.15 - (i % 2) * 0.12, 0, 0, 0, 0, 0.8, 1.4, 0.8)); return std(b.build()); };
   m['storm'] = () => { const b = cloud(true); bolt(b, 0xffe24a, T(0.05, 0.15, 0.1, 0, 0, 0, 0.7, 0.7, 0.7)); return std(b.build(), 0x403000, 0.2); };
+  m['acidrain'] = () => { const b = cloud(true); for (let i = 0; i < 5; i++) b.add(geo.sphere(0.065, 8, 6), { color: 0xa8f03a }, T(-0.36 + i * 0.18, 0.15 - (i % 2) * 0.14, 0.05, 0, 0, 0, 0.8, 1.5, 0.8)); return std(b.build(), 0x2a4a00, 0.35); };
+  m['napalm'] = () => {
+    const b = new ModelBuilder(1);
+    b.add(geo.capsule(0.16, 0.45, 6, 16), { color: vgrad(0x5a5e40, 0x8a8e60, 0, 1) }, T(0, 0.62, 0, 0, 0, 0.6));
+    for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2; b.add(geo.box(0.03, 0.14, 0.14), { color: 0x3a3e2a }, new THREE.Matrix4().makeRotationZ(0.6).multiply(T(Math.cos(a) * 0.14, 0.4, Math.sin(a) * 0.14, 0, -a, 0))); }
+    flame(b, 0.6, 0.15, 0.1);
+    return std(b.build(), 0x602000, 0.25);
+  };
   m['forest'] = () => { const g = new THREE.Group(); const a = std(pine(2)[0]); a.position.set(-0.35, 0, -0.2); a.scale.setScalar(0.75); const b = std(oak(5)[0]); b.position.set(0.25, 0, 0.1); b.scale.setScalar(0.75); g.add(a, b); return g; };
   m['bloom'] = () => {
     const b = new ModelBuilder(1);

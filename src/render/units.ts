@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Sim } from '../sim/sim';
-import { SPECIES, SPECIES_COUNT, Sp, isCiv, isVehicle, KINGDOM_COLORS } from '../sim/defs';
+import { SPECIES, SPECIES_COUNT, Sp, isCiv, isVehicle, isMonster, KINGDOM_COLORS } from '../sim/defs';
 import { UF, Anim } from '../sim/entities';
 import { buildCreatureModels, SKIN_TONES, HAIR_TONES } from './models/creatures';
 import { patchInstanced } from './shared';
@@ -19,13 +19,15 @@ mat3 gsRotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, 
 void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   float A = iMisc.x; float t = uAnimTime + iMisc.y;
   int part = int(aPart + 0.5);
-  if (A >= 10.0 && A < 14.0) {
+  if ((A >= 10.0 && A < 14.0) || A == 17.0) {
     // machines: rigid; boats bob and roll, tanks rumble, propellers spin
     R = mat3(1.0); piv = aPivot; lean = 0.0;
     off = vec3(0.0, A == 11.0 ? sin(t * 1.7) * 0.02 : A == 10.0 ? sin(t * 40.0) * 0.003 : 0.0, 0.0);
     if (A == 11.0) lean = sin(t * 1.1) * 0.05;
     if (part == 7 && A == 12.0) R = gsRotZ(t * 45.0);
     if (A == 13.0) off.z -= 0.07; // gun recoil
+    // saucers: hover bob, a lazy wobble, the light ring spinning
+    if (A == 17.0) { off.y = sin(t * 2.2) * 0.05; lean = sin(t * 1.3) * 0.06; if (part == 7) R = gsRotY(t * 2.6); }
     return;
   }
   bool walk = A == 1.0 || A == 4.0;
@@ -119,7 +121,7 @@ interface Pool { mesh: THREE.InstancedMesh; cloth: THREE.InstancedBufferAttribut
 /** Characters are drawn a bit larger than their simulation footprint so they read well. */
 export const CREATURE_SCALE = 1.4;
 
-const SPECIES_TINT: Record<number, number> = { [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0, [Sp.Troll]: 0x5f7a78, [Sp.Rabbit]: 0xcab49a, [Sp.Fox]: 0xe0742e, [Sp.Boar]: 0x6a4a36, [Sp.Crocodile]: 0x4f7a3a, [Sp.Fish]: 0x4aa8d8, [Sp.Dragon]: 0xd8322a };
+const SPECIES_TINT: Record<number, number> = { [Sp.Zombie]: 0x5f6f7a, [Sp.Mage]: 0x5a3ab0, [Sp.UFO]: 0xc8d2dc, [Sp.Alien]: 0xb8c4d0, [Sp.Demon]: 0x5a1612, [Sp.ColdOne]: 0xa8e0f8, [Sp.Sheep]: 0xf4f1ea, [Sp.Wolf]: 0x7d8590, [Sp.Deer]: 0xb27a46, [Sp.Bear]: 0x7a5236, [Sp.Skeleton]: 0xe6e1d2, [Sp.Chicken]: 0xfff6e0, [Sp.Troll]: 0x5f7a78, [Sp.Rabbit]: 0xcab49a, [Sp.Fox]: 0xe0742e, [Sp.Boar]: 0x6a4a36, [Sp.Crocodile]: 0x4f7a3a, [Sp.Fish]: 0x4aa8d8, [Sp.Dragon]: 0xd8322a };
 
 /** Renders every creature: animated 3D instances up close, coloured map pins from afar. */
 export class UnitRenderer {
@@ -365,7 +367,7 @@ export class UnitRenderer {
         this.markerPos[o] = x; this.markerPos[o + 1] = y + 0.5; this.markerPos[o + 2] = z;
         this.c.setHex(col);
         this.markerCol[o] = this.c.r; this.markerCol[o + 1] = this.c.g; this.markerCol[o + 2] = this.c.b;
-        const base = isCiv(u.sp) ? 8 : isVehicle(u.sp) ? 11 : u.sp === Sp.Skeleton ? 7 : u.sp === Sp.Troll ? 12 : u.sp === Sp.Dragon ? 16 : u.sp === Sp.Fish ? 2.4 : 3.6;
+        const base = isCiv(u.sp) ? 8 : isVehicle(u.sp) ? 11 : u.sp === Sp.Skeleton || isMonster(u.sp) ? (u.sp === Sp.UFO ? 13 : 8) : u.sp === Sp.Troll ? 12 : u.sp === Sp.Dragon ? 16 : u.sp === Sp.Fish ? 2.4 : 3.6;
         this.markerSize[mk] = base * (u.flags & UF.King ? 1.7 : u.flags & UF.Hero ? 1.35 : 1) * (u.age < def.adultAge ? 0.75 : 1) * (u.sp === Sp.Bear ? 1.3 : 1);
         mk++;
       }
@@ -383,7 +385,8 @@ export class UnitRenderer {
       this.yawCache.set(u.id, ry);
       const child = u.age < def.adultAge;
       let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1) * (u.flags & UF.Hero ? 1.12 : 1) * (u.flags & UF.King ? 1.06 : 1);
-      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll && !isMonster(u.sp)) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (u.sp === Sp.UFO) sc = CREATURE_SCALE * 1.5;
       if (isVehicle(u.sp)) sc = CREATURE_SCALE * (u.sp === Sp.Boat ? 1.7 : u.sp === Sp.Tank ? 1.6 : 1.8);
       if (u.sp === Sp.Dragon) sc = CREATURE_SCALE * def.size;
       if (u.sp === Sp.Crocodile) sc = CREATURE_SCALE * 1.15 * (child ? 0.6 : 1);
@@ -419,12 +422,13 @@ export class UnitRenderer {
       }
       let anim: number = u.anim;
       if (isVehicle(u.sp)) anim = u.sp === Sp.Boat ? Anim.Float : u.sp === Sp.Plane ? Anim.Soar : u.animT > 0 ? 13 : Anim.Drive;
-      else if (ph || u.id === this.heldId) anim = Anim.Fly;
+      else if (ph || u.id === this.heldId || u.flags & UF.Beamed) anim = Anim.Fly;
+      else if (u.sp === Sp.UFO) anim = Anim.Hover;
       else if (u.task?.k === 'idle' && anim === Anim.Walk) anim = Anim.Idle;
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
       if (u.flags & UF.Aboard) anim = Anim.Idle;
       if (u.anim === Anim.Drown) anim = Anim.Drown;
-      const item = u.sp === Sp.Troll ? 8 : u.sp === Sp.Boat ? 20 + u.item : child || !isCiv(u.sp) ? 0 : u.item;
+      const item = u.sp === Sp.Troll ? 8 : u.sp === Sp.Boat ? 20 + u.item : isMonster(u.sp) ? u.item : child || !isCiv(u.sp) ? 0 : u.item;
       const mood = isVehicle(u.sp) ? 60 : (u.mood ?? 60);
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, Math.round(Math.max(0, Math.min(1, mood / 100)) * 99) + (u.hitT > 0 ? Math.min(0.95, u.hitT / 6) : 0));
       if (u.flags & UF.King) {
@@ -487,13 +491,13 @@ export class UnitRenderer {
     const w = sim.world;
     for (const d of g) {
       const u = d.u;
-      if (isVehicle(u.sp) || !this.pools[u.sp] || sim.tick - d.tick > 30) continue;
+      if (isVehicle(u.sp) || u.sp === Sp.UFO || !this.pools[u.sp] || sim.tick - d.tick > 30) continue;
       const dx = u.x - focus.x, dz = u.z - focus.z;
       if (dx * dx + dz * dz > radius * radius || this.corpses.length > 150) continue;
       const def = SPECIES[u.sp];
       const child = u.age < def.adultAge;
       let sc = CREATURE_SCALE * def.size * (child ? 0.5 + 0.5 * Math.min(1, u.age / def.adultAge) : 1);
-      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
+      if (!isCiv(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll && !isMonster(u.sp)) sc = CREATURE_SCALE * (child ? 0.55 + 0.45 * Math.min(1, u.age / def.adultAge) : 1);
       if (u.sp === Sp.Dragon) sc = CREATURE_SCALE * def.size;
       if (u.sp === Sp.Crocodile) sc = CREATURE_SCALE * 1.15 * (child ? 0.6 : 1);
       const k = sim.kingdoms.get(u.kingdom);
@@ -501,7 +505,7 @@ export class UnitRenderer {
       const drown = d.cause === 'drown';
       this.corpses.push({
         sp: u.sp, x: u.x, z: u.z, y: this.groundY(w, u.x, u.z) + Math.max(0, u.y), dir: this.yawCache.get(u.id) ?? u.dir, look: u.look, col,
-        item: child || !isCiv(u.sp) ? 0 : u.item, scale: sc, t0: time, life: drown ? 3.6 : u.sp === Sp.Fish ? 1.2 : 2.6, drown,
+        item: isMonster(u.sp) ? u.item : child || !isCiv(u.sp) ? 0 : u.item, scale: sc, t0: time, life: drown ? 3.6 : u.sp === Sp.Fish ? 1.2 : 2.6, drown,
         burnt: d.cause === 'fire' || d.cause === 'lightning', side: (u.id & 1) ? 1 : -1, age: u.age, adult: def.adultAge, mood: u.mood ?? 60,
       });
       this.yawCache.delete(u.id);

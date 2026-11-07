@@ -216,6 +216,14 @@ class AudioEngine {
     switch (t) {
       case 'hit': if (g > 0.05 && this.rate('hit', 60)) { this.burst({ type: 'bandpass', f: r(1500, 3000), q: 4, a: 0.001, d: 0.06, g: 0.1 * g * near, pan }); this.tone(r(150, 250), { type: 'triangle', d: 0.08, g: 0.08 * g * near, pan, to: 90 }); } break;
       case 'death': if (g > 0.05 && this.rate('death', 120)) this.tone(r(500, 700), { type: 'triangle', to: 200, d: 0.35, g: 0.07 * g * near, pan }); break;
+      case 'fireball': if (g > 0.1 && this.rate('fireball', 120)) this.burst({ type: 'bandpass', f: 500, to: 1400, q: 1.2, a: 0.02, d: 0.35, g: 0.12 * g, pan }); break;
+      case 'fireburst': if (g > 0.1 && this.rate('fireburst', 120)) { this.burst({ f: 900, to: 120, a: 0.005, d: 0.4, g: 0.18 * g, pan }); this.tone(r(90, 130), { type: 'sine', to: 50, d: 0.3, g: 0.1 * g, pan }); } break;
+      case 'laser': if (g > 0.1 && this.rate('laser', 90)) this.tone(r(1400, 1900), { type: 'sawtooth', to: r(300, 500), d: 0.18, g: 0.05 * g, pan }); break;
+      case 'beam': if (g > 0.1 && this.rate('beam', 400)) this.tone(r(220, 260), { type: 'sine', to: r(480, 560), d: 0.45, g: 0.05 * g, pan, verb: 0.4 }); break;
+      case 'abduct': if (g > 0.1) [72, 79, 86].forEach((m, i) => this.tone(mtof(m), { type: 'sine', d: 0.25, g: 0.05 * g, t: this.ctx!.currentTime + i * 0.06, pan, verb: 0.6 })); break;
+      case 'blink': if (g > 0.1 && this.rate('blink', 200)) this.tone(r(600, 800), { type: 'triangle', to: r(1800, 2400), d: 0.2, g: 0.06 * g, pan, verb: 0.5 }); break;
+      case 'freeze': if (g > 0.1 && this.rate('freeze', 300)) for (let i = 0; i < 4; i++) this.tone(r(2000, 3200), { type: 'sine', d: 0.12, g: 0.03 * g, t: this.ctx!.currentTime + i * 0.05, pan, verb: 0.5 }); break;
+      case 'napalm': this.boom(Math.max(0.3, g), pan, 1.1); break;
       case 'gasp': if (g > 0.15 && near === 1 && this.rate('gasp', 260)) { for (let i = 0; i < 3; i++) this.tone(r(500, 900), { type: 'sine', to: r(1100, 1600), d: 0.07, g: 0.035 * g, t: this.ctx!.currentTime + i * 0.06, pan }); this.burst({ type: 'bandpass', f: 900, q: 1.5, d: 0.12, g: 0.05 * g, pan }); } break;
       case 'birth': if (g > 0.1 && this.rate('birth', 400)) [84, 88, 91].forEach((m, i) => this.tone(mtof(m), { type: 'sine', d: 0.3, g: 0.04 * g, t: this.ctx!.currentTime + i * 0.07, pan, verb: 0.5 })); break;
       case 'hammer': if (g > 0.2 && near === 1 && this.rate('hammer', 140)) this.tone(r(900, 1300), { type: 'square', d: 0.03, g: 0.03 * g, pan }); break;

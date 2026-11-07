@@ -144,6 +144,8 @@ export class FxRenderer {
   private arrows: Arrow[] = [];
   private arrowMesh: THREE.InstancedMesh;
   private shells: Arrow[] = [];
+  /** fireballs in flight: a glowing head with a trail of flame */
+  private spells: Arrow[] = [];
   private shellMesh: THREE.InstancedMesh;
   private nukeMesh: THREE.InstancedMesh;
   private bombMesh: THREE.InstancedMesh;
@@ -320,6 +322,68 @@ export class FxRenderer {
       case 'bhit':
         if (!close) return;
         this.burst(e.tx ?? e.x, y + 0.4, e.tz ?? e.z, 3, { color: 0xb08a5a, frame: PF.Chip, speed: 1.5, up: 2, life: 0.6, size: 0.06, grav: -8 });
+        break;
+      case 'fireball': {
+        const y0 = (e.y ?? 0) + this.gy(sim, e.x, e.z) + 0.5;
+        this.spells.push({ x0: e.x, z0: e.z, x1: e.tx!, z1: e.tz!, y0, y1: this.gy(sim, e.tx!, e.tz!) + 0.25, t: 0, dur: Math.max(0.3, (e.a ?? 4) * 0.1), arc: 0.18 });
+        if (close) this.burst(e.x, y0, e.z, 6, { color: 0xffc04a, frame: PF.Spark, speed: 0.8, up: 0.8, life: 0.4, size: 0.08, add: true });
+        break;
+      }
+      case 'fireburst':
+        this.burst(e.x, y + 0.3, e.z, 16, { color: 0xff8a2a, frame: PF.Flame, speed: 2, up: 1.6, life: 0.55, size: 0.45, size1: 0.1, add: true, drag: 3 });
+        this.burst(e.x, y + 0.3, e.z, 10, { color: 0xfff0b0, frame: PF.Spark, speed: 2.6, up: 2.2, life: 0.5, size: 0.1, add: true, grav: -6 });
+        this.burst(e.x, y + 0.4, e.z, 6, { color: 0x4a403a, frame: PF.Smoke, speed: 0.8, up: 0.8, life: 1.4, size: 0.35, size1: 0.8, alpha: 0.7, drag: 1.5 });
+        this.flashAt(e.x, y + 0.8, e.z, 10, 5);
+        break;
+      case 'laser': {
+        if (!close) return;
+        // instant beam: a line of bright dots from the gun (or the saucer's belly) to the target
+        const y0 = (e.y ?? 0) + this.gy(sim, e.x, e.z) + (e.a === 1 ? 0.35 : 0.1);
+        const y1 = this.gy(sim, e.tx!, e.tz!) + 0.3;
+        const col = e.a === 1 ? 0x7affb0 : 0xff4a6a;
+        for (let i = 0; i <= 14; i++) { const k = i / 14; this.add.spawn(e.x + (e.tx! - e.x) * k, y0 + (y1 - y0) * k, e.z + (e.tz! - e.z) * k, 0, 0, 0, { life: 0.12 + k * 0.08, size: 0.14, size1: 0.04, color: col, frame: PF.Dot }); }
+        this.burst(e.tx!, y1, e.tz!, 5, { color: col, frame: PF.Spark, speed: 1.5, up: 1.2, life: 0.35, size: 0.08, add: true });
+        this.flashAt(e.tx!, y1 + 0.3, e.tz!, 6, 3);
+        break;
+      }
+      case 'beam': {
+        if (!close) return;
+        // tractor beam: a column of pale light rising from the ground to the saucer
+        const top = (e.y ?? 2.6) + this.gy(sim, e.x, e.z);
+        for (let i = 0; i < 6; i++) { const a = Math.random() * Math.PI * 2, r = Math.random() * 0.45; this.add.spawn(e.x + Math.cos(a) * r, this.gy(sim, e.x, e.z) + Math.random() * top * 0.4, e.z + Math.sin(a) * r, 0, 2.2, 0, { life: 0.6, size: 0.12, size1: 0.02, color: 0xbfffe0, frame: PF.Dot, alpha: 0.8 }); }
+        this.add.spawn(e.x, this.gy(sim, e.x, e.z) + 0.05, e.z, 0, 0, 0, { life: 0.25, size: 1.0, size1: 1.2, color: 0x9affd0, frame: PF.Ring, alpha: 0.5 });
+        break;
+      }
+      case 'abduct':
+        this.burst(e.x, y + 2.4, e.z, 12, { color: 0xbfffe0, frame: PF.Spark, speed: 1.2, up: 0.5, life: 0.6, size: 0.12, add: true });
+        this.flashAt(e.x, y + 2.5, e.z, 10, 4);
+        break;
+      case 'blink':
+        this.burst(e.x, y + 0.4, e.z, 14, { color: 0xb07aff, frame: PF.Spark, speed: 1.6, up: 1.4, life: 0.6, size: 0.12, add: true, drag: 2 });
+        this.burst(e.x, y + 0.3, e.z, 6, { color: 0x6a3ab0, frame: PF.Smoke, speed: 0.6, up: 0.6, life: 1, size: 0.3, size1: 0.6, alpha: 0.7 });
+        break;
+      case 'freeze': {
+        const r = e.a ?? 2;
+        this.burst(e.x, y + 0.2, e.z, 10 + Math.round(r * 4), { color: 0xd8f6ff, frame: PF.Chip, speed: r * 0.9, up: 1.4, life: 0.9, size: 0.09, grav: -5, spread: r * 0.5 });
+        this.burst(e.x, y + 0.1, e.z, 6, { color: 0xeaf8ff, frame: PF.Smoke, speed: r * 0.6, up: 0.2, life: 1.4, size: 0.4, size1: 0.9, alpha: 0.6, drag: 2 });
+        break;
+      }
+      case 'portal':
+        this.burst(e.x, y + 0.2, e.z, 20, { color: 0xff4a1a, frame: PF.Flame, speed: 1.8, up: 2.4, life: 0.8, size: 0.4, size1: 0.1, add: true });
+        this.burst(e.x, y + 0.3, e.z, 10, { color: 0x2a1a1a, frame: PF.Smoke, speed: 1, up: 1.5, life: 1.8, size: 0.4, size1: 1, alpha: 0.75 });
+        this.ring(e.x, y + 0.08, e.z, 2.2, 0.5);
+        break;
+      case 'napalm':
+        this.burst(e.x, y + 0.3, e.z, 40, { color: 0xff7a1a, frame: PF.Flame, speed: 4.5, up: 1.4, life: 0.9, size: 0.6, size1: 0.2, add: true, drag: 2.5 });
+        this.burst(e.x, y + 0.6, e.z, 20, { color: 0x2a2420, frame: PF.Smoke, speed: 2, up: 1.6, life: 3, size: 0.6, size1: 1.8, alpha: 0.8, drag: 1 });
+        this.flashAt(e.x, y + 1.5, e.z, 24, 12);
+        break;
+      case 'acid':
+        this.burst(e.x, y + 4, e.z, 16, { color: 0x9acc3a, frame: PF.Smoke, speed: (e.a ?? 6) * 0.4, up: 0.2, life: 2.5, size: 1.2, size1: 2.4, alpha: 0.5, drag: 1 });
+        break;
+      case 'steam':
+        if (!close) return;
+        this.burst(e.x, y + 0.3, e.z, 5, { color: 0xf2f4f6, frame: PF.Smoke, speed: 0.5, up: 1.2, life: 1.2, size: 0.2, size1: 0.6, alpha: 0.7, drag: 1.5 });
         break;
       case 'gasp':
         if (!close) return;
@@ -720,6 +784,30 @@ export class FxRenderer {
       if (Math.random() < 0.7) this.alpha.spawn(x, y, z, 0, 0.2, 0, { life: 0.7, size: 0.1, size1: 0.3, color: 0xcfc8bc, frame: PF.Smoke, alpha: 0.5, drag: 1 });
     }
     this.shells = this.shells.filter((a) => a.t < a.dur);
+    for (const a of this.spells) {
+      a.t += dt;
+      const k = Math.min(1, a.t / a.dur);
+      const x = a.x0 + (a.x1 - a.x0) * k, z = a.z0 + (a.z1 - a.z0) * k;
+      const y = a.y0 + (a.y1 - a.y0) * k + Math.sin(k * Math.PI) * (a.arc ?? 0) * Math.hypot(a.x1 - a.x0, a.z1 - a.z0);
+      this.add.spawn(x, y, z, 0, 0, 0, { life: 0.08, size: 0.32, size1: 0.2, color: 0xffd27a, frame: PF.Flame });
+      this.add.spawn(x, y, z, (Math.random() - 0.5) * 0.4, 0.3, (Math.random() - 0.5) * 0.4, { life: 0.35, size: 0.2, size1: 0.02, color: 0xff7a2a, frame: PF.Flame });
+    }
+    this.spells = this.spells.filter((a) => a.t < a.dur);
+    // acid rain: sickly green streaks under a jaundiced cloud
+    for (const a of sim.acidRains) {
+      if (!this.near(a.x, a.z, 2)) continue;
+      for (let i = 0; i < 6; i++) {
+        const ang = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * a.r;
+        const x = a.x + Math.cos(ang) * d, z = a.z + Math.sin(ang) * d;
+        this.add.spawn(x, this.gy(sim, x, z) + 5, z, 0, -9, 0, { life: 0.55, size: 0.07, size1: 0.05, color: 0xb8f04a, frame: PF.Drop });
+      }
+      if (Math.random() < dt * 4) {
+        const ang = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * a.r * 0.8;
+        this.alpha.spawn(a.x + Math.cos(ang) * d, this.gy(sim, a.x, a.z) + 5.5, a.z + Math.sin(ang) * d, 0.1, 0, 0.05, { life: 4, size: 2.2, size1: 3, color: 0x8aa83a, frame: PF.Smoke, alpha: 0.4, drag: 0.2 });
+        const x = a.x + Math.cos(ang) * d, z = a.z + Math.sin(ang) * d;
+        this.alpha.spawn(x, this.gy(sim, x, z) + 0.05, z, 0, 0.3, 0, { life: 0.9, size: 0.2, size1: 0.45, color: 0xd8ff8a, frame: PF.Smoke, alpha: 0.5 });
+      }
+    }
     this.shellMesh.count = ns; this.shellMesh.instanceMatrix.needsUpdate = true;
 
     // ordnance in flight + target rings on the ground
