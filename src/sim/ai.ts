@@ -10,6 +10,14 @@ import { vehicleTick } from './vehicles';
 import { fishTick, dragonTick, aquatic } from './animals';
 import { eats, grazes, hunts } from './foodchain';
 import { monsterTick, decideMonster, ufoTick, castAt, runHeal, seekWater } from './monsters';
+import { hazardNear, perceive, fightOrFlight, callForHelp, pickNeed, Intent } from './utility';
+
+/** What each task says about a creature's intent (the inspector shows it as an icon). */
+const INTENT_OF: Record<string, Intent> = {
+  attack: Intent.Fight, raze: Intent.Fight, march: Intent.Fight, rally: Intent.Fight, hunt: Intent.Hunt, flee: Intent.Flee,
+  eat: Intent.Eat, sleep: Intent.Sleep, chat: Intent.Social, love: Intent.Social, dance: Intent.Social, graze: Intent.Graze,
+  wander: Intent.Wander, idle: Intent.None, swim: Intent.Swim, heal: Intent.Rescue,
+};
 
 const AGE_STEP = 10 / YEAR_TICKS;
 PENDING.hit = (sim, e) => { const t = sim.getUnit(e.u!); if (t) hurt(sim, t, e.dmg!, e.by !== undefined ? sim.getUnit(e.by) : undefined, e.cause ?? 'attack'); };
@@ -156,24 +164,44 @@ function decide(sim: Sim, u: Unit) {
     for (const b of sim.buildings.values()) { if (!b.alive || b.kind === Bk.Ruin || b.kind === Bk.Farm) continue; const d = (b.x - u.x) ** 2 + (b.z - u.z) ** 2; if (d < bbd) { bbd = d; bb = b.id; } }
     if (bb >= 0) { setTask(sim, u, { k: 'raze', b: bb }); return; }
   }
-  // 1. threats & targets
+  // 1. hazards (utility: walking out of harm's way beats anything else): fire, lava, acid rain,
+  //    a tornado's path, the shadow of an incoming meteor or bomb, an erupting volcano
+  if (!isMonster(u.sp) && !def.undead) {
+    const hz = hazardNear(sim, u.x, u.z);
+    if (hz && hz.level > 0.15 && !(hz.what === 'fire' && u.sp === Sp.Demon)) {
+      const was = u.task?.k === 'flee';
+      fleeFrom(sim, u, hz.x, hz.z);
+      u.intent = Intent.AvoidHazard;
+      if (!was && civ) sim.emote(u, Emote.Alert, 20);
+      return;
+    }
+  }
+  // 2. threats: fight or flight, by score (strength vs danger, courage from species, traits,
+  //    health, friends nearby and duty); calls for help and spreads alarm
   const threat = scanThreat(sim, u);
   if (threat) {
     const { enemy, dist } = threat;
-    const fighter = !civ ? (def.aggressive || u.hp > u.maxHp * 0.6 && SPECIES[enemy.sp].hp < def.hp * 0.7)
-      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.job === Job.Guard || u.job === Job.Mage || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
-    if (fighter && !(u.traits & Trait.Peaceful && !(u.flags & UF.Mad) && enemy.sp <= Sp.Orc)) {
-      if (!u.task || u.task.k !== 'attack' || u.task.u !== enemy.id) {
+    const p = perceive(sim, u, enemy, dist);
+    const r = fightOrFlight(sim, u, p);
+    if (r.choice === 'fight') {
+      if (!u.task || (u.task.k !== 'attack' && u.task.k !== 'hunt') || u.task.u !== enemy.id) {
         setTask(sim, u, { k: 'attack', u: enemy.id });
         if (civ && sim.rng.chance(0.4)) sim.emote(u, Emote.Angry, 20);
+        // a townsman taking on something big shouts for the guards
+        if (civ && p.danger > 0.9 && u.job !== Job.Warrior && u.job !== Job.Guard) callForHelp(sim, u, enemy, 'defend', setTask, fleeFrom);
       }
+      u.intent = Intent.Fight;
       return;
     }
-    if (dist < 7) {
+    if (r.choice === 'flee') {
       const was = u.task?.k === 'flee';
       // keep running, but re-aim every decision so a dead end never pins the creature down
       fleeFrom(sim, u, enemy.x, enemy.z);
-      if (!was && civ && sim.rng.chance(0.5)) sim.emote(u, Emote.Alert, 20);
+      u.intent = Intent.Flee;
+      if (!was) {
+        if (civ) { sim.emote(u, Emote.Alert, 20); if (callForHelp(sim, u, enemy, 'defend', setTask, fleeFrom)) u.intent = Intent.CallHelp; }
+        else if (!def.aggressive) callForHelp(sim, u, enemy, 'alarm', setTask, fleeFrom); // the herd bolts together
+      }
       return;
     }
     if (u.task?.k === 'flee') return;
@@ -207,16 +235,19 @@ function decide(sim: Sim, u: Unit) {
   // 3. carrying something: deliver
   if (u.carry !== Res.None && u.carryAmt > 0) { setTask(sim, u, { k: 'deliver' }); return; }
 
-  // 4. hunger (soldiers on campaign live off supplies)
-  if (u.hunger > 60 && u.job === Job.Warrior && v.food >= 1 && sim.kingdoms.get(u.kingdom)?.wars.length) { v.food -= 1; u.hunger = 5; }
-  if (u.hunger > 60) {
+  // 4. needs, scored against each other (utility): the most pressing wins over work
+  if (u.hunger > 60 && u.job === Job.Warrior && v.food >= 1 && sim.kingdoms.get(u.kingdom)?.wars.length) { v.food -= 1; u.hunger = 5; } // soldiers on campaign live off supplies
+  const { need } = pickNeed(sim, u, adult);
+  if (need === 'eat') {
     if (v.food >= 1) { setTask(sim, u, { k: 'eat' }); return; }
     const berry = findFeature(sim, u.x, u.z, 14, (f) => f === Feat.Berry);
-    if (berry >= 0) { setTask(sim, u, { k: 'gather', tile: berry, res: Res.Food, work: 0 }); return; }
+    if (berry >= 0) { setTask(sim, u, { k: 'gather', tile: berry, res: Res.Food, work: 0 }); u.intent = Intent.Eat; return; }
   }
-
-  // 4b. needs & mood
-  if (u.energy < 20 || (!adult && u.energy < 35)) { setTask(sim, u, { k: 'sleep', t: 200 }); return; }
+  if (need === 'sleep') { setTask(sim, u, { k: 'sleep', t: 200 }); return; }
+  if (need === 'rest') {
+    // badly hurt: lie down at home to recover (a town mage will come by and mend them)
+    setTask(sim, u, { k: 'sleep', t: 120 }); u.intent = Intent.Rest; return;
+  }
   if (adult && u.job === Job.Warrior && u.mood < 12 && sim.rng.chance(0.2)) {
     // morale breaks: the soldier throws down their weapon
     u.job = Job.Gatherer; u.item = 9; sim.emote(u, Emote.Sad, 40);
@@ -226,7 +257,7 @@ function decide(sim: Sim, u: Unit) {
     setTask(sim, u, { k: 'steal', v: v.id }); return;
   }
   const single = adult && u.partner < 0;
-  if ((u.social < 25 || (single && u.social < 60)) && sim.rng.chance(0.5)) {
+  if (need === 'social' && sim.rng.chance(0.7)) {
     const near = sim.unitsNear(u.x, u.z, single ? 14 : 8).filter((o) => o !== u && o.village === u.village && o.sp === u.sp && o.task?.k !== 'sleep');
     const mate = single ? near.find((o) => o.partner < 0 && o.female !== u.female && o.age >= SPECIES[o.sp].adultAge) : undefined;
     const pick = mate ?? [u.partner, u.friend].map((id) => sim.getUnit(id)).find((o) => o && Math.hypot(o.x - u.x, o.z - u.z) < 16) ?? near[0];
@@ -337,7 +368,12 @@ function decideAnimal(sim: Sim, u: Unit) {
         const w2 = d2 * (SPECIES[o.sp].hp > SPECIES[u.sp].hp ? 3 : 1); // prefer manageable prey
         if (w2 < bd) { bd = w2; prey = o; }
       });
-      if (prey) { setTask(sim, u, { k: 'hunt', u: (prey as Unit).id }); return; }
+      if (prey) {
+        setTask(sim, u, { k: 'hunt', u: (prey as Unit).id });
+        // pack hunters bring their pack onto the same prey
+        if (u.sp === Sp.Wolf) callForHelp(sim, u, prey as Unit, 'pack', setTask, fleeFrom);
+        return;
+      }
     }
   }
   // breeding
@@ -350,6 +386,7 @@ function decideAnimal(sim: Sim, u: Unit) {
       if (mate) {
         u.breedT = (mate as Unit).breedT = Math.floor(def.breedEvery * YEAR_TICKS * sim.rng.range(0.8, 1.3));
         sim.emote(u, Emote.Heart, 25); sim.emote(mate, Emote.Heart, 25);
+        u.intent = Intent.Breed;
         for (let i = 0; i < def.litter; i++) {
           const b = sim.spawnUnit(u.sp, u.x + sim.rng.range(-0.4, 0.4), u.z + sim.rng.range(-0.4, 0.4), { age: 0 });
           sim.fx.push({ t: 'birth', x: b.x, z: b.z, u: b.id });
@@ -428,6 +465,8 @@ function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
 function threatens(sim: Sim, u: Unit, o: Unit, def: typeof SPECIES[number], d2: number): boolean {
   {
     let threat = sim.hostile(u, o);
+    // whoever is attacking or hunting me is a threat, whatever kind of creature it is
+    if (!threat && (o.task?.k === 'attack' || o.task?.k === 'hunt') && o.task.u === u.id) threat = true;
     if (!threat) {
       const od = SPECIES[o.sp];
       // predators are threats to everyone smaller; herbivores avoid civs a bit
@@ -454,6 +493,7 @@ function taskValid(sim: Sim, u: Unit, t: Task): boolean {
 export function setTask(sim: Sim, u: Unit, t: Task) {
   u.task = t;
   u.lod = 0;
+  u.intent = INTENT_OF[t.k] ?? Intent.Work;
   u.path = null; u.pathI = 0; u.stuck = 0;
   if (t.k === 'flee' || t.k === 'attack' || t.k === 'hunt') u.think = 6;
 }
@@ -481,16 +521,18 @@ function fleeFrom(sim: Sim, u: Unit, x: number, z: number) {
   const a0 = ((u.id * 0.618) % 1) * 0.5;
   for (let k = 0; k < 12; k++) {
     const a = a0 + (k * Math.PI) / 6, cx = Math.cos(a), cz = Math.sin(a);
-    let run = 0;
+    let run = 0, burn = 0;
     for (let s = 1; s <= 8; s++) {
       const t = w.tileAt(u.x + cx * s, u.z + cz * s);
       if (t < 0) break;
       if (swim ? !(w.isWater(t) || free(w, t)) : !free(w, t)) break;
-      if (w.fire[t] > 0 || w.mat[t] === Mat.Lava) break;
+      if (w.mat[t] === Mat.Lava) break;
+      // flames are not walls (a ring of fire must still be escapable) but every burning tile costs
+      if (w.fire[t] > 0) burn++;
       run = s;
     }
     if (run === 0) continue;
-    const score = (cx * ax + cz * az) * 2 + (cx * hx + cz * hz) + run * 0.35;
+    const score = (cx * ax + cz * az) * 2 + (cx * hx + cz * hz) + run * 0.35 - burn * 0.7;
     if (score > best) { best = score; bx = u.x + cx * run; bz = u.z + cz * run; }
   }
   setTask(sim, u, { k: 'flee', tx: bx, tz: bz });

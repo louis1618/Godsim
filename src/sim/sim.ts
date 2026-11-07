@@ -49,7 +49,7 @@ export function blankUnit(): Unit {
     flags: 0, cd: 0, anim: Anim.Idle, animT: 0, emote: Emote.None, emoteT: 0, home: -1, born: 0, think: 0, look: 0, stuck: 0, lastHit: -1,
     breedT: 0, hitT: 0, speedMul: 1, dmgMul: 1, item: 0, vx: 0, vz: 0, vy: 0, spin: 0, pathNav: 0, mood: 60, energy: 80, social: 70, mems: [],
     partner: -1, parents: [], friend: -1, rival: -1, crimes: 0, jailUntil: -1, mother: -1,
-    blocked: 0, pathWait: 0, wdX: 0, wdZ: 0, wdT: -1, idleRun: 0, air: undefined, lod: 0, lodTick: 0,
+    blocked: 0, pathWait: 0, wdX: 0, wdZ: 0, wdT: -1, idleRun: 0, air: undefined, lod: 0, lodTick: 0, intent: 0,
   };
 }
 
