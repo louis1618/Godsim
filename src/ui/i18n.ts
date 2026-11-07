@@ -40,6 +40,8 @@ const S: Record<string, Entry> = {
   acidrain: ['산성비', 'Acid Rain', '금속을 부식 · 작물 고사 · 불은 꺼짐', 'Corrodes metal · kills crops · douses fire'],
   napalm: ['네이팜', 'Napalm', '넓은 지역을 불바다로', 'Sets a whole area ablaze'],
   'job-13': ['마법사', 'Mage'],
+  'sec-status': ['상태', 'Status'], 'sec-role': ['역할 · 특성', 'Role & traits'], 'sec-abilities': ['능력', 'Abilities'],
+  'act-swim': ['헤엄치는 중', 'Swimming'], 'act-heal': ['치료 중', 'Healing'], 'act-abduct': ['납치 중', 'Abducting'],
   marchingOn: ['진군 중', 'marching on'], troops: ['명', 'troops'], mustering: ['집결 중', 'mustering'],
   'ev-invasion': ['외계 침공', 'Alien invasion'], 'ev-outbreak': ['좀비 창궐', 'Zombie outbreak'],
   volcano: ['화산', 'Volcano', '분출 후 비옥한 화산재', 'Erupts, then fertile ash'], drought: ['가뭄', 'Drought', '풀과 작물이 마릅니다', 'Grass and crops wither'], flood: ['홍수', 'Flood', '저지대가 잠깁니다', 'Low ground goes under'],

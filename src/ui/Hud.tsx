@@ -7,6 +7,7 @@ import type { BrushShape } from './store';
 import { SPECIES, KINGDOM_COLORS, Sp, TRAIT_KEYS, BUILDINGS, isCiv, isVehicle, YEAR_TICKS, Bk, ERA_TECH } from '../sim/defs';
 import { UF, Job } from '../sim/entities';
 import { Pause, Play, Season, SEASON_BG } from './glyphs';
+import { Badges, BadgeSection, unitBadges } from './badges';
 import type { AppCtl } from '../app';
 
 export const ACC: Record<string, string> = { world: '#6cc04a', life: '#ff7a8a', civ: '#ffc53d', nature: '#33c2a6', disaster: '#ff6a3a', military: '#7f8fa3', observe: '#8f7cf2', settings: '#9aa7bd' };
@@ -257,20 +258,7 @@ function EditName({ value, onSave }: { value: string; onSave: (v: string) => voi
   );
 }
 
-function MoodFace({ mood }: { mood: number }) {
-  const m = mood / 100;
-  const col = m > 0.7 ? '#8fe06a' : m > 0.45 ? '#ffd65a' : m > 0.25 ? '#ffab5a' : '#ff6a5a';
-  const curve = (m - 0.5) * 16;
-  return (
-    <svg viewBox="0 0 40 40" class="moodface">
-      <circle cx="20" cy="20" r="16" fill={col} stroke="#2a2238" stroke-width="3" />
-      <circle cx="14" cy="16" r="2.4" fill="#2a2238" /><circle cx="26" cy="16" r="2.4" fill="#2a2238" />
-      <path d={`M12 ${26 - curve * 0.3} Q20 ${26 + curve} 28 ${26 - curve * 0.3}`} stroke="#2a2238" stroke-width="3" fill="none" stroke-linecap="round" />
-    </svg>
-  );
-}
-
-const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed', post: 'act-post', trade: 'act-trade', escort: 'act-escort', escorted: 'act-escorted', board: 'act-board', voyage: 'act-voyage' };
+const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed', post: 'act-post', trade: 'act-trade', escort: 'act-escort', escorted: 'act-escorted', board: 'act-board', voyage: 'act-voyage', swim: 'act-swim', heal: 'act-heal', abduct: 'act-abduct' };
 
 function UnitCard({ app, id }: { app: AppCtl; id: number }) {
   usePulse(250);
@@ -305,32 +293,18 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
       </div>
       <button class="x" onClick={() => store.set({ sel: null })}>✕</button>
       <div class="body">
-        <div class="state-row">
-          <MoodFace mood={u.mood} />
-          <div class="state"><b>{t(ACTION_KEY[u.task?.k ?? 'idle'] ?? 'act-idle')}</b><small>{t('mood')} {Math.round(u.mood)}</small></div>
-        </div>
-        <div class="stat"><span class="lbl">{t('hp')}</span><div class={`meter ${u.hp / u.maxHp < 0.35 ? 'red' : ''}`}><i style={{ width: `${(u.hp / u.maxHp) * 100}%` }} /></div></div>
-        {!SPECIES[u.sp].undead && !machine && <div class="needs">
-          <div class="need" title={t('need-food')}><span>{t('need-food')}</span><div class={`meter ${u.hunger > 70 ? 'red' : ''}`}><i style={{ width: `${100 - u.hunger}%` }} /></div></div>
-          <div class="need" title={t('need-energy')}><span>{t('need-energy')}</span><div class={`meter blue ${u.energy < 25 ? 'red' : ''}`}><i style={{ width: `${u.energy}%` }} /></div></div>
-          {isCiv(u.sp) && <div class="need" title={t('need-social')}><span>{t('need-social')}</span><div class={`meter pink ${u.social < 20 ? 'red' : ''}`}><i style={{ width: `${u.social}%` }} /></div></div>}
-        </div>}
-        {!machine && <div class="grid4">
-          <div class="mini"><b>{Math.floor(u.age)}</b><small>{t('age')}</small></div>
-          <div class="mini"><b>{u.level}</b><small>{t('level')}</small></div>
-          <div class="mini"><b>{u.kills}</b><small>{t('kills')}</small></div>
-          <div class="mini"><b>{Math.round(def.dmg * u.dmgMul)}</b><small>ATK</small></div>
-        </div>}
-        <div class="pills">
-          {isCiv(u.sp) && u.age >= def.adultAge && !(u.flags & UF.King) ? <span class="pill job">{t('job-' + u.job)}</span> : null}
-          {u.flags & UF.Jailed ? <span class="pill bad">{t('jailed')}</span> : null}
-          {v && (v.wanted ?? []).includes(u.id) ? <span class="pill bad">{t('wanted')}</span> : null}
-          {u.flags & UF.King ? <span class="pill gold"><img src={s.icons['crown']} class="pi" />{t('king')}</span> : null}
-          {u.flags & UF.Hero ? <span class="pill gold"><img src={s.icons['brave']} class="pi" />{t('hero')}</span> : null}
-          {u.flags & UF.Sick ? <span class="pill bad">{t('plague')}</span> : null}
-          {u.flags & UF.Mad ? <span class="pill bad">{t('madness')}</span> : null}
-          {traits.map(([, key]) => <span class={`pill ${good.has(key) ? 'good' : 'bad'}`}>{t('t-' + key)}</span>)}
-        </div>
+        {(() => {
+          const b = unitBadges(sim, u);
+          return <>
+            <div class="now-row">
+              <Badges items={b.now} icons={s.icons} />
+              <div class="state"><b>{t(ACTION_KEY[u.task?.k ?? 'idle'] ?? 'act-idle')}</b><small>{b.now[0].title}{b.now[0].value ? ` ${b.now[0].value}` : ''}</small></div>
+            </div>
+            <BadgeSection title={t('sec-status')}><Badges items={b.status} icons={s.icons} /></BadgeSection>
+            {b.role.length > 0 && <BadgeSection title={t('sec-role')}><Badges items={b.role} icons={s.icons} /></BadgeSection>}
+            {b.abilities.length > 0 && <BadgeSection title={t('sec-abilities')}><Badges items={b.abilities} icons={s.icons} /></BadgeSection>}
+          </>;
+        })()}
         <Relations app={app} u={u} />
       </div>
       <div class="actions">

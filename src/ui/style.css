@@ -385,3 +385,25 @@
 @keyframes besiege { from { box-shadow: 0 0 0 2px #ff3a2a, 0 3px 0 var(--ink); } to { box-shadow: 0 0 0 5px rgba(255, 58, 42, 0.55), 0 3px 0 var(--ink); } }
 .krow .campaign { font-size: 13px; font-weight: 700; margin-top: 3px; text-shadow: 0 1px 0 rgba(255,255,255,0.6); }
 .krow .campaign small { color: var(--ink); opacity: 0.7; font-weight: 600; }
+/* ---- icon badges (creature inspector) ---- */
+.card .now-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.card .now-row .state b { display: block; font-size: 17px; }
+.card .now-row .state small { opacity: 0.75; font-weight: 700; }
+.bsec { margin-top: 6px; }
+.bsec-t { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.55; margin: 2px 0 4px; }
+.badges { display: flex; flex-wrap: wrap; gap: 7px; }
+.badge { position: relative; width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; background: #fffaf0; border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); cursor: help; transition: transform 0.12s; }
+.badge:hover { transform: translateY(-2px) scale(1.06); }
+.badge img { width: 40px; height: 40px; object-fit: contain; pointer-events: none; }
+.badge svg:not(.ring) { width: 30px; height: 30px; pointer-events: none; }
+.badge .ring { position: absolute; inset: -6px; width: 56px; height: 56px; pointer-events: none; }
+.badge.good { background: #e9f8df; } .badge.bad { background: #ffe1dc; } .badge.job { background: #e3ecff; }
+.badge.gold { background: #fff2c0; } .badge.now { background: #efe9ff; width: 58px; height: 58px; }
+.badge.now svg:not(.ring) { width: 36px; height: 36px; }
+.badge .bnum { position: absolute; right: -6px; bottom: -4px; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+.popover { position: fixed; z-index: 200; transform: translate(-50%, calc(-100% - 10px)); width: 270px; padding: 10px 12px; pointer-events: none; }
+.popover .ph { display: flex; align-items: center; gap: 8px; }
+.popover .ph img { width: 30px; height: 30px; }
+.popover .ph b { font-size: 16px; }
+.popover .pv { margin-left: auto; font-weight: 800; background: var(--ink); color: #fff; border-radius: 8px; padding: 1px 7px; font-size: 13px; }
+.popover p { margin: 6px 0 0; font-size: 13px; line-height: 1.4; }
