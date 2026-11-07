@@ -137,7 +137,7 @@ export function bodyRadius(sp: Sp): number {
  * goes into walls or (for walkers) into water. Deterministic: depends only on the simulation.
  */
 export const navOpts = { separation: true };
-const NOPUSH = UF.Ragdoll | UF.Held | UF.Aboard | UF.Jailed | UF.Dead;
+const NOPUSH = UF.Ragdoll | UF.Held | UF.Aboard | UF.Jailed | UF.Dead | UF.Beamed;
 export function separate(sim: Sim, u: Unit) {
   // every 4th tick (pushes are twice as strong): a fifth of the old cost for the same drift speed
   if (!navOpts.separation || (sim.tick + u.id) & 3) return;

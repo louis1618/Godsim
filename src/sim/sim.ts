@@ -1,7 +1,8 @@
 import { Rng } from '../core/rng';
+import { PENDING, type Pending } from './pending';
 import { World } from './world';
 import { PathFinder } from './path';
-import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, isVehicle, Mat } from './defs';
+import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, isVehicle, isMonster, Mat } from './defs';
 import { enemyOf, cannonTick } from './vehicles';
 import { addWanted } from './jobs';
 import { Unit, Building, Village, Kingdom, HistoryEntry, Job, Anim, Emote, UF, Res } from './entities';
@@ -12,6 +13,7 @@ import { natureTick } from './nature';
 import { disasterTick } from './disasters';
 import { nearestFree, resolveInside } from './nav';
 import { onDeath } from './mind';
+import { monsterHostile, monsterItem, onMonsterKill, onUfoDeath, towerTick, acidTick } from './monsters';
 
 export interface FxEvent {
   t: string;
@@ -75,16 +77,21 @@ export class Sim {
   rainClouds: { id: number; x: number; z: number; vx: number; vz: number; life: number; r: number; storm: boolean }[] = [];
   volcanoes: { id: number; x: number; z: number; life: number }[] = [];
   /** Ordnance dropped from the sky: hangs (arms) high up, then plunges to its target. */
-  missiles: { id: number; x: number; z: number; y: number; vy: number; kind: 'nuke' | 'bomb'; arm: number }[] = [];
+  missiles: { id: number; x: number; z: number; y: number; vy: number; kind: 'nuke' | 'bomb' | 'napalm'; arm: number }[] = [];
   droughts: { id: number; x: number; z: number; r: number; life: number }[] = [];
   floods: { id: number; x: number; z: number; r: number; life: number; tiles: number[]; base: number[]; level: number }[] = [];
+  acidRains: { id: number; x: number; z: number; r: number; life: number }[] = [];
+  /** open-water count for the fish cap (refreshed every 600 ticks; saved) */
+  waterCount = { n: 0, N: 0, t: -1e9 };
   // spatial hash
   cw: number; ch: number;
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
   readonly cellSize = CELL;
-  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0 };
+  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0, abducted: 0 };
   deathCauses: Record<string, number> = {};
+  /** recent deaths a sorcerer can raise (simulation state, saved) */
+  recentDead: { x: number; z: number; sp: number; tick: number; raised: boolean }[] = [];
   /** recent deaths for death animations (drained by the renderer; never saved) */
   graveyard: { u: Unit; cause: string; tick: number }[] = [];
   onHistory: ((h: HistoryEntry) => void) | null = null;
@@ -161,11 +168,12 @@ export class Sim {
     }
     this.applyTraits(u);
     if (opts.hp === undefined) u.hp = u.maxHp;
+    if (isMonster(sp)) { u.item = monsterItem(sp); u.age = 1; if (sp === Sp.UFO) u.y = 2.6; }
     this.units.push(u);
     this.unitMap.set(u.id, u);
     resolveInside(this, u);
     // land creatures are never born into water or rock walls: shift onto the nearest dry ground
-    if (!isVehicle(sp) && sp !== Sp.Fish && sp !== Sp.Dragon && sp !== Sp.Crocodile) {
+    if (!isVehicle(sp) && sp !== Sp.Fish && sp !== Sp.Dragon && sp !== Sp.Crocodile && sp !== Sp.UFO) {
       const t = this.world.tileAt(u.x, u.z);
       if (t >= 0 && !this.world.walkable(t)) {
         const p = nearestFree(this.world, u.x, u.z, 3);
@@ -205,6 +213,7 @@ export class Sim {
       this.fx.push({ t: 'death', x: u.x, z: u.z, a: u.sp, u: u.id, b: cause === 'fire' ? 1 : cause === 'plague' ? 2 : cause === 'drown' ? 3 : 0 });
       // renderers show the fall (or the sinking body) for a moment; not part of the simulation state
       if (!(u.flags & (UF.Ragdoll | UF.Held))) { this.graveyard.push({ u, cause, tick: this.tick }); if (this.graveyard.length > 300) this.graveyard.shift(); }
+      if (!(u.flags & UF.Ragdoll)) { this.recentDead.push({ x: u.x, z: u.z, sp: u.sp, tick: this.tick, raised: false }); if (this.recentDead.length > 60) this.recentDead.shift(); }
     }
     // murder among neighbours is a crime the guards will pursue
     if (by && isCiv(by.sp) && isCiv(u.sp) && by.kingdom >= 0 && by.kingdom === u.kingdom && !(by.flags & UF.Mad) && !(u.flags & (UF.Jailed | UF.Escorted))) {
@@ -228,10 +237,12 @@ export class Sim {
     const v = this.villages.get(u.village);
     if (v) { const i = v.residents.indexOf(u.id); if (i >= 0) v.residents.splice(i, 1); }
     onDeath(this, u, by);
+    onMonsterKill(this, u, cause, by);
+    if (u.sp === Sp.UFO) onUfoDeath(this, u);
     // undead rising from plague victims
     if (cause === 'plague' && this.laws.plague && this.rng.chance(0.25) && isCiv(u.sp)) {
       const x = u.x, z = u.z;
-      setTimeout0(this, 30, () => { const s = this.spawnUnit(Sp.Skeleton, x, z); this.fx.push({ t: 'rise', x, z, u: s.id }); });
+      this.schedule(30, { k: 'rise', x, z, sp: Sp.Skeleton });
     }
   }
 
@@ -276,6 +287,8 @@ export class Sim {
   /** Are these two parties hostile to each other? */
   hostile(a: Unit, b: Unit): boolean {
     if (a === b) return false;
+    const mh = monsterHostile(a, b);
+    if (mh !== null) return mh;
     if (isVehicle(a.sp)) return enemyOf(this, a.kingdom, b);
     if (isVehicle(b.sp)) return !(b.sp === Sp.Plane && b.y > 1) && enemyOf(this, b.kingdom, a);
     if ((a.flags & UF.Mad) || (b.flags & UF.Mad)) return true;
@@ -341,6 +354,15 @@ export class Sim {
 
   // ---------------------------------------------------------------- update
   scheduled: { at: number; fn: () => void }[] = [];
+  /**
+   * Delayed effects as plain data (arrow hits, shell blasts, the dead rising, fireball bursts...):
+   * unlike closures they are saved with the world, so a loaded game replays exactly.
+   */
+  pending: Pending[] = [];
+  /** work claims (tile -> tick until which it is taken): resources and farm plots */
+  claims = new Map<number, number>();
+  farmClaims = new Map<number, number>();
+  schedule(delay: number, ev: Omit<Pending, 'at'>) { this.pending.push({ ...ev, at: this.tick + Math.max(1, delay) } as Pending); }
 
   step() {
     const P = profile.on;
@@ -384,6 +406,7 @@ export class Sim {
     // buildings
     for (const b of this.buildings.values()) {
       if (b.kind === Bk.Cannon) cannonTick(this, b);
+      else if (b.kind === Bk.Tower) towerTick(this, b);
       if (b.fire > 0) {
         b.fire--;
         if (this.tick % 5 === 0) this.damageBuilding(b, b.maxHp * 0.025);
@@ -394,8 +417,13 @@ export class Sim {
     natureTick(this);
     if (P) lap('nature');
     disasterTick(this);
+    if (this.acidRains.length) acidTick(this);
     if (P) lap('disasters');
     this.physics?.tick(this);
+    if (this.pending.length) {
+      const due = this.pending.filter((s) => s.at <= this.tick);
+      if (due.length) { this.pending = this.pending.filter((s) => s.at > this.tick); for (const e of due) PENDING[e.k]?.(this, e); }
+    }
     if (this.scheduled.length) {
       const due = this.scheduled.filter((s) => s.at <= this.tick);
       if (due.length) { this.scheduled = this.scheduled.filter((s) => s.at > this.tick); for (const s of due) s.fn(); }
@@ -409,6 +437,10 @@ export class Sim {
         units[j++] = u;
       }
       units.length = j;
+    }
+    if (this.tick % 600 === 0) {
+      for (const [t, until] of this.claims) if (until <= this.tick) this.claims.delete(t);
+      for (const [t, until] of this.farmClaims) if (until <= this.tick) this.farmClaims.delete(t);
     }
     if (P) lap('scheduled+gc');
   }
@@ -427,6 +459,15 @@ export class Sim {
 }
 
 export function setTimeout0(sim: Sim, ticks: number, fn: () => void) { sim.scheduled.push({ at: sim.tick + ticks, fn }); }
+
+export { PENDING } from './pending';
+export type { Pending } from './pending';
+PENDING.rise = (sim, e) => {
+  const t = sim.world.tileAt(e.x!, e.z!);
+  if (t < 0 || !sim.world.walkable(t)) return;
+  const s = sim.spawnUnit(e.sp as Sp, e.x!, e.z!);
+  sim.fx.push({ t: 'rise', x: e.x!, z: e.z!, u: s.id });
+};
 
 export function levelCheck(sim: Sim, u: Unit) {
   const need = u.level * u.level * 18;

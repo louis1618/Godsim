@@ -1,4 +1,5 @@
 import { Sim, setTimeout0 } from './sim';
+import { mageWork } from './monsters';
 import { Unit, Village, Kingdom, Building, Task, Job, Emote, UF, Res, Mem } from './entities';
 import { SPECIES, Sp, Bk, BUILDINGS, BUILDING_KINDS, Feat, Mat, isCiv, isWoodTree, isTree, Trait, KINGDOM_COLORS, YEAR_TICKS, ERA_TECH, ERA_MIN_LEVEL } from './defs';
 import { eats } from './foodchain';
@@ -452,9 +453,16 @@ export function villageThink(sim: Sim, v: Village) {
   want[Job.Fisher] = counts[Bk.Dock] > 0 ? Math.min(3, 1 + Math.floor(nA / 18)) : 0;
   want[Job.Scholar] = counts[Bk.Library] > 0 ? counts[Bk.Library] * 2 : 0;
   want[Job.Worker] = counts[Bk.Factory] > 0 ? counts[Bk.Factory] * 3 : 0;
+  // a library trains a town mage (two in a big town): fireballs in war, healing in peace
+  want[Job.Mage] = counts[Bk.Library] > 0 && era >= 1 && nA >= 6 ? 1 + (v.level >= 3 ? 1 : 0) : 0;
   const assigned: Record<number, number> = {};
   for (const u of adults) assigned[u.job] = (assigned[u.job] ?? 0) + 1;
-  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Trader, Job.Scholar, Job.Fisher, Job.Worker, Job.Woodcutter, Job.Miner];
+  const order = [Job.Warrior, Job.Guard, Job.Builder, Job.Farmer, Job.Mage, Job.Trader, Job.Scholar, Job.Fisher, Job.Worker, Job.Woodcutter, Job.Miner];
+  // the library calls a gifted townsman away from a humbler trade when no one is free
+  if ((want[Job.Mage] ?? 0) > (assigned[Job.Mage] ?? 0)) {
+    const pick = adults.find((u) => !(u.flags & UF.King) && (u.job === Job.Scholar || u.job === Job.Woodcutter || u.job === Job.Miner || u.job === Job.Gatherer || u.job === Job.None) && !(u.traits & Trait.Peaceful && false));
+    if (pick) { assigned[pick.job] = (assigned[pick.job] ?? 1) - 1; pick.job = Job.Mage; assigned[Job.Mage] = (assigned[Job.Mage] ?? 0) + 1; pick.item = jobItem(pick, era); pick.task = null; }
+  }
   for (const u of adults) {
     if (u.flags & UF.King && u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; continue; }
     const cur = u.job;
@@ -569,6 +577,7 @@ export function jobItem(u: Unit, era = 0): number {
     case Job.Trader: return 14;      // satchel
     case Job.Fisher: return 16;      // fishing rod
     case Job.Scholar: return 17;     // book
+    case Job.Mage: return 18;        // staff
     case Job.Worker: return 3;
     default: return 0;
   }
@@ -722,12 +731,12 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
         let ripe = -1, tend = -1;
         for (let dz = 0; dz < b.size; dz++) for (let dx = 0; dx < b.size; dx++) {
           const t = w.idx(b.x + dx, b.z + dz);
-          if (claimedFarm.get(t)! > sim.tick || !w.dryForPlant(t)) continue;
+          if ((sim.farmClaims.get(t) ?? 0) > sim.tick || !w.dryForPlant(t)) continue;
           if (w.feat[t] === Feat.Crop && w.featAmt[t] >= 230) ripe = t;
           else if (w.featAmt[t] < 200 && sim.rng.chance(0.3)) tend = t;
         }
         const t = ripe >= 0 ? ripe : tend;
-        if (t >= 0 && (ripe >= 0 || sim.season !== 3)) { claimedFarm.set(t, sim.tick + 50); return { k: 'farm', b: b.id, tile: t, work: 0 }; }
+        if (t >= 0 && (ripe >= 0 || sim.season !== 3)) { sim.farmClaims.set(t, sim.tick + 50); return { k: 'farm', b: b.id, tile: t, work: 0 }; }
       }
       break;
     }
@@ -741,6 +750,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
     case Job.Guard: return guardWork(sim, u, v) ?? { k: 'idle', t: 20 };
     case Job.Trader: { const t = traderWork(sim, u, v); if (t) return t; break; }
     case Job.Scholar: { const t = postWork(sim, u, v, Bk.Library, 120); if (t) return t; break; }
+    case Job.Mage: { const h = mageWork(sim, u, v.id); if (h) return h; const t = postWork(sim, u, v, Bk.Library, 80); if (t) return t; break; }
     case Job.Worker: { const t = postWork(sim, u, v, Bk.Factory, 100); if (t) return t; break; }
     case Job.Fisher: { const t = postWork(sim, u, v, Bk.Dock, 90); if (t) return t; break; }
     case Job.Gatherer: {
@@ -772,8 +782,7 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
   }
   return null;
 }
-const claimedFarm = new Map<number, number>();
-export function clearFarmClaims() { claimedFarm.clear(); }
+export function clearFarmClaims() { /* per-simulation now */ }
 
 /** Nearest rock-face tile to quarry (infinite stone, slow). */
 function findQuarry(sim: Sim, v: Village): number {

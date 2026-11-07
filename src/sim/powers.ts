@@ -1,4 +1,5 @@
 import { Sim } from './sim';
+import { spawnAcidRain } from './monsters';
 import { Sp, Mat, Feat, Trait, isCiv, SPECIES, Bk } from './defs';
 import { spawnVehicle } from './vehicles';
 import { Unit, UF, Emote, Job } from './entities';
@@ -63,6 +64,13 @@ export const POWERS: PowerDef[] = [
   { id: 'crocodile', cat: 'life', mode: 'click', rate: 4 },
   { id: 'fish', cat: 'life', mode: 'click', rate: 10 },
   { id: 'dragon', cat: 'life', mode: 'click', rate: 0.5 },
+  // monsters (each a faction of its own)
+  { id: 'zombie', cat: 'life', mode: 'click', rate: 4 },
+  { id: 'mage', cat: 'life', mode: 'click', rate: 1 },
+  { id: 'demon', cat: 'life', mode: 'click', rate: 1.5 },
+  { id: 'coldone', cat: 'life', mode: 'click', rate: 1.5 },
+  { id: 'alien', cat: 'life', mode: 'click', rate: 3 },
+  { id: 'ufo', cat: 'life', mode: 'click', rate: 0.7 },
   // civilization
   { id: 'war', cat: 'civ', mode: 'pair' },
   { id: 'peace', cat: 'civ', mode: 'pair' },
@@ -94,6 +102,9 @@ export const POWERS: PowerDef[] = [
   { id: 'quake', cat: 'disaster', mode: 'click', rate: 0.7 },
   { id: 'plague', cat: 'disaster', mode: 'click', rate: 1 },
   { id: 'volcano', cat: 'disaster', mode: 'click', rate: 0.3 },
+  { id: 'acidrain', cat: 'disaster', mode: 'click', rate: 0.5 },
+  { id: 'invasion', cat: 'disaster', mode: 'click', rate: 0.3 },
+  { id: 'outbreak', cat: 'disaster', mode: 'click', rate: 0.4 },
   { id: 'smite', cat: 'disaster', mode: 'unit' },
   // weapons & machines of the later ages
   { id: 'tank', cat: 'military', mode: 'click', rate: 1.5 },
@@ -101,6 +112,7 @@ export const POWERS: PowerDef[] = [
   { id: 'warship', cat: 'military', mode: 'click', rate: 1 },
   { id: 'cannon', cat: 'military', mode: 'click', rate: 2 },
   { id: 'nuke', cat: 'military', mode: 'click', rate: 0.25, key: 'KeyN' },
+  { id: 'napalm', cat: 'military', mode: 'click', rate: 1 },
   // settings
   { id: 'laws', cat: 'settings', mode: 'panel' },
   { id: 'saveload', cat: 'settings', mode: 'panel' },
@@ -109,7 +121,7 @@ export const POWERS: PowerDef[] = [
 ];
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
 /** Single-target powers that can be repeated over an area with the count / radius settings. */
-export const MAX_COUNT: Record<string, number> = { nuke: 3, volcano: 3, dragon: 5, meteor: 8, flood: 4, drought: 4, tornado: 6, quake: 4 };
+export const MAX_COUNT: Record<string, number> = { nuke: 3, volcano: 3, dragon: 5, meteor: 8, flood: 4, drought: 4, tornado: 6, quake: 4, ufo: 6, invasion: 2, outbreak: 3, acidrain: 3, napalm: 6, mage: 4 };
 export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'military', 'observe', 'settings'];
 
 const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll, rabbit: Sp.Rabbit, fox: Sp.Fox, boar: Sp.Boar, crocodile: Sp.Crocodile, fish: Sp.Fish, dragon: Sp.Dragon };
@@ -215,6 +227,49 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
       break;
     }
     case 'volcano': spawnVolcano(sim, x, z); break;
+    case 'zombie': case 'mage': case 'demon': case 'coldone': case 'alien': {
+      if (t0 < 0 || !w.walkable(t0)) return false;
+      const sp = id === 'zombie' ? Sp.Zombie : id === 'mage' ? Sp.Mage : id === 'demon' ? Sp.Demon : id === 'coldone' ? Sp.ColdOne : Sp.Alien;
+      const u = sim.spawnUnit(sp, x + sim.rng.range(-0.3, 0.3), z + sim.rng.range(-0.3, 0.3));
+      sim.fx.push({ t: sp === Sp.Demon ? 'portal' : sp === Sp.ColdOne ? 'freeze' : 'spawn', x: u.x, z: u.z, u: u.id, a: sp === Sp.ColdOne ? 1.5 : u.sp });
+      break;
+    }
+    case 'ufo': {
+      if (t0 < 0) return false;
+      const u = sim.spawnUnit(Sp.UFO, x, z);
+      sim.fx.push({ t: 'spawn', x: u.x, z: u.z, u: u.id, a: u.sp });
+      break;
+    }
+    case 'invasion': {
+      // a fleet arrives from the sky around the spot
+      if (t0 < 0) return false;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + sim.rng.range(-0.4, 0.4), d = sim.rng.range(4, 9);
+        const ux = Math.max(2, Math.min(w.W - 3, x + Math.cos(a) * d)), uz = Math.max(2, Math.min(w.H - 3, z + Math.sin(a) * d));
+        const u = sim.spawnUnit(Sp.UFO, ux, uz);
+        u.y = 9 + i; // descending from high up
+        sim.fx.push({ t: 'spawn', x: u.x, z: u.z, u: u.id, a: u.sp });
+      }
+      sim.log('invasion', { x, z, text: '' });
+      break;
+    }
+    case 'outbreak': {
+      if (t0 < 0) return false;
+      let n = 0;
+      for (let i = 0; i < 20 && n < 6; i++) {
+        const a = sim.rng.range(0, Math.PI * 2), d = sim.rng.range(0, 4);
+        const t = w.tileAt(x + Math.cos(a) * d, z + Math.sin(a) * d);
+        if (t < 0 || !w.walkable(t)) continue;
+        const u = sim.spawnUnit(Sp.Zombie, (t % w.W) + 0.5, ((t / w.W) | 0) + 0.5);
+        sim.fx.push({ t: 'rise', x: u.x, z: u.z, u: u.id });
+        n++;
+      }
+      if (!n) return false;
+      sim.log('outbreak', { x, z, text: '' });
+      break;
+    }
+    case 'acidrain': spawnAcidRain(sim, x, z, 8); break;
+    case 'napalm': spawnMissile(sim, x, z, 'napalm'); break;
     case 'drought': spawnDrought(sim, x, z, 18); break;
     case 'flood': spawnFlood(sim, x, z, 11); break;
     case 'human': case 'elf': case 'dwarf': case 'orc': case 'sheep': case 'chicken': case 'deer': case 'wolf': case 'bear': case 'skeleton': case 'troll': case 'rabbit': case 'fox': case 'boar': {

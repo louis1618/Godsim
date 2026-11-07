@@ -66,16 +66,18 @@ export function fishTick(sim: Sim, u: Unit) {
 }
 
 export function fishCap(sim: Sim) {
-  // roughly proportional to open water
-  let water = 0;
+  // roughly proportional to open water; re-counted every 600 ticks. The count lives in the
+  // simulation state (saved with it): a module-wide cache used to leak one world's water into the
+  // next world of the same size, and into a freshly loaded save.
   const w = sim.world;
-  if (cachedWater.N !== w.N || sim.tick - cachedWater.t > 600) {
+  const c = sim.waterCount;
+  if (c.N !== w.N || sim.tick - c.t >= 600 || sim.tick < c.t) {
+    let water = 0;
     for (let i = 0; i < w.N; i += 7) if (w.waterDepth(i) > 0.5) water++;
-    cachedWater.n = water * 7; cachedWater.N = w.N; cachedWater.t = sim.tick;
+    c.n = water * 7; c.N = w.N; c.t = sim.tick;
   }
-  return Math.min(260, cachedWater.n / 90);
+  return Math.min(260, c.n / 90);
 }
-const cachedWater = { n: 0, N: 0, t: -1e9 };
 
 // --------------------------------------------------------------------------- dragons
 

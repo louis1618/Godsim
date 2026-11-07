@@ -1,6 +1,7 @@
-import { Sim, setTimeout0 } from './sim';
+import { Sim } from './sim';
+import { PENDING } from './pending';
 import { Unit, Task, Job, Anim, Emote, UF, Res, Mem } from './entities';
-import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, isVehicle, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
+import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, isVehicle, isMonster, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
 import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf, loot } from './civ';
 import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free, separate } from './nav';
 import { mindTick, socialise, remember } from './mind';
@@ -8,17 +9,21 @@ import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedT
 import { vehicleTick } from './vehicles';
 import { fishTick, dragonTick, aquatic } from './animals';
 import { eats, grazes, hunts } from './foodchain';
+import { monsterTick, decideMonster, ufoTick, castAt, runHeal, seekWater } from './monsters';
 
 const AGE_STEP = 10 / YEAR_TICKS;
+PENDING.hit = (sim, e) => { const t = sim.getUnit(e.u!); if (t) hurt(sim, t, e.dmg!, e.by !== undefined ? sim.getUnit(e.by) : undefined, e.cause ?? 'attack'); };
+PENDING.emote = (sim, e) => { const o = sim.getUnit(e.u!); if (o) sim.emote(o, sim.rng.pick([Emote.Music, Emote.Heart, Emote.Star]), 20); };
 /** Stuck-creature watchdog switch (tests turn it off to measure the raw failure rate). */
 export const watchdogOpts = { enabled: true };
 
 export function unitTick(sim: Sim, u: Unit) {
   u.px = u.x; u.pz = u.z;
-  if (u.flags & (UF.Ragdoll | UF.Held)) return;
+  if (u.flags & (UF.Ragdoll | UF.Held | UF.Beamed)) return;
   if (isVehicle(u.sp)) { vehicleTick(sim, u); return; }
   if (u.sp === Sp.Fish) { fishTick(sim, u); return; }
   if (u.sp === Sp.Dragon) { dragonTick(sim, u); return; }
+  if (u.sp === Sp.UFO) { ufoTick(sim, u); return; }
   if (u.flags & UF.Aboard) {
     // riding a ferry: the boat carries us (it also puts us ashore)
     const b = u.task?.k === 'board' ? sim.getUnit(u.task.boat) : undefined;
@@ -39,6 +44,7 @@ export function unitTick(sim: Sim, u: Unit) {
     mindTick(sim, u);
   }
   if (u.flags & UF.Jailed) { jailTick(sim, u); return; }
+  if (isMonster(u.sp)) { monsterTick(sim, u); if (u.flags & UF.Dead) return; }
   if (u.flags & UF.Escorted) { escortedTick(sim, u); return; }
   // standing in fire / lava / deep water
   const w = sim.world;
@@ -49,6 +55,10 @@ export function unitTick(sim: Sim, u: Unit) {
       if (!(u.flags & UF.Dead) && (!u.task || u.task.k !== 'flee')) panic(sim, u, u.x, u.z);
     }
     if (w.mat[t] === Mat.Lava) hurt(sim, u, 25, undefined, 'fire');
+    if (u.flags & UF.Burning) {
+      if (w.isWater(t) || (sim.weather.rain > 0.5 && sim.rng.chance(0.05))) { u.flags &= ~UF.Burning; sim.fx.push({ t: 'steam', x: u.x, z: u.z }); }
+      else if ((sim.tick + u.id) % 10 === 0 && u.task?.k !== 'flee') seekWater(sim, u);
+    }
     if (w.isWater(t)) {
       u.anim = Anim.Swim;
       if (!aquatic(u.sp)) {
@@ -93,7 +103,7 @@ const HUNGER_RATE: Partial<Record<number, number>> = { [Sp.Crocodile]: 0.35, [Sp
 function metabolism(sim: Sim, u: Unit) {
   const def = SPECIES[u.sp];
   u.age += AGE_STEP;
-  if (!def.undead) {
+  if (!def.undead && !isMonster(u.sp)) {
     const winter = sim.season === 3 ? 1.3 : 1;
     u.hunger += (isCiv(u.sp) ? 0.62 : 0.7 * (HUNGER_RATE[u.sp] ?? 1)) * winter * (u.age < def.adultAge ? 0.6 : 1);
     if (u.hunger >= 100) { u.hunger = 100; hurt(sim, u, 3, undefined, 'hunger'); }
@@ -118,6 +128,11 @@ function metabolism(sim: Sim, u: Unit) {
 export function hurt(sim: Sim, u: Unit, dmg: number, by?: Unit, cause = 'attack') {
   if (u.flags & UF.Dead) return;
   if (u.lod) { u.lod = 0; u.think = 0; } // hurt: back to full attention at once
+  if (cause === 'fire') {
+    if (u.sp === Sp.Demon) return;                     // born of fire
+    if (u.sp === Sp.ColdOne) dmg *= 3;                 // melts
+    else if (u.sp === Sp.Zombie) dmg *= 2;             // dry rotten flesh
+  } else if (cause === 'frost' && u.sp === Sp.ColdOne) return;
   if (u.traits & Trait.Lucky && sim.rng.chance(0.15)) return;
   u.hp -= dmg;
   u.hitT = 6;
@@ -146,7 +161,7 @@ function decide(sim: Sim, u: Unit) {
   if (threat) {
     const { enemy, dist } = threat;
     const fighter = !civ ? (def.aggressive || u.hp > u.maxHp * 0.6 && SPECIES[enemy.sp].hp < def.hp * 0.7)
-      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.job === Job.Guard || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
+      : adult && ((u.flags & UF.King && !(u.traits & (Trait.Brave | Trait.Bloodlust))) ? dist < 1.2 : (u.job === Job.Warrior || u.job === Job.Guard || u.job === Job.Mage || u.traits & (Trait.Brave | Trait.Bloodlust) || u.flags & (UF.Hero | UF.Mad) || (enemy.sp >= Sp.Sheep && !SPECIES[enemy.sp].aggressive) || dist < 1.5));
     if (fighter && !(u.traits & Trait.Peaceful && !(u.flags & UF.Mad) && enemy.sp <= Sp.Orc)) {
       if (!u.task || u.task.k !== 'attack' || u.task.u !== enemy.id) {
         setTask(sim, u, { k: 'attack', u: enemy.id });
@@ -171,6 +186,7 @@ function decide(sim: Sim, u: Unit) {
   // keep committed work going; only idle/wander are re-decided
   if (u.task && u.task.k !== 'idle' && u.task.k !== 'wander' && taskValid(sim, u, u.task)) return;
 
+  if (isMonster(u.sp)) { decideMonster(sim, u); return; }
   if (!civ) { decideAnimal(sim, u); activityLod(sim, u); return; }
 
   // 2. homeless civ: join or found a village
@@ -257,7 +273,7 @@ function decide(sim: Sim, u: Unit) {
       setTask(sim, u, { k: 'chat', u: other.id, t });
       setTask(sim, other, { k: 'chat', u: u.id, t });
       const e = sim.rng.pick([Emote.Music, Emote.Heart, Emote.Food, Emote.Star]);
-      sim.emote(u, e, 20); setTimeout0(sim, 12, () => sim.emote(other, sim.rng.pick([Emote.Music, Emote.Heart, Emote.Star]), 20));
+      sim.emote(u, e, 20); sim.schedule(12, { k: 'emote', u: other.id });
       return;
     }
   }
@@ -383,7 +399,7 @@ export function speciesCap(sim: Sim, sp: Sp) {
   }
 }
 
-const SCAN_SKIP = UF.Held | UF.Ragdoll | UF.Dead;
+const SCAN_SKIP = UF.Held | UF.Ragdoll | UF.Dead | UF.Beamed;
 function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
   const def = SPECIES[u.sp];
   let best: Unit | null = null, bd = 1e9;
@@ -650,18 +666,18 @@ export function findFeature(sim: Sim, x: number, z: number, r: number, pred: (f:
       const t = w.idx(xx, zz);
       const f = w.feat[t];
       if (f === Feat.None || !pred(f, t)) continue;
-      if (claimed.get(t) && claimed.get(t)! > sim.tick) continue;
+      if ((sim.claims.get(t) ?? 0) > sim.tick) continue;
       const d = dx * dx + dz * dz;
       if (d < bd) { bd = d; best = t; }
     }
     if (best >= 0) break;
   }
-  if (best >= 0) claimed.set(best, sim.tick + 60);
+  if (best >= 0) sim.claims.set(best, sim.tick + 60);
   return best;
 }
-const claimed = new Map<number, number>();
-export function clearClaims() { claimed.clear(); }
-export function releaseClaim(t: number) { claimed.delete(t); }
+/** Work claims live on the simulation (saved with it); kept for tools that used to reset them. */
+export function clearClaims() { /* per-simulation now */ }
+export function releaseClaim(sim: Sim, t: number) { sim.claims.delete(t); }
 
 function findGrass(sim: Sim, x: number, z: number, r: number) {
   const w = sim.world;
@@ -824,7 +840,7 @@ function run(sim: Sim, u: Unit, t: Task) {
       // panic runs straight away (sliding along obstacles) - no route planning, just legs
       const sp = SPECIES[u.sp].speed * u.speedMul * TICK_DT * 1.15 * (u.age < SPECIES[u.sp].adultAge ? 0.85 : 1);
       const d0 = Math.hypot(t.tx - u.x, t.tz - u.z);
-      const moved = stepToward(w, u, t.tx, t.tz, sp, aquatic(u.sp));
+      const moved = stepToward(w, u, t.tx, t.tz, sp, aquatic(u.sp) || (u.flags & UF.Burning) !== 0);
       // progress = getting closer to safety; shuffling sideways along a wall is not progress
       const gain = d0 - Math.hypot(t.tx - u.x, t.tz - u.z);
       if (moved > 1e-5) { u.dir = Math.atan2(t.tx - u.x, t.tz - u.z); u.anim = Anim.Panic; }
@@ -929,7 +945,7 @@ function run(sim: Sim, u: Unit, t: Task) {
             w.featAmt[t.tile] = Math.min(255, w.featAmt[t.tile] + 25); w.markFeatTile(t.tile);
             u.task = null;
           }
-          releaseClaim(t.tile);
+          releaseClaim(sim, t.tile);
         }
       }
       break;
@@ -1024,6 +1040,8 @@ function run(sim: Sim, u: Unit, t: Task) {
     case 'trade': runTrade(sim, u, t, moveTo); break;
     case 'escorted': case 'jailed': case 'voyage': break;
     case 'swim': runSwim(sim, u, t); break;
+    case 'heal': runHeal(sim, u, t, moveTo); break;
+    case 'abduct': break;
     case 'board': {
       const boat = sim.getUnit(t.boat);
       const dock = boat && sim.buildings.get(boat.home);
@@ -1058,7 +1076,7 @@ function runGather(sim: Sim, u: Unit, t: Extract<Task, { k: 'gather' }>) {
   const f = w.feat[t.tile];
   const quarry = t.res === Res.Stone && f === Feat.None && w.mat[t.tile] === Mat.Rock;
   const ok = t.res === Res.Wood ? isWoodTree(f) || f === Feat.Dead : t.res === Res.Food ? f === Feat.Berry : t.res === Res.Stone ? f === Feat.Boulder || quarry : f === Feat.Ore;
-  if (!ok) { releaseClaim(t.tile); u.task = null; u.think = 0; return; }
+  if (!ok) { releaseClaim(sim, t.tile); u.task = null; u.think = 0; return; }
   if (t.sx === undefined || t.sz === undefined) {
     if (quarry) { const nf = nearestFree(w, (t.tile % w.W) + 0.5, ((t.tile / w.W) | 0) + 0.5, 2); [t.sx, t.sz] = nf ?? [u.x, u.z]; }
     else [t.sx, t.sz] = standAtFeature(sim, u, t.tile);
@@ -1090,7 +1108,7 @@ function runGather(sim: Sim, u: Unit, t: Extract<Task, { k: 'gather' }>) {
       if (left <= 0) { w.setFeat(t.tile, Feat.None, 0); sim.fx.push({ t: 'rockbreak', x: tx, z: tz }); }
       else { w.featAmt[t.tile] = left; w.markFeatTile(t.tile); }
     }
-    releaseClaim(t.tile);
+    releaseClaim(sim, t.tile);
     u.carry = t.res; u.carryAmt = amt;
     setTask(sim, u, { k: 'deliver' });
   }
@@ -1121,8 +1139,9 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     return;
   }
   const gun = u.item === 12 || u.item === 13;
-  const ranged = (u.item === 5 || gun) && d > 1.2; // bow, musket, rifle
-  const reach = ranged ? (u.item === 13 ? 9 : u.item === 12 ? 7 : 6) : def.range * (0.8 + 0.2 * def.size);
+  const magic = u.item === 18 || u.item === 19;     // staff (fireball), ray gun
+  const ranged = (u.item === 5 || gun || magic) && d > 1.2; // bow, musket, rifle, spells
+  const reach = ranged ? (u.item === 13 ? 9 : u.item === 12 || u.item === 18 ? 7 : 6) : def.range * (0.8 + 0.2 * def.size);
   if (o.y > 1 && !ranged) { u.task = null; u.think = 0; return; }
   if (d > 16) { u.task = null; u.think = 0; return; }
   if (d > reach) {
@@ -1147,10 +1166,12 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   u.anim = Anim.Attack; u.animT = 6;
   u.cd = Math.round(def.attackRate * 10 * (u.flags & UF.Hero ? 0.8 : 1) * (gun ? 1.6 : 1));
   const dmg = def.dmg * u.dmgMul * sim.rng.range(0.75, 1.25) * (u.age < def.adultAge ? 0.4 : 1) * (u.item === 13 ? 2.4 : u.item === 12 ? 1.8 : 1);
-  if (ranged) {
+  if (ranged && magic) {
+    castAt(sim, u, o, dmg);
+  } else if (ranged) {
     sim.fx.push({ t: gun ? 'shot' : 'arrow', x: u.x, z: u.z, tx: o.x, tz: o.z, u: u.id, y: o.y });
     const oid = o.id;
-    setTimeout0(sim, Math.max(2, Math.round(d * 1.2)), () => { const tgt = sim.getUnit(oid); if (tgt) hurt(sim, tgt, dmg, sim.getUnit(u.id), 'attack'); });
+    sim.schedule(Math.max(2, Math.round(d * 1.2)), { k: 'hit', u: oid, by: u.id, dmg, cause: 'attack' });
   } else {
     sim.fx.push({ t: 'hit', x: o.x, z: o.z, u: o.id, a: u.sp, tx: u.x, tz: u.z });
     // knockback

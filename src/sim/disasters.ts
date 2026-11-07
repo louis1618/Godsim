@@ -1,6 +1,8 @@
 import { Sim } from './sim';
+import { lightningTarget, lightningRod, napalmImpact } from './monsters';
+import type { Unit } from './entities';
 import { UF, Emote } from './entities';
-import { SPECIES, Feat, Mat, isCiv, Bk, YEAR_TICKS } from './defs';
+import { SPECIES, Feat, Mat, isCiv, Bk, YEAR_TICKS, Sp, isVehicle } from './defs';
 import { ignite } from './nature';
 import { hurt, panic } from './ai';
 
@@ -42,10 +44,20 @@ export function explode(sim: Sim, x: number, z: number, radius: number, power: n
   w.markTerrain(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
 }
 
-export function lightning(sim: Sim, x: number, z: number) {
+export function lightning(sim: Sim, x0: number, z0: number) {
+  // lightning seeks metal: tanks, turrets, saucers and armed soldiers draw the strike to themselves
+  const [x, z] = lightningTarget(sim, x0, z0);
   sim.fx.push({ t: 'lightning', x, z });
   const t = sim.world.tileAt(x, z);
-  sim.near(x, z, 1.6, (u) => { hurt(sim, u, 70, undefined, 'lightning'); if (!(u.flags & UF.Dead)) { u.flags |= UF.Burning; panic(sim, u, x, z); } });
+  const rod = lightningRod;
+  const strike = (u: Unit) => {
+    // conductors take the full charge: a struck saucer drops out of the sky
+    const k = u.sp === Sp.UFO ? 6 : isVehicle(u.sp) ? 3 : 1;
+    hurt(sim, u, 70 * k, undefined, 'lightning');
+    if (!(u.flags & UF.Dead) && u.sp !== Sp.UFO && !isVehicle(u.sp)) { u.flags |= UF.Burning; panic(sim, u, x, z); }
+  };
+  sim.near(x, z, 1.6, (u) => { if (u !== rod) strike(u); });
+  if (rod && !(rod.flags & UF.Dead)) strike(rod);
   if (t >= 0) {
     ignite(sim, t, 230);
     const b = sim.buildingAt(t);
@@ -83,7 +95,7 @@ export function infect(sim: Sim, x: number, z: number, r: number) {
  * Launch ordnance at (x,z): it appears high in the sky, arms for a moment (warning on the ground),
  * then falls. A nuke takes about four seconds from launch to impact, a bomb under two.
  */
-export function spawnMissile(sim: Sim, x: number, z: number, kind: 'nuke' | 'bomb') {
+export function spawnMissile(sim: Sim, x: number, z: number, kind: 'nuke' | 'bomb' | 'napalm') {
   const nuke = kind === 'nuke';
   sim.missiles.push({ id: sim.id(), x, z, y: nuke ? 70 : 34, vy: 0, kind, arm: nuke ? 14 : 4 });
   sim.fx.push({ t: 'launch', x, z, a: nuke ? 1 : 0 });
@@ -249,6 +261,7 @@ export function disasterTick(sim: Sim) {
       if (m.y <= ground) {
         m.y = -999;
         if (m.kind === 'nuke') nukeImpact(sim, m.x, m.z);
+        else if (m.kind === 'napalm') napalmImpact(sim, m.x, m.z);
         else explode(sim, m.x, m.z, 2.6, 110, { crater: 1.2, fire: true });
       }
     }

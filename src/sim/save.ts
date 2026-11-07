@@ -22,12 +22,13 @@ export function serialize(sim: Sim): string {
   const data = {
     v: 1, W: w.W, H: w.H, tick: sim.tick, nextId: sim.nextId, rng: sim.rng.state(), laws: sim.laws, stats: sim.stats,
     arrays: Object.fromEntries(ARRAYS.map((k) => [k, b64(w[k])])),
-    units: sim.units.filter((u) => !(u.flags & (1 << 9))).map((u) => ({ ...u, path: null, pathI: 0, flags: u.flags & ~((1 << 7) | (1 << 8)) })),
+    units: sim.units.filter((u) => !(u.flags & (1 << 9))).map((u) => ({ ...u, path: u.path ? Array.from(u.path) : null, flags: u.flags & ~((1 << 7) | (1 << 8)) })),
+    navVersion: w.navVersion,
     buildings: [...sim.buildings.values()],
     villages: [...sim.villages.values()],
     kingdoms: [...sim.kingdoms.values()],
     history: sim.history,
-    rainClouds: sim.rainClouds, tornadoes: sim.tornadoes, meteors: sim.meteors, volcanoes: sim.volcanoes, droughts: sim.droughts, floods: sim.floods, missiles: sim.missiles,
+    rainClouds: sim.rainClouds, tornadoes: sim.tornadoes, meteors: sim.meteors, volcanoes: sim.volcanoes, droughts: sim.droughts, floods: sim.floods, missiles: sim.missiles, acidRains: sim.acidRains, waterCount: sim.waterCount, pending: sim.pending, recentDead: sim.recentDead, claims: [...sim.claims].filter(([, t]) => t > sim.tick), farmClaims: [...sim.farmClaims].filter(([, t]) => t > sim.tick),
     fire: [...fireTiles],
   };
   return JSON.stringify(data);
@@ -41,6 +42,7 @@ export function deserialize(json: string): Sim {
   w.markTerrain(0, 0, w.W - 1, w.H - 1);
   w.ownerDirty = true;
   w.computeIslands();
+  if (typeof d.navVersion === 'number') w.navVersion = d.navVersion;
   const sim = new Sim(w, 1);
   sim.tick = d.tick; sim.nextId = d.nextId; sim.rng.setState(d.rng); Object.assign(sim.laws, d.laws); Object.assign(sim.stats, d.stats);
   // older saves: fill fields added by later versions
@@ -50,6 +52,8 @@ export function deserialize(json: string): Sim {
   const K0 = { lastKing: -1, era: 0, tech: 0, tradeBoost: 1, trade: {} };
   for (const raw of d.units) {
     // rebuild every unit on the canonical shape (fast property access), then old-save defaults
+    // routes in progress are kept (a reload replays exactly); old saves had none
+    if (Array.isArray(raw.path)) raw.path = Int32Array.from(raw.path); else { raw.path = null; raw.pathI = 0; }
     const u = Object.assign(blankUnit(), fill(raw, U0));
     if (u.wdT < 0) { u.wdX = u.x; u.wdZ = u.z; u.wdT = d.tick; }
     sim.units.push(u); sim.unitMap.set(u.id, u);
@@ -59,7 +63,7 @@ export function deserialize(json: string): Sim {
   for (const k of d.kingdoms) sim.kingdoms.set(k.id, fill(k, K0));
   sim.history = d.history ?? [];
   sim.rainClouds = d.rainClouds ?? []; sim.tornadoes = d.tornadoes ?? []; sim.meteors = d.meteors ?? [];
-  sim.volcanoes = d.volcanoes ?? []; sim.droughts = d.droughts ?? []; sim.floods = d.floods ?? []; sim.missiles = d.missiles ?? [];
+  sim.volcanoes = d.volcanoes ?? []; sim.droughts = d.droughts ?? []; sim.floods = d.floods ?? []; sim.missiles = d.missiles ?? []; sim.acidRains = d.acidRains ?? []; if (d.waterCount) sim.waterCount = d.waterCount; sim.pending = d.pending ?? []; sim.recentDead = d.recentDead ?? []; sim.claims = new Map(d.claims ?? []); sim.farmClaims = new Map(d.farmClaims ?? []);
   fireTiles.clear();
   for (const t of d.fire ?? []) fireTiles.add(t);
   return sim;

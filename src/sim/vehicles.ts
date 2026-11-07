@@ -1,6 +1,7 @@
-import { Sim, setTimeout0 } from './sim';
+import { Sim } from './sim';
+import { PENDING } from './pending';
 import { Unit, Building, Village, Anim, UF } from './entities';
-import { Sp, SPECIES, Bk, TICK_DT, isCiv, isVehicle } from './defs';
+import { Sp, SPECIES, Bk, TICK_DT, isCiv, isVehicle , isMonster } from './defs';
 import { stepToward, separate } from './nav';
 import { completed } from './jobs';
 
@@ -19,8 +20,9 @@ export function enemyOf(sim: Sim, kid: number, o: Unit): boolean {
   if (o.flags & (UF.Dead | UF.Jailed | UF.Aboard)) return false;
   const def = SPECIES[o.sp];
   if (kid < 0) return isCiv(o.sp) || def.undead === true || isVehicle(o.sp) && o.kingdom >= 0;
+  if (o.sp === Sp.Fish) return false;
   if (o.flags & UF.Mad) return true;
-  if (def.undead || o.sp === Sp.Troll || o.sp === Sp.Dragon) return true;
+  if (def.undead || o.sp === Sp.Troll || o.sp === Sp.Dragon || isMonster(o.sp)) return true;
   if (isCiv(o.sp) || isVehicle(o.sp)) {
     if (o.kingdom < 0) return isVehicle(o.sp);
     if (o.kingdom === kid) return false;
@@ -67,7 +69,7 @@ export function fireShell(sim: Sim, x: number, z: number, y: number, tx: number,
   const d = Math.hypot(tx - x, tz - z);
   const flight = kind === 'bomb' ? 9 : Math.max(3, Math.round(d * 0.9));
   sim.fx.push({ t: kind === 'bomb' ? 'bombdrop' : 'shell', x, z, y, tx, tz, a: flight, b: kind === 'cannon' ? 1 : 0 });
-  setTimeout0(sim, flight, () => blast(sim, tx, tz, radius, dmg, kid));
+  sim.schedule(flight, { k: 'blast', x: tx, z: tz, r: radius, dmg, kid });
 }
 
 export function blast(sim: Sim, x: number, z: number, radius: number, dmg: number, kid: number) {
@@ -567,3 +569,5 @@ export function cannonTick(sim: Sim, b: Building) {
 }
 
 
+
+PENDING.blast = (sim, e) => blast(sim, e.x!, e.z!, e.r!, e.dmg!, e.kid!);

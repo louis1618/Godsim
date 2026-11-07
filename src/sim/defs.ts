@@ -37,8 +37,11 @@ export const enum Sp {
   Human = 0, Elf = 1, Dwarf = 2, Orc = 3, Sheep = 4, Wolf = 5, Deer = 6, Bear = 7, Skeleton = 8, Chicken = 9, Troll = 10,
   Boat = 11, Tank = 12, Plane = 13,
   Rabbit = 14, Fox = 15, Boar = 16, Crocodile = 17, Fish = 18, Dragon = 19,
+  Zombie = 20, Mage = 21, UFO = 22, Alien = 23, Demon = 24, ColdOne = 25,
 }
-export const SPECIES_COUNT = 20;
+export const SPECIES_COUNT = 26;
+/** Monsters: hostile factions of their own (no hunger, no breeding, no village). */
+export const isMonster = (sp: number) => sp >= 20 && sp <= 25;
 /** Machines: no hunger, no mood, no ageing; they belong to a kingdom. */
 export const isVehicle = (sp: number) => sp >= 11 && sp <= 13;
 export type Race = Sp.Human | Sp.Elf | Sp.Dwarf | Sp.Orc;
@@ -87,6 +90,13 @@ export const SPECIES: SpeciesDef[] = [
   { key: 'crocodile', civ: false, speed: 1.25, hp: 170, dmg: 24, attackRate: 1.4, range: 0.95, lifespan: [40, 60], adultAge: 4, size: 1.2, diet: 'meat', aggressive: true, breedEvery: 4, litter: 2, biomes: [Mat.Swamp, Mat.Sand], fertility: 1, buildSpeed: 0 },
   { key: 'fish', civ: false, speed: 1.3, hp: 8, dmg: 0, attackRate: 3, range: 0.3, lifespan: [4, 7], adultAge: 0.5, size: 0.42, diet: 'plant', aggressive: false, breedEvery: 0.6, litter: 3, biomes: [], fertility: 1, buildSpeed: 0 },
   { key: 'dragon', civ: false, speed: 2.6, hp: 1100, dmg: 48, attackRate: 1.8, range: 1.6, lifespan: [9999, 9999], adultAge: 0, size: 2.2, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [Mat.Rock, Mat.Snow], fertility: 0, buildSpeed: 0 },
+  // monsters
+  { key: 'zombie', civ: false, speed: 0.95, hp: 95, dmg: 12, attackRate: 1.2, range: 0.85, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0, undead: true },
+  { key: 'mage', civ: false, speed: 1.35, hp: 180, dmg: 26, attackRate: 2.0, range: 6, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'omni', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'ufo', civ: false, speed: 2.3, hp: 420, dmg: 30, attackRate: 1.6, range: 5, lifespan: [9999, 9999], adultAge: 0, size: 1.0, diet: 'omni', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'alien', civ: false, speed: 1.5, hp: 75, dmg: 15, attackRate: 1.3, range: 5, lifespan: [9999, 9999], adultAge: 0, size: 0.95, diet: 'omni', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'demon', civ: false, speed: 1.65, hp: 280, dmg: 26, attackRate: 1.1, range: 1.0, lifespan: [9999, 9999], adultAge: 0, size: 1.15, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
+  { key: 'coldone', civ: false, speed: 1.1, hp: 320, dmg: 22, attackRate: 1.4, range: 1.1, lifespan: [9999, 9999], adultAge: 0, size: 1.25, diet: 'meat', aggressive: true, breedEvery: 0, litter: 0, biomes: [], fertility: 0, buildSpeed: 0 },
 ];
 export const isCiv = (sp: number) => sp <= Sp.Orc;
 
