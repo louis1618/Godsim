@@ -10,6 +10,7 @@ import { damp } from './core/math';
 import { Physics } from './physics/physics';
 import { FxRenderer } from './render/fx';
 import { lightning } from './sim/disasters';
+import { WarOverlay } from './render/war';
 
 /** Owns the simulation and drives it at a fixed rate, feeding renderers each frame. */
 export class Game {
@@ -29,13 +30,14 @@ export class Game {
   listeners: ((g: Game) => void)[] = [];
   physics = new Physics();
   fx: FxRenderer;
+  war = new WarOverlay();
   private tmpV = new THREE.Vector3();
   /** fx events produced this frame (for UI / audio listeners) */
   events: import('./sim/sim').FxEvent[] = [];
 
   constructor(readonly gr: GameRenderer) {
     this.fx = new FxRenderer(this.physics, gr.rig);
-    gr.scene.add(this.units.group, this.buildings.group, this.fx.group);
+    gr.scene.add(this.units.group, this.buildings.group, this.fx.group, this.war.group);
     gr.onFrame.push((dt) => this.frame(dt));
   }
 
@@ -95,6 +97,7 @@ export class Game {
     this.units.viewYaw = rig.viewYaw;
     this.units.update(sim, this.alpha, rig.camera.position, rig.focus, rig.V, rig.z01, pxScale, dt);
     this.buildings.update(sim);
+    this.war.update(sim, rig, dt);
     // fx hand-off
     // storms ask for lightning; resolve those first so their effects land this frame
     for (let i = 0; i < sim.fx.length; i++) if (sim.fx[i].t === 'lightningReq') lightning(sim, sim.fx[i].x, sim.fx[i].z);

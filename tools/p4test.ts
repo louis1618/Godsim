@@ -56,7 +56,8 @@ const make = (seed: number, tribes: number) => { fireTiles.clear(); clearClaims(
     let famine = 0, thefts = 0, raid = 0, trades0 = sim.stats.trades ?? 0;
     sim.onHistory = (h) => { if (h.type === 'famine' && h.v === vid) famine++; if (h.type === 'raidWar') raid++; };
     if (drought) { spawnDrought(sim, cx, cz, R); sim.droughts[0].life = YEAR_TICKS * 3; }
-    const grazers0 = count(sim, cx, cz, R + 15, (u) => [Sp.Sheep, Sp.Deer, Sp.Rabbit, Sp.Chicken, Sp.Boar].includes(u.sp));
+    // grazers inside the parched area itself (they starve or move out to greener land)
+    const grazers0 = count(sim, cx, cz, R, (u) => [Sp.Sheep, Sp.Deer, Sp.Rabbit, Sp.Chicken, Sp.Boar].includes(u.sp));
     let hungerSum = 0, hungerN = 0, predHunger = 0, predN = 0;
     const crimeStart = v.crime ?? 0;
     for (let i = 0; i < YEAR_TICKS * 3; i++) {
@@ -69,7 +70,7 @@ const make = (seed: number, tribes: number) => { fireTiles.clear(); clearClaims(
     }
     let grass = 0, crops = 0;
     for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) { const t = sim.world.tileAt(cx + dx, cz + dz); if (t < 0) continue; grass += sim.world.grass[t]; if (sim.world.feat[t] === Feat.Crop) crops += sim.world.featAmt[t]; }
-    const grazers = count(sim, cx, cz, R + 15, (u) => [Sp.Sheep, Sp.Deer, Sp.Rabbit, Sp.Chicken, Sp.Boar].includes(u.sp));
+    const grazers = count(sim, cx, cz, R, (u) => [Sp.Sheep, Sp.Deer, Sp.Rabbit, Sp.Chicken, Sp.Boar].includes(u.sp));
     return { grass: Math.round(grass / 1000), crops, grazers0, grazers, food: Math.round(v.food), pop: v.residents.length, hunger: Math.round(hungerSum / Math.max(1, hungerN)), predHunger: Math.round(predHunger / Math.max(1, predN)), famine, crime: +((v.crime ?? 0) - crimeStart).toFixed(1), thefts, trades: (sim.stats.trades ?? 0) - trades0, raid };
   };
   // one pair of worlds is a coin toss for wildlife counts; sum three seeds

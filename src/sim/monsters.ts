@@ -222,12 +222,13 @@ export function ufoTick(sim: Sim, u: Unit) {
   else if (t && t.k === 'wander') { tx = t.tx; tz = t.tz; }
   const dx = tx - u.x, dz = tz - u.z, d = Math.hypot(dx, dz);
   if (d > 0.3) {
-    const sp = Math.min(d, SPECIES[Sp.UFO].speed * TICK_DT * (target && d < 3 ? 0.6 : 1));
+    const sp = Math.min(d, SPECIES[Sp.UFO].speed * TICK_DT);
     u.x = Math.max(1, Math.min(w.W - 2, u.x + (dx / d) * sp));
     u.z = Math.max(1, Math.min(w.H - 2, u.z + (dz / d) * sp));
     u.dir = Math.atan2(dx, dz);
   } else if (t && t.k === 'wander') { u.task = null; u.think = 0; }
-  if (target && d < 0.6 && u.cd <= 0 && !(target.flags & (UF.Held | UF.Beamed))) {
+  // the tractor beam reaches a little way out: a fleeing villager is caught when it passes under the rim
+  if (target && d < 1.6 && u.cd <= 0 && !(target.flags & (UF.Held | UF.Beamed))) {
     // tractor beam
     u.task = { k: 'abduct', u: target.id, t: 22 };
     setTask(sim, target, { k: 'idle', t: 40 });
@@ -475,7 +476,6 @@ export function seekWater(sim: Sim, u: Unit): boolean {
       const t = w.tileAt(x0 + Math.cos(a) * r + 0.5, z0 + Math.sin(a) * r + 0.5);
       if (t < 0 || !w.isWater(t) || w.waterDepth(t) > 1.0) continue;
       setTask(sim, u, { k: 'flee', tx: (t % w.W) + 0.5, tz: ((t / w.W) | 0) + 0.5 });
-      u.anim = Anim.Panic;
       return true;
     }
   }

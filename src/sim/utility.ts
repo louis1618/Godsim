@@ -109,7 +109,7 @@ export function fightOrFlight(sim: Sim, u: Unit, p: Perception): { choice: Respo
 }
 
 /** Hazards that are worth walking away from, nearest first. */
-export function hazardNear(sim: Sim, x: number, z: number): { x: number; z: number; level: number; what: string } | null {
+export function hazardNear(sim: Sim, x: number, z: number, wild = false): { x: number; z: number; level: number; what: string } | null {
   const w = sim.world;
   let best: { x: number; z: number; level: number; what: string } | null = null;
   const consider = (hx: number, hz: number, r: number, level: number, what: string) => {
@@ -131,6 +131,11 @@ export function hazardNear(sim: Sim, x: number, z: number): { x: number; z: numb
   for (const m of sim.meteors) consider(m.x, m.z, 4 + m.size * 2, 1, 'meteor');
   for (const m of sim.missiles) consider(m.x, m.z, m.kind === 'nuke' ? 14 : 4, 1, 'bomb');
   for (const v of sim.volcanoes) consider(v.x, v.z, 6, 0.9, 'volcano');
+  // wild animals leave a parched land for greener pastures (townsfolk stay with their homes)
+  if (wild) for (const d of sim.droughts) {
+    // anywhere inside it is equally bad: head out, away from its heart
+    if ((x - d.x) ** 2 + (z - d.z) ** 2 < d.r * d.r && (!best || (best as { level: number }).level < 0.35)) best = { x: d.x, z: d.z, level: 0.35, what: 'drought' };
+  }
   return best;
 }
 
@@ -159,11 +164,10 @@ export function callForHelp(sim: Sim, u: Unit, enemy: Unit, kind: 'defend' | 'al
     } else if (kind === 'alarm') {
       if (o.sp !== u.sp || o.task?.k === 'flee') return;
       flee(sim, o, enemy.x, enemy.z);
-      o.anim = Anim.Panic;
       o.intent = Intent.Flee;
       n++;
     } else {
-      if (o.sp !== u.sp || o.task?.k === 'hunt' || o.task?.k === 'attack' || o.hunger < 30) return;
+      if (o.sp !== u.sp || o.task?.k === 'hunt' || o.task?.k === 'attack' || o.hunger < 30 || o.lastHit === enemy.id) return;
       setTask(sim, o, { k: 'hunt', u: enemy.id });
       o.intent = Intent.Hunt;
       n++;

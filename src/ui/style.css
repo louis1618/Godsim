@@ -379,3 +379,9 @@
 .bm-val { display: inline-grid; place-items: center; height: 32px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: normal; font-size: 17px; }
 .bm-hint { opacity: .65; font-size: 12px; }
 .bm-preview { width: 217px; height: 217px; border: 3px solid var(--ink); border-radius: 14px; flex: 0 0 auto; }
+/* a town an enemy is marching on: red rim, pulsing, crossed swords */
+.plate.besieged { box-shadow: 0 0 0 3px #ff3a2a, 0 3px 0 var(--ink); animation: besiege 0.9s ease-in-out infinite alternate; }
+.plate.besieged .pname::after { content: '⚔'; margin-left: 5px; color: #c81e14; }
+@keyframes besiege { from { box-shadow: 0 0 0 2px #ff3a2a, 0 3px 0 var(--ink); } to { box-shadow: 0 0 0 5px rgba(255, 58, 42, 0.55), 0 3px 0 var(--ink); } }
+.krow .campaign { font-size: 13px; font-weight: 700; margin-top: 3px; text-shadow: 0 1px 0 rgba(255,255,255,0.6); }
+.krow .campaign small { color: var(--ink); opacity: 0.7; font-weight: 600; }

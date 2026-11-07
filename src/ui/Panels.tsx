@@ -111,6 +111,9 @@ function Kingdoms({ app }: { app: AppCtl }) {
               {k.wars.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill bad"><img src={s.icons['war']} class="pi" />{e.name}</span>; })}
               {k.allies.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill good"><img src={s.icons['alliance']} class="pi" />{e.name}</span>; })}
             </div>
+            {app.game.war.campaigns.filter((c) => c.from === k.id).map((c) => { const tv = sim.villages.get(c.to); return tv && (
+              <div class="campaign" style={{ color: hex(c.color) }}>➜ <b>{tv.name}</b> <small>{t('marchingOn')} · {c.soldiers ? `${c.soldiers} ${t('troops')}` : t('mustering')}</small></div>
+            ); })}
           </div>
           <div class="nums"><span title={t('pop')}><img src={s.icons['human']} class="pi" style={{ width: '24px', height: '24px', verticalAlign: '-6px' }} /> {pop}</span><span title={t('villages')}><img src={s.icons['cat-civ']} style={{ width: '24px', height: '24px', verticalAlign: '-6px' }} /> {k.villages.length}</span></div>
         </div>

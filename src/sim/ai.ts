@@ -9,6 +9,7 @@ import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedT
 import { vehicleTick } from './vehicles';
 import { fishTick, dragonTick, aquatic } from './animals';
 import { eats, grazes, hunts } from './foodchain';
+import { inDrought } from './disasters';
 import { monsterTick, decideMonster, ufoTick, castAt, runHeal, seekWater } from './monsters';
 import { hazardNear, perceive, fightOrFlight, callForHelp, pickNeed, Intent } from './utility';
 
@@ -114,6 +115,8 @@ function metabolism(sim: Sim, u: Unit) {
   if (!def.undead && !isMonster(u.sp)) {
     const winter = sim.season === 3 ? 1.3 : 1;
     u.hunger += (isCiv(u.sp) ? 0.62 : 0.7 * (HUNGER_RATE[u.sp] ?? 1)) * winter * (u.age < def.adultAge ? 0.6 : 1);
+    // thirst: a parched land wears every living thing down faster
+    if (sim.droughts.length && inDrought(sim, u.x, u.z)) u.hunger += 0.5;
     if (u.hunger >= 100) { u.hunger = 100; hurt(sim, u, 3, undefined, 'hunger'); }
     if (u.age > u.maxAge) { sim.killUnit(u, 'age'); return; }
     if (u.hp < u.maxHp && u.hunger < 70 && !(u.flags & UF.Sick)) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.015);
@@ -167,9 +170,10 @@ function decide(sim: Sim, u: Unit) {
   // 1. hazards (utility: walking out of harm's way beats anything else): fire, lava, acid rain,
   //    a tornado's path, the shadow of an incoming meteor or bomb, an erupting volcano
   if (!isMonster(u.sp) && !def.undead) {
-    const hz = hazardNear(sim, u.x, u.z);
+    const hz = hazardNear(sim, u.x, u.z, !civ && !isMonster(u.sp));
     if (hz && hz.level > 0.15 && !(hz.what === 'fire' && u.sp === Sp.Demon)) {
       const was = u.task?.k === 'flee';
+      keepErrand(u);
       fleeFrom(sim, u, hz.x, hz.z);
       u.intent = Intent.AvoidHazard;
       if (!was && civ) sim.emote(u, Emote.Alert, 20);
@@ -195,6 +199,7 @@ function decide(sim: Sim, u: Unit) {
     }
     if (r.choice === 'flee') {
       const was = u.task?.k === 'flee';
+      keepErrand(u);
       // keep running, but re-aim every decision so a dead end never pins the creature down
       fleeFrom(sim, u, enemy.x, enemy.z);
       u.intent = Intent.Flee;
@@ -208,6 +213,11 @@ function decide(sim: Sim, u: Unit) {
     // a distant threat: keep an eye on it but carry on living
   }
   if (maroonedEscape(sim, u)) return;
+  // the danger has passed: go back to the errand that was interrupted (a caravan, a delivery, a build...)
+  if (u.resume && (!u.task || u.task.k === 'idle' || u.task.k === 'wander')) {
+    const r = u.resume; u.resume = null;
+    if (taskValid(sim, u, r)) { u.task = r; u.path = null; u.stuck = 0; u.intent = INTENT_OF[r.k] ?? Intent.Work; return; }
+  }
   // urgent needs break into anything that is not life-or-death
   const urgent = isCiv(u.sp) && u.hunger > 78 && u.task && !['eat', 'attack', 'flee', 'hunt', 'steal', 'arrest', 'escort', 'trade', 'board', 'escorted', 'jailed'].includes(u.task.k) && !(u.task.k === 'gather' && u.task.res === Res.Food);
   if (urgent) u.task = null;
@@ -360,8 +370,14 @@ function decideAnimal(sim: Sim, u: Unit) {
     if (hunts(u.sp)) {
       let prey: Unit | null = null, bd = 1e9;
       const range = (u.sp === Sp.Crocodile ? 8 : 12) * (u.hunger > 75 ? 1.6 : 1);
+      // land hunters only go after prey they can actually reach (same landmass, not out in the water)
+      const w = sim.world;
+      if (w.islandsDirty) w.computeIslands();
+      const myIsl = w.island[w.tileAt(u.x, u.z)] ?? -1;
       sim.near(u.x, u.z, range, (o, d2) => {
-        if (o.sp === u.sp || o.flags & (UF.Held | UF.Jailed | UF.Aboard)) return;
+        if (o.sp === u.sp || o.flags & (UF.Held | UF.Jailed | UF.Aboard | UF.Beamed)) return;
+        if (!aquatic(u.sp) && o.sp !== Sp.Fish && myIsl >= 0 && w.island[w.tileAt(o.x, o.z)] !== myIsl) return;
+        if (o.id === u.skipPrey && sim.tick < u.skipT) return; // no way to get at it just now
         if (!eats(u.sp, o.sp, starving)) return;
         if (o.sp === Sp.Fish && d2 > (aquatic(u.sp) ? 64 : 16)) return; // fish only near the shore (crocodiles swim)
         if (o.y > 1) return;                               // can't reach fliers
@@ -491,6 +507,7 @@ function taskValid(sim: Sim, u: Unit, t: Task): boolean {
 }
 
 export function setTask(sim: Sim, u: Unit, t: Task) {
+  if (t.k === 'hunt' && !(u.task?.k === 'hunt' && u.task.u === t.u)) u.huntT = 0;
   u.task = t;
   u.lod = 0;
   u.intent = INTENT_OF[t.k] ?? Intent.Work;
@@ -539,8 +556,14 @@ function fleeFrom(sim: Sim, u: Unit, x: number, z: number) {
 }
 
 export function panic(sim: Sim, u: Unit, x: number, z: number) {
+  keepErrand(u);
   fleeFrom(sim, u, x, z);
-  u.anim = Anim.Panic;
+}
+
+/** Long errands survive a scare: they are put aside while fleeing and taken up again afterwards. */
+const RESUMABLE = new Set(['trade', 'deliver', 'build', 'farm', 'gather', 'march', 'settle', 'post', 'escort']);
+function keepErrand(u: Unit) {
+  if (u.task && RESUMABLE.has(u.task.k) && !u.resume) { u.resume = u.task; if ('sx' in u.resume) { (u.resume as any).sx = undefined; (u.resume as any).sz = undefined; } }
 }
 
 // ------------------------------------------------------------------ watchdog
@@ -688,6 +711,7 @@ function wanderNear(sim: Sim, u: Unit, cx: number, cz: number, r: number) {
     const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
     const t = w.tileAt(x, z);
     if (t < 0 || w.bld[t] >= 0 || w.fire[t] > 0) continue;
+    if (sim.droughts.length && !isCiv(u.sp) && inDrought(sim, x, z)) continue; // wild things keep out of the parched land
     const ok = aquatic(u.sp) ? w.walkable(t) || w.isWater(t) : w.walkable(t) && (isl < 0 || w.island[t] === isl);
     if (ok) { setTask(sim, u, { k: 'wander', tx: x, tz: z }); return; }
   }
@@ -766,14 +790,18 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
     const near = arriveDist >= 1.5 ? Math.floor(arriveDist) : 0;
     // idle strolls may not cost a full search: an unreachable stroll target is simply dropped
     const tk = u.task?.k;
-    const budget = tk === 'wander' || tk === 'idle' ? 500 : tk === 'hunt' || tk === 'attack' ? 2000 : 5000;
+    const budget = tk === 'wander' || tk === 'idle' ? 500 : tk === 'hunt' || tk === 'attack' ? 4000 : 5000;
     const t0 = sim.pathProbe ? performance.now() : 0;
     const p = sim.pf.find(u.x, u.z, goal, budget, near);
     if (sim.pathProbe) sim.pathProbe(u, performance.now() - t0, !!p);
     if (!p) {
       u.stuck++;
       u.anim = Anim.Idle;
-      if (u.stuck > 3) { u.task = null; u.think = 0; }
+      if (u.stuck > 3) {
+        // a target with no route to it is crossed off for a while (no circling back to it at once)
+        if (u.task && (u.task.k === 'hunt' || u.task.k === 'attack')) { u.skipPrey = u.task.u; u.skipT = sim.tick + 400; }
+        u.task = null; u.think = 0;
+      }
       return false;
     }
     u.path = p; u.pathI = 0; u.pathNav = sim.navVersion;
@@ -1179,6 +1207,12 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     }
     moveTo(sim, u, o.x, o.z, 2.0, 1);
     return;
+  }
+  // a chase that has gone on for half a minute without a kill is given up (prey out of reach,
+  // a pack crowding one rabbit...); the creature looks for something else to do
+  if (hunting) {
+    u.huntT = (u.huntT ?? 0) + 1;
+    if (u.huntT > 300) { u.huntT = 0; u.task = { k: 'idle', t: 30 }; u.think = 30; return; }
   }
   const gun = u.item === 12 || u.item === 13;
   const magic = u.item === 18 || u.item === 19;     // staff (fireball), ray gun

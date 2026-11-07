@@ -99,6 +99,10 @@ export interface Unit {
   lod: number;              // 1 = half-rate update (calm wildlife); see sim.step
   lodTick: number;          // tick of the last half-rate update (render interpolation)
   intent: number;           // why it does what it does (utility AI decision; see Intent)
+  huntT: number;            // ticks spent on the current hunt
+  skipPrey: number; skipT: number; // a target found unreachable, ignored until skipT
+  resume: Task | null;      // errand put aside while fleeing, taken up again afterwards
+  gx?: number; gz?: number; // prisoners: where in the yard they are pacing to
 }
 
 export const enum Mem { Grief = 1, Wedding = 2, NewBaby = 3, Victory = 4, Defeat = 5, Injured = 6, Blessed = 7, Famine = 8, Homeless = 9, Jailed = 10, Robbed = 11, Party = 12, Fire = 13, Disaster = 14, Trade = 15 }

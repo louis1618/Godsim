@@ -586,7 +586,7 @@ export function jobItem(u: Unit, era = 0): number {
 function sendSettlers(sim: Sim, v: Village, adults: Unit[]) {
   const w = sim.world;
   // soldiers, the watch, and anyone in the middle of a duty (an arrest, an escort, a caravan) stay
-  const busy = (u: Unit) => { const k = u.task?.k; return k === 'arrest' || k === 'escort' || k === 'trade' || k === 'board'; };
+  const busy = (u: Unit) => { const k = u.task?.k; return k === 'arrest' || k === 'escort' || k === 'trade' || k === 'board' || (u.flags & (UF.Jailed | UF.Escorted | UF.Aboard)) !== 0; };
   const cands = adults.filter((u) => u.job !== Job.Warrior && u.job !== Job.Guard && !(u.flags & UF.King) && !busy(u));
   if (cands.length < 5) return;
   let site: [number, number] | null = null;

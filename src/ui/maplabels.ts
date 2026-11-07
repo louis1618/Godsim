@@ -105,6 +105,7 @@ export class MapLabels {
         const cap = k && k.capital === vil.id;
         p.el.classList.toggle('cap', !!cap);
         p.el.classList.toggle('war', !!k && k.wars.length > 0);
+        p.el.classList.toggle('besieged', g.war.campaigns.some((c) => c.to === vil.id));
         if (p.name.textContent !== vil.name) p.name.textContent = vil.name;
         const n = String(vil.residents.length);
         if (p.pop.textContent !== n) p.pop.textContent = n;

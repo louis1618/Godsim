@@ -46,9 +46,21 @@ if (run(1)){
   const pop0 = v.residents.length;
   applyPower(sim, 'outbreak', v.cx + 0.5, v.cz + 0.5, ctx);
   const z0 = count(sim, Sp.Zombie);
-  let zMax = z0;
-  for (let i = 0; i < 900; i++) { sim.step(); zMax = Math.max(zMax, count(sim, Sp.Zombie)); }
-  check('zombie bites spread the infection', zMax > z0 && v.residents.length < pop0, `zombies ${z0} -> peak ${zMax}, town ${pop0} -> ${v.residents.length} people, zombies left ${count(sim, Sp.Zombie)}`);
+  // every zombie that rises from a bite (the town may still win the fight)
+  let risen = 0;
+  const spawn0 = sim.spawnUnit.bind(sim);
+  sim.spawnUnit = (sp, x, z, o) => { if (sp === Sp.Zombie) risen++; return spawn0(sp, x, z, o); };
+  for (let i = 0; i < 900; i++) sim.step();
+  // a bite out in the open, away from any guards: the victim must get up again as a zombie
+  const w = sim.world;
+  let spot = -1; for (let t = 0; t < w.N && spot < 0; t += 13) if (w.walkable(t) && w.owner[t] < 0 && w.feat[t] === 0) { const x = t % w.W, z = (t / w.W) | 0; if (Math.hypot(x - v.cx, z - v.cz) > 30) spot = t; }
+  const sx = (spot % w.W) + 0.5, sz = ((spot / w.W) | 0) + 0.5;
+  const sheep = sim.spawnUnit(Sp.Sheep, sx, sz); sheep.hp = 6;
+  const zed = sim.spawnUnit(Sp.Zombie, sx + 0.6, sz);
+  zed.task = { k: 'attack', u: sheep.id }; zed.think = 50;
+  sheep.task = { k: 'idle', t: 100 }; sheep.think = 100;
+  for (let i = 0; i < 80; i++) sim.step();
+  check('zombie bites spread the infection', risen > 0, `outbreak of ${z0}, victims risen as zombies ${risen}, town ${pop0} -> ${v.residents.length} people, zombies left ${count(sim, Sp.Zombie)}`);
 }
 // 2. sorcerer
 if (run(2)){
@@ -174,7 +186,8 @@ if (run(10)){
   const u = sim.spawnUnit(Sp.Human, (spot % w.W) + 0.5, ((spot / w.W) | 0) + 0.5);
   u.flags |= UF.Burning;
   let reachedWater = false, out = -1;
-  for (let i = 0; i < 120; i++) { sim.step(); if (w.isWater(w.tileAt(u.x, u.z))) reachedWater = true; if (out < 0 && !(u.flags & UF.Burning)) out = i; if (u.flags & UF.Dead) break; }
+  // (flames can also die down on their own; keep them going until the creature reaches water)
+  for (let i = 0; i < 120; i++) { if (!reachedWater && !(u.flags & UF.Dead)) u.flags |= UF.Burning; sim.step(); if (w.isWater(w.tileAt(u.x, u.z))) reachedWater = true; if (reachedWater && out < 0 && !(u.flags & UF.Burning)) out = i; if (u.flags & UF.Dead) break; }
   check('burning creatures run into water to put themselves out', reachedWater && out >= 0, `reached water ${reachedWater}, flames out after ${(out / 10).toFixed(1)} s, alive ${!(u.flags & UF.Dead)}`);
 }
 // 12. save / load keeps the new content
