@@ -503,7 +503,8 @@ function threatens(sim: Sim, u: Unit, o: Unit, def: typeof SPECIES[number], d2: 
       // predators are threats to everyone smaller; herbivores avoid civs a bit
       if (od.aggressive && o.sp !== u.sp && !def.undead && (o.task?.k === 'hunt' || o.task?.k === 'attack') && (o.task as any).u === u.id) threat = true;
       if (od.aggressive && o.sp !== u.sp && !def.aggressive && !isCiv(u.sp) && d2 < 25) threat = true;
-      if (isCiv(u.sp) && od.aggressive && o.sp !== Sp.Skeleton && d2 < 9) threat = true;
+      // a beast close by is a threat to townsfolk, unless it is already running away
+      if (isCiv(u.sp) && od.aggressive && o.sp !== Sp.Skeleton && d2 < 9 && o.task?.k !== 'flee') threat = true;
       if (isCiv(u.sp) && od.undead) threat = true;
       if (def.aggressive && isCiv(o.sp) && o.task?.k === 'attack' && (o.task as any).u === u.id) threat = true;
       // prey keeps an eye on whoever eats it
@@ -1245,6 +1246,10 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   // (a starving hunter searches up to 19 tiles out, so the chase gives up a little beyond that)
   if (d > (hunting ? 21 : 16)) { u.task = null; u.think = 0; return; }
   if (d > reach) {
+    // townsfolk drive a fleeing beast off rather than chase it across the country: a trader or
+    // farmer gets back to the errand once the animal turns tail (soldiers and hunters pursue)
+    if (!hunting && isCiv(u.sp) && !isCiv(o.sp) && o.task?.k === 'flee' && d > reach + 1.5
+      && u.job !== Job.Warrior && u.job !== Job.Guard && u.job !== Job.Hunter) { u.task = null; u.think = 0; return; }
     // give up on targets we cannot reach
     if (++u.stuck > 90) { u.task = null; u.think = 0; u.stuck = 0; return; }
     // chase directly when close, path when far

@@ -18,12 +18,16 @@ import { UF, Job } from '../src/sim/entities';
 import type { Unit, Village } from '../src/sim/entities';
 import { createKingdom, declareWar } from '../src/sim/civ';
 import { spawnMissile } from '../src/sim/disasters';
-import { ignite } from '../src/sim/nature';
+import { ignite, fireTiles } from '../src/sim/nature';
+import { clearClaims } from '../src/sim/ai';
+import { clearFarmClaims } from '../src/sim/civ';
 import { perceive, fightOrFlight } from '../src/sim/utility';
 
 let fails = 0;
 const check = (name: string, ok: boolean, info: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${info}`); if (!ok) fails++; };
 function make(seed: number, years = 3) {
+  // module-level caches (burning tiles, work claims) must not leak from one test world into the next
+  fireTiles.clear(); clearClaims(); clearFarmClaims();
   const w = generateWorld({ size: 160, shape: 'pangaea', seed });
   const sim = new Sim(w, seed); seedLife(sim, { tribes: 3 });
   sim.laws.disasters = false;

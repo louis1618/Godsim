@@ -8,7 +8,7 @@ import { generateWorld } from '../src/sim/worldgen';
 import { Sim } from '../src/sim/sim';
 import { seedLife } from '../src/sim/seed';
 import { YEAR_TICKS } from '../src/sim/defs';
-import { declareWar, makePeace } from '../src/sim/civ';
+import { declareWar, makePeace, claimTerritory } from '../src/sim/civ';
 import { WarOverlay } from '../src/render/war';
 import { CameraRig } from '../src/render/cameraRig';
 
@@ -21,8 +21,24 @@ const kOf = (vid: number) => sim.villages.get(vid)?.kingdom ?? -1;
 for (const seed of [909, 910, 911, 912, 913, 914]) {
   w = generateWorld({ size: 192, shape: 'pangaea', seed }); sim = new Sim(w, seed); seedLife(sim, { tribes: 6 });
   for (let i = 0; i < YEAR_TICKS * 10; i++) sim.step();
-  for (let t = 0; t < w.N - 1 && !pair; t++) { const a = w.owner[t], b = w.owner[t + 1]; if (a >= 0 && b >= 0 && kOf(a) !== kOf(b) && kOf(a) >= 0 && kOf(b) >= 0) pair = [kOf(a), kOf(b)]; }
+  pair = touching();
   if (pair) break;
+}
+function touching(): [number, number] | null {
+  for (let t = 0; t < w.N - w.W; t++) for (const n of [t + 1, t + w.W]) {
+    const a = w.owner[t], b = w.owner[n];
+    if (a >= 0 && b >= 0 && kOf(a) !== kOf(b) && kOf(a) >= 0 && kOf(b) >= 0) return [kOf(a), kOf(b)];
+  }
+  return null;
+}
+if (!pair) {
+  // young worlds often have their kingdoms far apart: let the two nearest rival towns spread their
+  // land until it meets (the overlay is what is under test here, not how fast borders grow)
+  const vs = [...sim.villages.values()].filter((v) => v.alive && v.kingdom >= 0);
+  let va = vs[0], vb = vs[1], bd = 1e9;
+  for (const a of vs) for (const b of vs) if (a.kingdom !== b.kingdom) { const d = Math.hypot(a.cx - b.cx, a.cz - b.cz); if (d < bd) { bd = d; va = a; vb = b; } }
+  for (let i = 0; i < 40 && !pair; i++) { va.radius += 1; vb.radius += 1; claimTerritory(sim, va); claimTerritory(sim, vb); pair = touching(); }
+  console.log(`   no world with touching kingdoms after 10 years; grew ${va.name} and ${vb.name} (${bd.toFixed(0)} tiles apart) until their borders met: ${!!pair}`);
 }
 if (!pair) { console.log('FAIL no touching kingdoms in any test world'); process.exit(1); }
 const ka = sim.kingdoms.get(pair[0])!, kb = sim.kingdoms.get(pair[1])!;
