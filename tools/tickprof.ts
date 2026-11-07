@@ -13,6 +13,8 @@ import * as civ from '../src/sim/civ';
 import * as nature from '../src/sim/nature';
 import * as dis from '../src/sim/disasters';
 import { profile } from '../src/sim/sim';
+import { motionOpts } from '../src/sim/motion';
+if (process.env.NOSOLID) motionOpts.features = false;
 
 const size = Number(process.argv[2] ?? 256), years = Number(process.argv[3] ?? 15), ticks = Number(process.argv[4] ?? 3000);
 const w = generateWorld({ size, shape: 'continents', seed: 2024 });

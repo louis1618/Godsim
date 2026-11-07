@@ -93,12 +93,17 @@ export function unitTick(sim: Sim, u: Unit) {
   }
   // momentum (knockbacks, throws) and gravity: a body in the air does nothing else
   if ((u.vx !== 0 || u.vz !== 0 || u.y > 0 || u.vy !== 0) && motionTick(sim, u)) return;
+  let decided = false;
   if (u.task?.k !== 'swim' && ((u.think -= L) <= 0 || !u.task)) {
     decide(sim, u);
+    decided = true;
     // nothing chosen (e.g. a settler between plans): rest briefly rather than re-deciding every tick
     if (!u.task && !(u.flags & UF.Dead)) u.task = { k: 'idle', t: 4 + (u.id % 5) };
   }
   if (u.task) run(sim, u, u.task);
+  // a choice that its own first step threw away (target out of reach the moment it was picked):
+  // pause briefly instead of re-picking the same thing every tick and standing frozen
+  if (decided && !u.task && !(u.flags & UF.Dead)) { u.task = { k: 'idle', t: 6 + (u.id % 5) }; u.think = 6; }
   // walking animations only while the creature really changes position (judged before the
   // separation nudge, so being shuffled aside never shows as walking in place)
   if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && Math.abs(u.x - u.px) + Math.abs(u.z - u.pz) < 1e-4) u.anim = Anim.Idle;
@@ -180,7 +185,12 @@ function decide(sim: Sim, u: Unit) {
       keepErrand(u);
       fleeFrom(sim, u, hz.x, hz.z);
       u.intent = Intent.AvoidHazard;
-      if (!was && civ) sim.emote(u, Emote.Alert, 20);
+      if (!was && civ) {
+        sim.emote(u, Emote.Alert, 20);
+        // the fire has a culprit (a demon, a dragon, raiders with torches): shout for the guards too
+        const th = scanThreat(sim, u);
+        if (th && callForHelp(sim, u, th.enemy, 'defend', setTask, fleeFrom)) u.intent = Intent.CallHelp;
+      }
       return;
     }
   }
@@ -193,6 +203,7 @@ function decide(sim: Sim, u: Unit) {
     const r = fightOrFlight(sim, u, p);
     if (r.choice === 'fight') {
       if (!u.task || (u.task.k !== 'attack' && u.task.k !== 'hunt') || u.task.u !== enemy.id) {
+        keepErrand(u); // a caravan fends off a wolf, then carries on
         setTask(sim, u, { k: 'attack', u: enemy.id });
         if (civ && sim.rng.chance(0.4)) sim.emote(u, Emote.Angry, 20);
         // a townsman taking on something big shouts for the guards
@@ -612,6 +623,8 @@ function pocket(sim: Sim, t: number, limit: number): number {
 
 function rescue(sim: Sim, u: Unit) {
   sim.stats.rescued++;
+  // whatever it was chasing is evidently out of reach: leave it be for a while
+  if (u.task && (u.task.k === 'hunt' || u.task.k === 'attack')) { u.skipPrey = u.task.u; u.skipT = sim.tick + 600; }
   const w = sim.world;
   u.path = null; u.stuck = 0; u.blocked = 0; u.pathWait = 0; u.idleRun = 0;
   const t = w.tileAt(u.x, u.z);
@@ -803,7 +816,13 @@ export function moveTo(sim: Sim, u: Unit, tx: number, tz: number, arriveDist = 0
       u.anim = Anim.Idle;
       if (u.stuck > 3) {
         // a target with no route to it is crossed off for a while (no circling back to it at once)
-        if (u.task && (u.task.k === 'hunt' || u.task.k === 'attack')) { u.skipPrey = u.task.u; u.skipT = sim.tick + 400; }
+        if (u.task && (u.task.k === 'hunt' || u.task.k === 'attack')) {
+          u.skipPrey = u.task.u; u.skipT = sim.tick + 400;
+          // ...and the hunter roams off for a few seconds rather than at once picking the next prey
+          // behind the same lake (two unreachable prey would otherwise trade places every tick)
+          u.task = null;
+          if (!isCiv(u.sp)) { wanderNear(sim, u, u.x, u.z, 10); u.think = 25; return false; }
+        }
         u.task = null; u.think = 0;
       }
       return false;
@@ -1223,7 +1242,8 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
   const ranged = (u.item === 5 || gun || magic) && d > 1.2; // bow, musket, rifle, spells
   const reach = ranged ? (u.item === 13 ? 9 : u.item === 12 || u.item === 18 ? 7 : 6) : def.range * (0.8 + 0.2 * def.size);
   if (o.y > 1 && !ranged) { u.task = null; u.think = 0; return; }
-  if (d > 16) { u.task = null; u.think = 0; return; }
+  // (a starving hunter searches up to 19 tiles out, so the chase gives up a little beyond that)
+  if (d > (hunting ? 21 : 16)) { u.task = null; u.think = 0; return; }
   if (d > reach) {
     // give up on targets we cannot reach
     if (++u.stuck > 90) { u.task = null; u.think = 0; u.stuck = 0; return; }

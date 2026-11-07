@@ -85,11 +85,14 @@ const clear = (sim: Sim, x: number, z: number, r: number, keep: Unit[]) => { for
   for (const g of guards) { g.job = Job.Guard; g.task = { k: 'idle', t: 300 }; g.think = 300; }
   const victim = folk.find((u) => !guards.includes(u) && u.job !== Job.Warrior)!;
   victim.traits = 0; victim.job = Job.Farmer;
+  // the guards are out on patrol a few steps away (the call reaches 12 tiles)
+  guards.forEach((g, i) => { const a = i * 2.1; const gx = victim.x + Math.cos(a) * 6, gz = victim.z + Math.sin(a) * 6; const t = sim.world.tileAt(gx, gz); if (t >= 0 && sim.world.walkable(t)) { g.x = g.px = gx; g.z = g.pz = gz; } });
   const demon = sim.spawnUnit(Sp.Demon, victim.x + 1.2, victim.z);
   demon.task = { k: 'attack', u: victim.id }; demon.think = 100;
   victim.think = 1;
+  if (process.env.DEBUG) console.log('guards at', guards.map((g) => `${g.id}:${Math.hypot(g.x - victim.x, g.z - victim.z).toFixed(1)} job${g.job} task ${g.task?.k}`).join(' '), 'victim job', victim.job);
   let responders = 0;
-  for (let i = 0; i < 30; i++) { sim.step(); responders = Math.max(responders, sim.units.filter((o) => o.kingdom === v.kingdom && o.task?.k === 'attack' && (o.task as any).u === demon.id && o !== victim).length); }
+  for (let i = 0; i < 30; i++) { sim.step(); if (process.env.DEBUG && i < 4) console.log(i, 'victim', victim.task?.k, 'intent', victim.intent, 'guards', guards.map((g) => `${g.task?.k}${(g.task as any)?.u === demon.id ? '*' : ''}`).join(' ')); responders = Math.max(responders, sim.units.filter((o) => o.kingdom === v.kingdom && o.task?.k === 'attack' && (o.task as any).u === demon.id && o !== victim).length); }
   check('call for help: the town comes to the rescue', responders >= 1, `defenders converging on the demon within 3 s: ${responders} (victim ${victim.flags & UF.Dead ? 'fell' : 'alive'})`);
 }
 // 4. hazards
@@ -101,9 +104,12 @@ const clear = (sim: Sim, x: number, z: number, r: number, keep: Unit[]) => { for
   // light fires right around them
   for (const u of folk) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (dx || dz) { const t = w.tileAt(u.x + dx, u.z + dz); if (t >= 0) ignite(sim, t, 250); }
   for (const u of folk) u.think = 1;
+  const start = folk.map((u) => [u.x, u.z]);
   for (let i = 0; i < 40; i++) sim.step();
-  const inFire = folk.filter((u) => !(u.flags & UF.Dead) && (() => { for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const t = w.tileAt(u.x + dx, u.z + dz); if (t >= 0 && w.fire[t] > 30) return true; } return false; })()).length;
-  check('hazard: villagers walk out of the fire', inFire <= 1, `still next to flames after 4 s: ${inFire}/6`);
+  // the fire spreads through the town meanwhile; what matters is that nobody stays standing in it
+  const inFire = folk.filter((u) => !(u.flags & UF.Dead) && w.fire[w.tileAt(u.x, u.z)] > 30).length;
+  const moved = folk.filter((u, i) => Math.hypot(u.x - start[i][0], u.z - start[i][1]) > 2).length;
+  check('hazard: villagers walk out of the fire', inFire === 0 && moved >= 4, `standing in flames after 4 s: ${inFire}/6, moved more than 2 tiles away: ${moved}/6`);
   // incoming bomb
   const sim2 = make(305, 4);
   const v2 = biggest(sim2);
@@ -150,13 +156,14 @@ const clear = (sim: Sim, x: number, z: number, r: number, keep: Unit[]) => { for
   const ek = createKingdom(sim, Sp.Orc); declareWar(sim, ek, k, true);
   const [x, z] = openLand(sim, v);
   const hurtOne = sim.spawnUnit(v.race, x, z, { kingdom: k.id, age: 20 });
-  const fresh = sim.spawnUnit(v.race, x + 30 > sim.world.W - 5 ? x - 30 : x + 30, z, { kingdom: k.id, age: 20 });
+  const [fx2, fz2] = (() => { for (;;) { const p = openLand(sim, v); if (Math.hypot(p[0] - x, p[1] - z) > 20) return p; } })();
+  const fresh = sim.spawnUnit(v.race, fx2, fz2, { kingdom: k.id, age: 20 });
   for (const s of [hurtOne, fresh]) { s.job = Job.Warrior; s.traits = 0; s.village = -1; }
   hurtOne.hp = hurtOne.maxHp * 0.2;
   const orcsA = [0, 1, 2].map((i) => sim.spawnUnit(Sp.Orc, hurtOne.x + 2 + i * 0.6, z + 1, { kingdom: ek.id, age: 20 }));
-  const orcB = sim.spawnUnit(Sp.Orc, fresh.x + 2, z + 1, { kingdom: ek.id, age: 20 });
+  const orcB = sim.spawnUnit(Sp.Orc, fresh.x + 2, fresh.z + 1, { kingdom: ek.id, age: 20 });
   for (const o of [...orcsA, orcB]) { o.task = { k: 'idle', t: 200 }; o.think = 200; }
-  clear(sim, x, z, 10, [hurtOne, ...orcsA]); clear(sim, fresh.x, z, 10, [fresh, orcB]);
+  clear(sim, x, z, 10, [hurtOne, ...orcsA]); clear(sim, fresh.x, fresh.z, 10, [fresh, orcB]);
   hurtOne.think = 1; fresh.think = 1;
   sim.step(); sim.step();
   check('self-preservation: wounded and outnumbered retreats, healthy holds', hurtOne.task?.k === 'flee' && fresh.task?.k === 'attack', `wounded soldier (20% hp vs 3 orcs) -> ${hurtOne.task?.k}, healthy soldier (vs 1 orc) -> ${fresh.task?.k}`);

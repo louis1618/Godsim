@@ -60,17 +60,25 @@ export const motionOpts = { features: true };
 export function featureCollide(sim: Sim, u: Unit) {
   if (!motionOpts.features) return;
   if (u.flags & (UF.Ragdoll | UF.Held | UF.Beamed | UF.Aboard | UF.Jailed) || u.y > 0.5 || isVehicle(u.sp) || u.sp === Sp.Fish || u.sp === Sp.Dragon || u.sp === Sp.UFO) return;
+  // a worker at (or stepping into) its work stance is left alone: stances are placed against the
+  // thing being worked on, and a neighbouring trunk must never shove a woodcutter off its spot
+  const tk = u.task as { k: string; sx?: number; sz?: number; tile?: number } | null;
+  if (tk && tk.sx !== undefined && tk.sz !== undefined && Math.abs(u.x - tk.sx) + Math.abs(u.z - tk.sz) < 1.2) return;
+  if (tk && (tk.k === 'gather' || tk.k === 'farm' || tk.k === 'build' || tk.k === 'post' || tk.k === 'sleep')) {
+    // working errands only collide while still on the road
+    if (u.anim !== Anim.Walk && u.anim !== Anim.Panic) return;
+  }
   const w = sim.world;
   const x0 = Math.floor(u.x), z0 = Math.floor(u.z);
   const work = u.task && (u.task.k === 'gather' || u.task.k === 'farm') ? u.task.tile : -1;
-  const r = bodyRadius(u.sp) * 0.8;
+  const r = bodyRadius(u.sp) * 0.6;
   for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
     const xx = x0 + dx, zz = z0 + dz;
     if (xx < 0 || zz < 0 || xx >= w.W || zz >= w.H) continue;
     const t = zz * w.W + xx;
     const f = w.feat[t];
     if (f === Feat.None || t === work) continue;
-    const solid = f >= Feat.Oak && f <= Feat.Dead ? 0.09 + 0.05 * Math.min(1, w.featAmt[t] / 200) : f === Feat.Boulder || f === Feat.Ore ? 0.2 + 0.12 * Math.min(1, w.featAmt[t] / 160) : 0;
+    const solid = f >= Feat.Oak && f <= Feat.Dead ? 0.07 + 0.04 * Math.min(1, w.featAmt[t] / 200) : f === Feat.Boulder || f === Feat.Ore ? 0.18 + 0.1 * Math.min(1, w.featAmt[t] / 160) : 0;
     if (!solid) continue;
     const [fx, fz] = featureOffset(xx, zz, f);
     const ddx = u.x - fx, ddz = u.z - fz, d = Math.hypot(ddx, ddz), min = solid + r;

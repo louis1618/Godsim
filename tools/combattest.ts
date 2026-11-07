@@ -13,7 +13,7 @@ import { seedLife } from '../src/sim/seed';
 import { Sp, Bk, YEAR_TICKS } from '../src/sim/defs';
 import { UF, Village, Job } from '../src/sim/entities';
 import { placeBuilding, findSite, declareWar, createKingdom, addResident } from '../src/sim/civ';
-import { spawnVehicle } from '../src/sim/vehicles';
+import { spawnVehicle, enemyOf } from '../src/sim/vehicles';
 import { spawnFlood } from '../src/sim/disasters';
 import { applyPower } from '../src/sim/powers';
 import { fireTiles } from '../src/sim/nature';
@@ -54,10 +54,22 @@ const countShots = (sim: Sim) => { const o = sim.fx.length; return () => sim.fx.
   const { us } = enemyAt(sim, s[0] + 6, s[1] + 2, 6, k.id);
   const hp0 = us.reduce((a, u) => a + u.hp, 0);
   shots = 0;
-  for (let i = 0; i < 200; i++) { sim.fx.length = 0; sim.step(); shots += sim.fx.filter((e) => e.t === 'shell').length; for (const u of us) if (!(u.flags & UF.Dead)) { u.x = s[0] + 6; u.z = s[1] + 2; u.task = null; u.think = 50; } }
+  // (the raiders' kingdom has no town of its own and would fall at its next council: keep the war on)
+  const ek = sim.kingdoms.get(us[0].kingdom)!;
+  // only the six raiders are in range (stray monsters or other foes would draw the fire)
+  const others = () => { for (const o of sim.units) if (!us.includes(o) && Math.hypot(o.x - s[0], o.z - s[1]) < 12 && enemyOf(sim, k.id, o)) { o.flags |= UF.Ragdoll; sim.killUnit(o, 'god'); } };
+  let dealt = 0;
+  for (let i = 0; i < 200; i++) {
+    others(); ek.alive = true;
+    if (!k.wars.includes(ek.id)) k.wars.push(ek.id); if (!ek.wars.includes(k.id)) ek.wars.push(k.id);
+    const before = us.map((u) => (u.flags & UF.Dead ? 0 : u.hp));
+    sim.fx.length = 0; sim.step(); shots += sim.fx.filter((e) => e.t === 'shell').length;
+    us.forEach((u, j) => { dealt += Math.max(0, before[j] - (u.flags & UF.Dead ? 0 : u.hp)); });
+    for (const u of us) if (!(u.flags & UF.Dead)) { u.x = s[0] + 6; u.z = s[1] + 2; u.task = null; u.think = 50; }
+  }
   const hp1 = us.reduce((a, u) => a + Math.max(0, u.flags & UF.Dead ? 0 : u.hp), 0);
   const dead = us.filter((u) => u.flags & UF.Dead).length;
-  check('cannon shells enemies', shots > 0 && hp1 < hp0, `shots ${shots}, enemy hp ${Math.round(hp0)} -> ${Math.round(hp1)}, killed ${dead}/6, cannon aimed ${cannon.aim !== undefined}`);
+  check('cannon shells enemies', shots > 1 && dealt > 0, `shots ${shots}, damage dealt ${Math.round(dealt)} (enemy hp ${Math.round(hp0)} -> ${Math.round(hp1)} after healing), killed ${dead}/6, cannon aimed ${cannon.aim !== undefined}`);
 }
 
 // ---------------- B. warship

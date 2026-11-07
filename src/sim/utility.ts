@@ -168,6 +168,7 @@ export function callForHelp(sim: Sim, u: Unit, enemy: Unit, kind: 'defend' | 'al
       n++;
     } else {
       if (o.sp !== u.sp || o.task?.k === 'hunt' || o.task?.k === 'attack' || o.hunger < 30 || o.lastHit === enemy.id) return;
+      if (o.skipPrey === enemy.id && sim.tick < o.skipT) return; // it already found no way to that one
       setTask(sim, o, { k: 'hunt', u: enemy.id });
       o.intent = Intent.Hunt;
       n++;

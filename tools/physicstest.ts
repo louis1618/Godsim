@@ -30,6 +30,7 @@ function openSpot(): [number, number] {
 {
   const [x, z] = openSpot();
   const u = sim.spawnUnit(Sp.Sheep, x, z); u.task = { k: 'idle', t: 100 }; u.think = 100;
+  for (const o of sim.units) if (o !== u && Math.hypot(o.x - x, o.z - z) < 16) { o.flags |= UF.Ragdoll; sim.killUnit(o, 'god'); } // nothing to spook it
   impulse(u, 0.25, 0);
   const xs: number[] = [];
   for (let i = 0; i < 12; i++) { sim.step(); xs.push(u.x); }

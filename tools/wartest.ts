@@ -14,14 +14,17 @@ import { CameraRig } from '../src/render/cameraRig';
 
 let fails = 0;
 const check = (name: string, ok: boolean, info: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${info}`); if (!ok) fails++; };
-const w = generateWorld({ size: 192, shape: 'pangaea', seed: 909 });
-const sim = new Sim(w, 909); seedLife(sim, { tribes: 6 });
-for (let i = 0; i < YEAR_TICKS * 10; i++) sim.step();
-// two kingdoms whose territories touch
-const kOf = (vid: number) => sim.villages.get(vid)?.kingdom ?? -1;
+// a world where two kingdoms' territories touch (try a few seeds)
+let w = generateWorld({ size: 192, shape: 'pangaea', seed: 909 }), sim = new Sim(w, 909);
 let pair: [number, number] | null = null;
-for (let t = 0; t < w.N - 1 && !pair; t++) { const a = w.owner[t], b = w.owner[t + 1]; if (a >= 0 && b >= 0 && kOf(a) !== kOf(b) && kOf(a) >= 0 && kOf(b) >= 0) pair = [kOf(a), kOf(b)]; }
-if (!pair) { console.log('no touching kingdoms in this world'); process.exit(1); }
+const kOf = (vid: number) => sim.villages.get(vid)?.kingdom ?? -1;
+for (const seed of [909, 910, 911, 912, 913, 914]) {
+  w = generateWorld({ size: 192, shape: 'pangaea', seed }); sim = new Sim(w, seed); seedLife(sim, { tribes: 6 });
+  for (let i = 0; i < YEAR_TICKS * 10; i++) sim.step();
+  for (let t = 0; t < w.N - 1 && !pair; t++) { const a = w.owner[t], b = w.owner[t + 1]; if (a >= 0 && b >= 0 && kOf(a) !== kOf(b) && kOf(a) >= 0 && kOf(b) >= 0) pair = [kOf(a), kOf(b)]; }
+  if (pair) break;
+}
+if (!pair) { console.log('FAIL no touching kingdoms in any test world'); process.exit(1); }
 const ka = sim.kingdoms.get(pair[0])!, kb = sim.kingdoms.get(pair[1])!;
 for (const k of [ka, kb]) for (const o of sim.kingdoms.values()) if (k.wars.includes(o.id)) makePeace(sim, k, o);
 const rig = new CameraRig(16 / 9); rig.setMap(w.W, w.H); rig.V = rig.tV = rig.vFromZoom(0.8); rig.update(0.016);
