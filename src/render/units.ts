@@ -50,6 +50,10 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   if (A == 15.0) { lhA = -1.7 + sin(t * 8.0) * 0.12; rhA = -2.0 + sin(t * 7.0) * 0.18; lhZ = -0.35; rhZ = 0.35; headX = -0.18; bob = abs(sin(t * 4.0)) * 0.02; lean = -0.06; }
   // dead: limp limbs (the topple itself is the instance transform)
   if (A == 16.0) { lhZ = -1.2; rhZ = 1.2; lhA = -0.4; rhA = 0.3; headX = 0.55; legA = 0.25; tailA = 0.0; }
+  // beasts attack with a lunge and a snap of the jaws
+  if (A == 18.0) { float c = fract(t * 1.6); float k = c < 0.3 ? c / 0.3 : 1.0 - (c - 0.3) / 0.7; bob = 0.03 * k; headX = 0.5 - 1.1 * k; legA = -0.6 * k; tailA = sin(t * 14.0) * 0.6; lean = 0.25 * k; }
+  // ranged weapons: both hands up and forward, aiming; a jolt of recoil on each shot
+  if (A == 19.0) { float c = fract(t * 1.2); float k = c < 0.12 ? 1.0 - c / 0.12 : 0.0; lhA = -1.45 + k * 0.25; rhA = -1.55 + k * 0.35; lhZ = -0.25; rhZ = 0.15; headX = -0.05; lean = -0.04 - k * 0.08; legA = 0.18; }
   // mood colours every pose: gloomy creatures hang their heads, cheerful ones bounce
   float md = floor(iMisc.w) / 99.0;
   if (A >= 14.0) md = 0.5;
@@ -57,6 +61,9 @@ void gsAnim(out mat3 R, out vec3 piv, out vec3 off, out float lean) {
   if (md > 0.75 && (A == 0.0 || walk)) { float j = (md - 0.75) / 0.25; bob += abs(sin(t * (walk ? spd : 5.0))) * 0.035 * j; headY += sin(t * 3.0) * 0.15 * j; }
   if (A == 5.0) { lhZ = -0.4; rhZ = 0.4; headY = 0.0; headX = -0.1 + sin(t * 1.2) * 0.04; legA = 0.0; }
   R = mat3(1.0); piv = aPivot; off = vec3(0.0, bob, 0.0);
+  // struck: the whole body flinches back for a moment
+  float hitk = fract(iMisc.w);
+  if (A < 14.0 || A == 18.0 || A == 19.0) { off.z -= hitk * 0.07; lean -= hitk * 0.18; }
   if (part == 4) R = gsRotX(legA);
   else if (part == 5) R = gsRotX(-legA);
   else if (part == 2) R = gsRotZ(lhZ) * gsRotX(lhA);
@@ -159,7 +166,7 @@ export class UnitRenderer {
   private shore: Float32Array | null = null;
   private shoreKey = '';
   /** bodies of the recently dead, shown toppling over (or sinking) before they fade into the ground */
-  private corpses: { sp: number; x: number; z: number; y: number; dir: number; look: number; col: number; item: number; scale: number; t0: number; life: number; drown: boolean; burnt: boolean; side: number; age: number; adult: number; mood: number }[] = [];
+  private corpses: { sp: number; x: number; z: number; y: number; lift: number; dir: number; look: number; col: number; item: number; scale: number; t0: number; life: number; drown: boolean; burnt: boolean; side: number; age: number; adult: number; mood: number }[] = [];
 
   constructor() {
     this.mat = makeCharacterMaterial(false);
@@ -428,6 +435,11 @@ export class UnitRenderer {
       if ((anim === Anim.Walk || anim === Anim.Panic) && u.px === u.x && u.pz === u.z) anim = Anim.Idle;
       if (u.flags & UF.Aboard) anim = Anim.Idle;
       if (u.anim === Anim.Drown) anim = Anim.Drown;
+      if (anim === Anim.Attack) {
+        const ranged = u.item === 5 || u.item === 12 || u.item === 13 || u.item === 19;
+        const beast = !isCiv(u.sp) && !isMonster(u.sp) && u.sp !== Sp.Skeleton && u.sp !== Sp.Troll && !isVehicle(u.sp);
+        if (ranged) anim = 19; else if (beast) anim = 18;
+      }
       const item = u.sp === Sp.Troll ? 8 : u.sp === Sp.Boat ? 20 + u.item : isMonster(u.sp) ? u.item : child || !isCiv(u.sp) ? 0 : u.item;
       const mood = isVehicle(u.sp) ? 60 : (u.mood ?? 60);
       pool.misc.setXYZW(i, anim, (look % 1000) * 0.0137, anim === Anim.Sleep ? 0 : item, Math.round(Math.max(0, Math.min(1, mood / 100)) * 99) + (u.hitT > 0 ? Math.min(0.95, u.hitT / 6) : 0));
@@ -504,7 +516,7 @@ export class UnitRenderer {
       const col = isCiv(u.sp) ? (k ? KINGDOM_COLORS[k.color][0] : 0xcdbb94) : SPECIES_TINT[u.sp] ?? 0xffffff;
       const drown = d.cause === 'drown';
       this.corpses.push({
-        sp: u.sp, x: u.x, z: u.z, y: this.groundY(w, u.x, u.z) + Math.max(0, u.y), dir: this.yawCache.get(u.id) ?? u.dir, look: u.look, col,
+        sp: u.sp, x: u.x, z: u.z, y: this.groundY(w, u.x, u.z), lift: Math.max(0, u.y), dir: this.yawCache.get(u.id) ?? u.dir, look: u.look, col,
         item: isMonster(u.sp) ? u.item : child || !isCiv(u.sp) ? 0 : u.item, scale: sc, t0: time, life: drown ? 3.6 : u.sp === Sp.Fish ? 1.2 : 2.6, drown,
         burnt: d.cause === 'fire' || d.cause === 'lightning', side: (u.id & 1) ? 1 : -1, age: u.age, adult: def.adultAge, mood: u.mood ?? 60,
       });
@@ -534,7 +546,9 @@ export class UnitRenderer {
       if (c.sp >= Sp.Sheep && c.sp !== Sp.Skeleton && c.sp !== Sp.Troll) this.fallAxis.set(Math.sin(c.dir), 0, Math.cos(c.dir)); // beasts roll onto their side
       this.qFall.setFromAxisAngle(this.fallAxis, fall * c.side);
       this.tmpQ.premultiply(this.qFall);
-      let y = c.y;
+      // killed in the air: the body drops to the ground first (gravity), then settles
+      const fallK = Math.min(1, k * c.life / Math.max(0.15, Math.sqrt(2 * c.lift / 9.8)));
+      let y = c.y + c.lift * (1 - fallK * fallK);
       if (c.drown) y -= k * 1.3;
       else y -= THREE.MathUtils.smoothstep(k, 0.7, 1) * 0.5 * c.scale;
       this.tmpP.set(c.x, y, c.z);

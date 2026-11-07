@@ -150,6 +150,15 @@ export class Physics {
           r.body.setLinvel({ x: v.x * 0.92, y: v.y * 0.85 + 0.6, z: v.z * 0.92 }, true);
         }
       }
+      // debris floats: pieces under the surface are buoyed up and slowed down
+      for (const d of this.debris) {
+        const p = d.body.translation();
+        const t = this.terrain.tileAt(p.x, p.z);
+        if (t >= 0 && this.terrain.water[t] > this.terrain.height[t] && p.y < this.terrain.water[t]) {
+          const v = d.body.linvel();
+          d.body.setLinvel({ x: v.x * 0.9, y: v.y * 0.8 + 0.5, z: v.z * 0.9 }, true);
+        }
+      }
       this.world.step();
       if (this.debris.length) this.fxWorld.step();
     }

@@ -282,6 +282,8 @@ export function laser(sim: Sim, u: Unit, tx: number, tz: number, _dmg: number) {
 
 /** A downed saucer crashes in a fireball; its crew climbs out of the wreck. */
 export function onUfoDeath(sim: Sim, u: Unit) {
+  // anyone caught in the beam drops out of it (and falls)
+  for (const o of sim.units) if (o.flags & UF.Beamed && Math.abs(o.x - u.x) < 2 && Math.abs(o.z - u.z) < 2) { o.flags &= ~UF.Beamed; o.vy = 0; if (o.y < 0.01) o.y = 0.01; }
   explode(sim, u.x, u.z, 2.2, 90, { fire: true, fling: true });
   const n = 2 + sim.rng.int(0, 2);
   for (let i = 0; i < n; i++) {

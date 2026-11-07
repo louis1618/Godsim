@@ -2,7 +2,7 @@ import { Rng } from '../core/rng';
 import { PENDING, type Pending } from './pending';
 import { World } from './world';
 import { PathFinder } from './path';
-import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, isVehicle, isMonster, Mat } from './defs';
+import { SPECIES, Sp, YEAR_TICKS, SEASON_TICKS, Trait, BUILDINGS, Bk, isCiv, isVehicle, isMonster, Mat, TICK_DT } from './defs';
 import { enemyOf, cannonTick } from './vehicles';
 import { addWanted } from './jobs';
 import { Unit, Building, Village, Kingdom, HistoryEntry, Job, Anim, Emote, UF, Res } from './entities';
@@ -105,9 +105,9 @@ export class Sim {
     u.lod = 0;
     this.fx.push({ t: 'fling', x: u.x, z: u.z, u: u.id, a: vy });
     if (this.physics) { this.physics.fling(this, u, vx, vy, vz, spin); return; }
-    const nx = u.x + vx * 0.15, nz = u.z + vz * 0.15;
-    const t = this.world.tileAt(nx, nz);
-    if (t >= 0 && this.world.walkable(t)) { u.x = nx; u.z = nz; }
+    // no physics engine (headless): a ballistic arc integrated by the simulation (motion.ts)
+    u.vx = vx * TICK_DT; u.vz = vz * TICK_DT; u.vy = vy * TICK_DT; // like the ragdoll: a throw sets the velocity
+    if (u.y < 0.01) u.y = 0.01;
   }
   usedColors = new Set<number>();
 

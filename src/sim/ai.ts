@@ -10,6 +10,7 @@ import { vehicleTick } from './vehicles';
 import { fishTick, dragonTick, aquatic } from './animals';
 import { eats, grazes, hunts } from './foodchain';
 import { inDrought } from './disasters';
+import { motionTick, featureCollide, impulse } from './motion';
 import { monsterTick, decideMonster, ufoTick, castAt, runHeal, seekWater } from './monsters';
 import { hazardNear, perceive, fightOrFlight, callForHelp, pickNeed, Intent } from './utility';
 
@@ -90,6 +91,8 @@ export function unitTick(sim: Sim, u: Unit) {
     }
     if (u.flags & UF.Dead) return;
   }
+  // momentum (knockbacks, throws) and gravity: a body in the air does nothing else
+  if ((u.vx !== 0 || u.vz !== 0 || u.y > 0 || u.vy !== 0) && motionTick(sim, u)) return;
   if (u.task?.k !== 'swim' && ((u.think -= L) <= 0 || !u.task)) {
     decide(sim, u);
     // nothing chosen (e.g. a settler between plans): rest briefly rather than re-deciding every tick
@@ -100,6 +103,7 @@ export function unitTick(sim: Sim, u: Unit) {
   // separation nudge, so being shuffled aside never shows as walking in place)
   if ((u.anim === Anim.Walk || u.anim === Anim.Panic) && Math.abs(u.x - u.px) + Math.abs(u.z - u.pz) < 1e-4) u.anim = Anim.Idle;
   separate(sim, u);
+  if (u.x !== u.px || u.z !== u.pz) featureCollide(sim, u);
   if (watchdogOpts.enabled && (sim.tick + u.id) % 10 === 0) watchdog(sim, u);
 }
 
@@ -1250,11 +1254,10 @@ function runAttack(sim: Sim, u: Unit, targetId: number, hunting: boolean) {
     sim.schedule(Math.max(2, Math.round(d * 1.2)), { k: 'hit', u: oid, by: u.id, dmg, cause: 'attack' });
   } else {
     sim.fx.push({ t: 'hit', x: o.x, z: o.z, u: o.id, a: u.sp, tx: u.x, tz: u.z });
-    // knockback
-    const kb = 0.12 * def.size;
-    const nx = o.x + ((o.x - u.x) / (d || 1)) * kb, nz = o.z + ((o.z - u.z) / (d || 1)) * kb;
-    const nt = sim.world.tileAt(nx, nz);
-    if (free(sim.world, nt)) { o.x = nx; o.z = nz; } // knockback never shoves anyone into a wall
+    // knockback with momentum: the blow pushes the victim back and it slides to a stop (heavier
+    // attackers hit harder, heavier victims budge less); walls stop the slide
+    const kb = 0.1 * def.size * Math.sqrt(Math.max(0.3, dmg / 12)) / Math.max(0.6, SPECIES[o.sp].size);
+    impulse(o, ((o.x - u.x) / (d || 1)) * kb, ((o.z - u.z) / (d || 1)) * kb);
     hurt(sim, o, dmg, u, 'attack');
   }
   if (o.flags & UF.Dead) {

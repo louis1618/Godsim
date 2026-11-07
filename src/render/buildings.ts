@@ -115,7 +115,10 @@ export class BuildingRenderer {
       const i = counts.get(pool) ?? 0;
       counts.set(pool, i + 1);
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
-      const y = heightCubic(w.height, w.W, w.H, cx, cz);
+      // seat the building on the lowest point of its footprint: on a slope the uphill side sinks
+      // into the ground instead of the downhill side floating in the air
+      let y = heightCubic(w.height, w.W, w.H, cx, cz);
+      for (const [ox, oz] of [[0.05, 0.05], [b.size - 0.05, 0.05], [0.05, b.size - 0.05], [b.size - 0.05, b.size - 0.05]]) y = Math.min(y, heightCubic(w.height, w.W, w.H, b.x + ox, b.z + oz));
       this.q.setFromAxisAngle(this.up, b.kind === Bk.Cannon && b.aim !== undefined ? b.aim : (b.rot * Math.PI) / 2);
       // pop-in when placed
       const age = sim.tick - b.born;

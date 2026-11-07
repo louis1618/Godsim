@@ -385,6 +385,14 @@ export class FxRenderer {
         if (!close) return;
         this.burst(e.x, y + 0.3, e.z, 5, { color: 0xf2f4f6, frame: PF.Smoke, speed: 0.5, up: 1.2, life: 1.2, size: 0.2, size1: 0.6, alpha: 0.7, drag: 1.5 });
         break;
+      case 'land': {
+        if (!close) return;
+        // a body hitting the ground: a ring of dust scaled by the impact
+        const k = Math.min(2, (e.a ?? 4) / 6);
+        this.burst(e.x, y + 0.05, e.z, 4 + Math.round(k * 6), { color: 0xc8b896, frame: PF.Smoke, speed: 0.8 + k, up: 0.25, life: 0.8, size: 0.18, size1: 0.45, drag: 3, alpha: 0.65 });
+        if (k > 1) this.rig.shake = Math.max(this.rig.shake, 0.08 * k);
+        break;
+      }
       case 'gasp':
         if (!close) return;
         // air escaping: bubbles and a little splash where a creature struggles
@@ -719,6 +727,16 @@ export class FxRenderer {
       this.add.spawn(bx, y + 0.1, bz, 0, 1.1, 0, { life: 0.45, size: 0.32, size1: 0.04, color: 0xfff0b0, frame: PF.Flame });
       if (Math.random() < 0.35) this.add.spawn(bx, y + 0.5, bz, (Math.random() - 0.5) * 0.8, 1.6 + Math.random(), (Math.random() - 0.5) * 0.8, { life: 1.6, size: 0.06, color: 0xffb04a, frame: PF.Spark, drag: 0.4, vrot: 3 });
       if (Math.random() < 0.4) this.alpha.spawn(cx, y + 0.8, cz, 0.2, 0.9, 0.1, { life: 3, size: 0.6, size1: 1.8, color: 0x3a3632, frame: PF.Smoke, alpha: 0.6, drag: 0.3 });
+    }
+    // running feet kick up dust (close up only)
+    if (this.rig.z01 < 0.45) for (const u of sim.units) {
+      if ((u.anim !== 4 && !(u.anim === 1 && u.task?.k === 'march')) || Math.random() > dt * 3 || u.y > 0.3) continue;
+      if (!this.near(u.x, u.z, 0.6)) continue;
+      const t = w.tileAt(u.x, u.z);
+      if (t < 0 || w.isWater(t)) continue;
+      const m = w.mat[t];
+      const col = m === 4 || m === 0 ? 0xe6d3a0 : m === 5 ? 0xf2f6fa : m === 6 ? 0xa8a29a : 0xb8a07a;
+      this.alpha.spawn(u.x - Math.sin(u.dir) * 0.15, this.gy(sim, u.x, u.z) + 0.05, u.z - Math.cos(u.dir) * 0.15, (Math.random() - 0.5) * 0.4, 0.3, (Math.random() - 0.5) * 0.4, { life: 0.7, size: 0.12, size1: 0.3, color: col, frame: PF.Smoke, alpha: 0.55, drag: 2 });
     }
     // burning creatures
     for (const u of sim.units) {
