@@ -81,8 +81,9 @@ export function monsterTick(sim: Sim, u: Unit) {
   if (t < 0) return;
   switch (u.sp) {
     case Sp.Demon:
-      // brimstone: the ground catches where a demon walks; water and rain scald it
-      if ((sim.tick + u.id) % 6 === 0 && !w.isWater(t) && sim.rng.chance(0.35)) ignite(sim, t, 120);
+      // brimstone: the ground catches where a demon walks (once a second, every time: a short-lived
+      // demon cut down by the town guard still leaves a burning trail); water and rain scald it
+      if ((sim.tick + u.id) % 10 === 0 && !w.isWater(t)) ignite(sim, t, 120);
       if ((sim.tick + u.id) % 10 === 0) {
         if (w.isWater(t)) hurt(sim, u, 14, undefined, 'drown');
         else if (sim.weather.rain > 0.5) hurt(sim, u, 4, undefined, 'rain');
