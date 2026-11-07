@@ -1,7 +1,8 @@
 import { Sim } from './sim';
 import { Unit, UF, Anim } from './entities';
 import { SPECIES, Sp, Feat, isVehicle } from './defs';
-import { free, featureOffset, bodyRadius } from './nav';
+import { free, bodyRadius } from './nav';
+import { hash2 } from '../core/rng';
 import { hurt } from './ai';
 
 /**
@@ -72,15 +73,22 @@ export function featureCollide(sim: Sim, u: Unit) {
   const x0 = Math.floor(u.x), z0 = Math.floor(u.z);
   const work = u.task && (u.task.k === 'gather' || u.task.k === 'farm') ? u.task.tile : -1;
   const r = bodyRadius(u.sp) * 0.6;
+  // a feature sits within 0.28 of its tile centre (featureOffset), and nothing is wider than a
+  // full ore vein (0.28): a neighbour tile farther than that from the body cannot touch it
+  const reach = 0.28 + r, reach2 = reach * reach;
   for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
     const xx = x0 + dx, zz = z0 + dz;
     if (xx < 0 || zz < 0 || xx >= w.W || zz >= w.H) continue;
+    const gx = dx < 0 ? u.x - xx - 0.78 : dx > 0 ? xx + 0.22 - u.x : 0;
+    const gz = dz < 0 ? u.z - zz - 0.78 : dz > 0 ? zz + 0.22 - u.z : 0;
+    if ((gx > 0 ? gx * gx : 0) + (gz > 0 ? gz * gz : 0) >= reach2) continue;
     const t = zz * w.W + xx;
     const f = w.feat[t];
     if (f === Feat.None || t === work) continue;
     const solid = f >= Feat.Oak && f <= Feat.Dead ? 0.07 + 0.04 * Math.min(1, w.featAmt[t] / 200) : f === Feat.Boulder || f === Feat.Ore ? 0.18 + 0.1 * Math.min(1, w.featAmt[t] / 160) : 0;
     if (!solid) continue;
-    const [fx, fz] = featureOffset(xx, zz, f);
+    // featureOffset inlined (no tuple per feature on this hot path)
+    const fx = xx + 0.5 + (hash2(xx, zz, 23) - 0.5) * 0.56, fz = zz + 0.5 + (hash2(xx, zz, 37) - 0.5) * 0.56;
     const ddx = u.x - fx, ddz = u.z - fz, d = Math.hypot(ddx, ddz), min = solid + r;
     if (d >= min) continue;
     const nx = d > 1e-4 ? ddx / d : 1, nz = d > 1e-4 ? ddz / d : 0;
