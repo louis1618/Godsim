@@ -1,6 +1,7 @@
 import { Sim, blankUnit } from './sim';
 import { World } from './world';
 import { fireTiles } from './nature';
+import { Feat, isTree } from './defs';
 
 const ARRAYS = ['height', 'water', 'mat', 'feat', 'featAmt', 'grass', 'fire', 'owner', 'bld', 'moist', 'wet', 'plague'] as const;
 
@@ -17,10 +18,13 @@ function unb64<T extends ArrayBufferView>(s: string, ctor: { new(b: ArrayBuffer)
   return new ctor(u8.buffer);
 }
 
+/** 2: plants are kept out of water and surf when they grow (older worlds are tidied once on load). */
+export const SAVE_VERSION = 2;
+
 export function serialize(sim: Sim): string {
   const w = sim.world;
   const data = {
-    v: 1, W: w.W, H: w.H, tick: sim.tick, nextId: sim.nextId, rng: sim.rng.state(), laws: sim.laws, stats: sim.stats,
+    v: SAVE_VERSION, W: w.W, H: w.H, tick: sim.tick, nextId: sim.nextId, rng: sim.rng.state(), laws: sim.laws, stats: sim.stats,
     arrays: Object.fromEntries(ARRAYS.map((k) => [k, b64(w[k])])),
     units: sim.units.filter((u) => !(u.flags & (1 << 9))).map((u) => ({ ...u, path: u.path ? Array.from(u.path) : null, flags: u.flags & ~((1 << 7) | (1 << 8)) })),
     navVersion: w.navVersion,
@@ -39,6 +43,15 @@ export function deserialize(json: string): Sim {
   const w = new World(d.W, d.H);
   const ctors: Record<string, any> = { height: Float32Array, water: Float32Array, mat: Uint8Array, feat: Uint8Array, featAmt: Uint8Array, grass: Uint8Array, fire: Uint8Array, owner: Int16Array, bld: Int32Array, moist: Uint8Array, wet: Uint8Array, plague: Uint8Array };
   for (const k of ARRAYS) if (d.arrays[k]) (w as any)[k] = unb64(d.arrays[k], ctors[k]);
+  if ((d.v ?? 1) < 2) {
+    // worlds from before the shoreline rules: plants already standing in water, or with their roots
+    // under the drawn surf, are cleared once (new ones no longer grow there)
+    for (let t = 0; t < w.N; t++) {
+      const f = w.feat[t];
+      if (f === Feat.None || f === Feat.Boulder || f === Feat.Ore) continue;
+      if (w.isWater(t) ? w.bld[t] < 0 : isTree(f) && !w.dryForPlant(t, 0.02)) { w.feat[t] = Feat.None; w.featAmt[t] = 0; }
+    }
+  }
   w.markTerrain(0, 0, w.W - 1, w.H - 1);
   w.ownerDirty = true;
   w.computeIslands();

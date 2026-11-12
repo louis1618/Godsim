@@ -65,6 +65,7 @@ npm run dev
 | `tools/physicstest.ts` | 넉백 관성, 벽 충돌, 중력·낙하 피해, 던지기 포물선, 줄기·바위 겹침 없음 |
 | `tools/wartest.ts` | 전쟁 지도: 원정, 전선, 평화 후 정리 |
 | `tools/tickprof.ts` | 틱 비용 분해와 백분위수(빨리 감기에서 느껴지는 끊김): `npx tsx tools/tickprof.ts [size] [years] [ticks]` |
+| `tools/savecompat.ts` | 이전 버전 세이브 호환: 예전 코드로 만든 세이브를 불러와 몇 년 더 실행(필드 누락·예외·멈춤 없음, 물속 식물 정리, 재저장 후 동일 재생): `npx tsx tools/savecompat.ts <save.json>...` |
 | `tools/soak.ts` | 무인 장시간 실행 + 저장→불러오기 후 결정론 확인: `npx tsx tools/soak.ts <years> <size>` |
 
 ## 그래픽 품질
