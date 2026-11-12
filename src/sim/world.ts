@@ -35,6 +35,7 @@ export class World {
   plague: Uint8Array;     // contamination
   island: Int32Array;     // walkable connected-component id (-1 = not walkable)
   islandSize: number[] = []; // tiles per island id
+  private islandsValid = false; // island[] holds a finished flood fill (it can be checked against the map)
 
   // change tracking for renderers / caches
   dirtyTerrain = new DirtyRect();
@@ -203,6 +204,16 @@ export class World {
   computeIslands() {
     const { W, H, N } = this;
     const isl = this.island;
+    // most edits that mark the map dirty (a levelled building site, a scorched field, a crater on
+    // dry land) leave every tile exactly as walkable as it was: then the components are unchanged
+    // too, and one linear look replaces the flood fill (a few ms on the largest worlds)
+    if (this.islandsValid) {
+      const water = this.water, height = this.height, mat = this.mat;
+      let same = true;
+      for (let t = 0; t < N; t++) if ((isl[t] !== -1) !== (water[t] <= height[t] && mat[t] !== Mat.Lava)) { same = false; break; }
+      if (same) { this.islandsDirty = false; return; }
+    }
+    this.islandsValid = true;
     isl.fill(-1);
     const stack = new Int32Array(N);
     let id = 0;
