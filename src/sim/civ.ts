@@ -845,7 +845,13 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
       if (q >= 0) return { k: 'gather', tile: q, res: Res.Stone, work: 0 };
       break;
     }
-    case Job.Guard: return guardWork(sim, u, v) ?? { k: 'idle', t: 20 };
+    case Job.Guard: {
+      const g = guardWork(sim, u, v);
+      if (g) return g;
+      // nothing to guard just now: walk the rounds rather than stand on one spot for ever
+      if (sim.rng.chance(0.6)) { const a = sim.rng.range(0, Math.PI * 2), d = v.radius * sim.rng.range(0.3, 0.8); return { k: 'wander', tx: v.cx + 0.5 + Math.cos(a) * d, tz: v.cz + 0.5 + Math.sin(a) * d }; }
+      return { k: 'idle', t: 20 };
+    }
     case Job.Trader: { const t = traderWork(sim, u, v); if (t) return t; break; }
     case Job.Scholar: { const t = postWork(sim, u, v, Bk.Library, 120); if (t) return t; break; }
     case Job.Mage: { const h = mageWork(sim, u, v.id); if (h) return h; const t = postWork(sim, u, v, Bk.Library, 80); if (t) return t; break; }

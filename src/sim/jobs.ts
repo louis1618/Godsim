@@ -56,6 +56,7 @@ export function guardWork(sim: Sim, u: Unit, v: Village): Task | null {
   let best: Unit | null = null, bd = 1e9;
   for (const id of v.wanted) {
     const o = sim.getUnit(id)!;
+    if (o === u) continue;                                 // a guard who is himself wanted does not arrest (and escort) himself
     let chasers = 0;
     for (const gid of v.residents) { const g = sim.getUnit(gid); if (g && g !== u && g.task?.k === 'arrest' && g.task.u === id) chasers++; }
     if (chasers >= (o.traits & (Trait.Strong | Trait.Bloodlust) ? 2 : 1)) continue;

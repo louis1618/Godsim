@@ -361,7 +361,12 @@ function decideAnimal(sim: Sim, u: Unit) {
   if (def.undead) {
     // hunt anything living
     let best: Unit | null = null, bd = 1e9;
-    sim.near(u.x, u.z, 14, (o, d2) => { if (!SPECIES[o.sp].undead && d2 < bd) { bd = d2; best = o; } });
+    // (nothing it cannot get its hands on: fliers, fish out in the water, the held and the carried off)
+    sim.near(u.x, u.z, 14, (o, d2) => {
+      if (SPECIES[o.sp].undead || d2 >= bd || o.y > 1 || o.sp === Sp.Fish || o.flags & (UF.Held | UF.Jailed | UF.Aboard | UF.Beamed)) return;
+      if (o.id === u.skipPrey && sim.tick < u.skipT) return;
+      bd = d2; best = o;
+    });
     if (best) { setTask(sim, u, { k: 'attack', u: (best as Unit).id }); return; }
     // trolls also go smashing buildings
     if (u.sp === Sp.Troll) {
@@ -481,7 +486,7 @@ function scanThreat(sim: Sim, u: Unit): { enemy: Unit; dist: number } | null {
   const units = sim.units, head = sim.cellHead, next = sim.cellNext;
   for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) for (let i = head[cz * sim.cw + cx]; i >= 0; i = next[i]) {
     const o = units[i];
-    if (!o || o === u || o.flags & SCAN_SKIP) continue;
+    if (!o || o === u || o.flags & SCAN_SKIP || o.sp === Sp.Fish) continue; // (fish are never a threat: an undead on the shore used to stand slaughtering the shoal for ever)
     const ddx = o.x - u.x, ddz = o.z - u.z, d2 = ddx * ddx + ddz * ddz;
     if (d2 > r2 || d2 >= bd) continue;
     if (!mad && !(o.flags & UF.Mad)) {

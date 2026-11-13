@@ -43,7 +43,7 @@ for (let tick = 0; tick < YEAR_TICKS * years; tick++) {
       a.reported = true; frozen++; frozenIds.add(u.id);
       const key = `${SPECIES_KEY(u.sp)}:${k}`;
       byKind[key] = (byKind[key] ?? 0) + 1;
-      if (examples.length < 14) examples.push(`#${u.id} ${SPECIES_KEY(u.sp)} task=${JSON.stringify(u.task)?.slice(0, 90)} anim=${u.anim} path=${u.path ? u.path.length : '-'} stuck=${u.stuck} blocked=${u.blocked ?? 0} think=${u.think} at ${u.x.toFixed(1)},${u.z.toFixed(1)} tile=${world.tileAt(u.x, u.z)} water=${world.isWater(world.tileAt(u.x, u.z))} walk=${world.walkable(world.tileAt(u.x, u.z))}`);
+      if (examples.length < 14) examples.push(`#${u.id} ${SPECIES_KEY(u.sp)} task=${JSON.stringify(u.task)?.slice(0, 90)} anim=${u.anim} path=${u.path ? u.path.length : '-'} stuck=${u.stuck} blocked=${u.blocked ?? 0} think=${u.think} flags=${u.flags} job=${u.job} age=${u.age.toFixed(0)} village=${u.village} hp=${u.hp.toFixed(0)} hunger=${u.hunger.toFixed(0)} tick=${sim.tick} at ${u.x.toFixed(1)},${u.z.toFixed(1)} tile=${world.tileAt(u.x, u.z)} water=${world.isWater(world.tileAt(u.x, u.z))} walk=${world.walkable(world.tileAt(u.x, u.z))}`);
     }
     const t = world.tileAt(u.x, u.z);
     if (t >= 0 && world.isWater(t) && !aquatic(u.sp)) {
