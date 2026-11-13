@@ -29,6 +29,8 @@ export class Controller {
   private raycaster = new THREE.Raycaster();
   /** asked when a land-making brush reaches the edge of the world; returns the shift applied */
   expandHook: ((x: number, z: number, r: number) => { dx: number; dz: number } | null) | null = null;
+  /** told whenever the player changes the world by hand (so unsaved changes are known even while paused) */
+  onEdit: (() => void) | null = null;
 
   constructor(private game: Game, private el: HTMLElement) {
     const n = 64;
@@ -230,22 +232,22 @@ export class Controller {
       const u = sim.getUnit(this.pickUnit(g));
       if (!u) { audio.ui('deny'); return; }
       if (id === 'follow') { this.follow(u.id); return; }
-      if (applyUnitPower(sim, id, u)) audio.play(id, u.x, u.z); else audio.ui('deny');
+      if (applyUnitPower(sim, id, u)) { this.onEdit?.(); audio.play(id, u.x, u.z); } else audio.ui('deny');
       return;
     }
     if (p.mode === 'pair') {
       const k = kingdomAt(sim, g.x, g.z);
       if (k < 0) { audio.ui('deny'); return; }
       if (store.s.pairFirst < 0) { store.set({ pairFirst: k }); audio.ui('select'); return; }
-      if (applyPairPower(sim, id, store.s.pairFirst, k)) { audio.play(id, g.x, g.z); store.set({ pairFirst: -1 }); }
+      if (applyPairPower(sim, id, store.s.pairFirst, k)) { this.onEdit?.(); audio.play(id, g.x, g.z); store.set({ pairFirst: -1 }); }
       else { audio.ui('deny'); }
       return;
     }
     if (p.mode === 'village') {
       const t = sim.world.tileAt(g.x, g.z);
       const vid = t >= 0 ? sim.world.owner[t] : -1;
-      if (id === 'enlighten') { if (vid >= 0 && enlighten(sim, vid)) audio.event('era', g.x, g.z); else audio.ui('deny'); return; }
-      if (vid >= 0 && incite(sim, vid)) audio.play('rebel', g.x, g.z); else audio.ui('deny');
+      if (id === 'enlighten') { if (vid >= 0 && enlighten(sim, vid)) { this.onEdit?.(); audio.event('era', g.x, g.z); } else audio.ui('deny'); return; }
+      if (vid >= 0 && incite(sim, vid)) { this.onEdit?.(); audio.play('rebel', g.x, g.z); } else audio.ui('deny');
       return;
     }
     if (p.mode === 'brush' || p.mode === 'click') {
@@ -293,6 +295,7 @@ export class Controller {
         ok = applyPower(this.game.sim, p.id, g.x + Math.cos(a) * d, g.z + Math.sin(a) * d, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape }) || ok;
       }
     } else ok = applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape });
+    if (ok) this.onEdit?.();
     audio.play(p.id, g.x, g.z, ok);
     if (p.mode === 'click' && rate <= 1.5) this.btn = -1; // single-shot disasters
   }
@@ -305,6 +308,7 @@ export class Controller {
     if (u && !(u.flags & UF.Dead)) {
       const v = h.vel.clone().clampLength(0, 22);
       this.game.physics.release(this.game.sim, u, h.pos, v);
+      this.onEdit?.();
       audio.play(v.length() > 6 ? 'throw' : 'drop', h.pos.x, h.pos.z);
     }
   }

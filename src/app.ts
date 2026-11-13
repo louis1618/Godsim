@@ -44,6 +44,12 @@ export class AppCtl {
   labels: MapLabels;
   /** true once the current world has been played (it then deserves protection) */
   played = false;
+  /** sim tick of this world's last save or load (-1: never saved); with `edited` this is the dirty state */
+  private savedTick = -1;
+  /** the player changed something since the last save without time passing (paused edits, laws, names) */
+  private edited = false;
+  private savePending: Promise<boolean> | null = null;
+  private skipSave = false;
   private autoAt = 0;
   private autoT = 0;
   private saving = false;
@@ -56,15 +62,16 @@ export class AppCtl {
     this.setQuality(this.quality);
     this.labels = new MapLabels(this.game, uiRoot.parentElement!);
     this.ctl.expandHook = (x, z, r) => this.expandAt(x, z, r);
+    this.ctl.onEdit = () => this.markEdited();
     mountUI(uiRoot, this);
     this.gr.onFrame.push((dt) => this.frame(dt));
     const unlock = () => { audio.start(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
     // never lose a world: save when the tab is hidden, warn before closing
-    document.addEventListener('visibilitychange', () => { if (document.hidden && this.played) this.autosave(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && this.dirty) this.autosave(); });
     window.addEventListener('beforeunload', (e) => {
-      if (store.s.screen !== 'play' || !this.played) return;
+      if (store.s.screen !== 'play' || !this.dirty) return;
       this.autosave();
       e.preventDefault();
       e.returnValue = '';
@@ -83,8 +90,11 @@ export class AppCtl {
     const auto = await autosaveMeta();
     const restored = auto ? await loadSlot('auto') : null;
     if (restored) {
+      // the saved world is the title backdrop: shown exactly as saved, not simulated behind the menu
       this.attach(restored);
       this.played = true;
+      this.markSaved();
+      this.game.paused = true;
       store.set({ continueMeta: auto });
     } else {
       this.makeWorld({ size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, true);
@@ -95,9 +105,19 @@ export class AppCtl {
   }
 
   // ------------------------------------------------------------- protection against losing a world
-  /** Run `fn` after making sure the current world is safe (asks when a played world would be replaced). */
-  guard(kind: 'title' | 'newworld' | 'load', fn: () => void) {
-    if (!this.played) { fn(); return; }
+  /** Unsaved changes exist: the world was played and has moved on (or been edited) since its last save/load. */
+  get dirty(): boolean { return this.played && !!this.game.sim && (this.edited || this.game.sim.tick !== this.savedTick); }
+  /** The player changed the world by hand (powers, laws, names). */
+  markEdited() { if (store.s.screen === 'play') this.edited = true; }
+  private markSaved(tick = this.game.sim.tick) { this.savedTick = tick; this.edited = false; }
+
+  /**
+   * Run `fn` after making sure the current world is safe: asks only when there really are unsaved
+   * changes (a world just loaded, or already saved, is left without a prompt).
+   */
+  async guard(kind: 'title' | 'newworld' | 'load', fn: () => void) {
+    if (this.savePending) await this.savePending; // a save on its way decides whether anything is unsaved
+    if (!this.dirty) { fn(); return; }
     const title = kind === 'load' ? t('confirmLoadTitle') : t('confirmLeaveTitle');
     store.set({
       menu: false,
@@ -105,7 +125,8 @@ export class AppCtl {
         icon: kind === 'newworld' ? 'newworld' : kind === 'load' ? 'saveload' : 'cat-world', title,
         actions: [
           { label: t('saveAndGo'), primary: true, fn: async () => { await this.autosave(); fn(); } },
-          { label: t('justGo'), fn },
+          // leaving without saving: the changes are knowingly dropped (no silent save, no second prompt)
+          { label: t('justGo'), fn: () => { this.skipSave = true; this.markSaved(); try { fn(); } finally { this.skipSave = false; } } },
           { label: t('cancel'), fn: () => {} },
         ],
       },
@@ -114,14 +135,23 @@ export class AppCtl {
   }
 
   /** Quiet background save into the dedicated autosave slot. */
-  async autosave(): Promise<boolean> {
-    if (this.saving || !this.game.sim || !this.played) return false;
+  autosave(): Promise<boolean> {
+    if (this.savePending) return this.savePending;
+    if (!this.game.sim || !this.played || this.skipSave) return Promise.resolve(false);
+    if (!this.dirty) return Promise.resolve(true); // nothing changed since the last save
     this.saving = true;
-    try {
-      const ok = await saveSlot('auto', this.game.sim, this.thumbnail());
-      if (ok) store.set({ continueMeta: await autosaveMeta(), lastAutosave: Date.now() });
-      return ok;
-    } finally { this.saving = false; this.autoT = 0; this.autoAt = performance.now(); }
+    const sim = this.game.sim, tick = sim.tick, edits = this.edited;
+    this.edited = false;
+    const p = (async () => {
+      try {
+        const ok = await saveSlot('auto', sim, this.thumbnail());
+        if (ok) { if (this.game.sim === sim) this.savedTick = tick; store.set({ continueMeta: await autosaveMeta(), lastAutosave: Date.now() }); }
+        else if (edits) this.edited = true;
+        return ok;
+      } finally { this.saving = false; this.savePending = null; this.autoT = 0; this.autoAt = performance.now(); }
+    })();
+    this.savePending = p;
+    return p;
   }
 
   thumbnail(): string {
@@ -142,6 +172,7 @@ export class AppCtl {
     if (!sim) { this.toast('deny', t('loadFailed')); return; }
     this.cancelPreview();
     this.attach(sim);
+    this.markSaved();
     this.genAnim = 0; U.uGenesis.value = 0;
     this.enterPlay();
   }
@@ -179,6 +210,9 @@ export class AppCtl {
     if (o.life > 0) seedLife(sim, { tribes: Math.round((o.life === 2 ? 7 : 4) * Math.max(1, Math.sqrt(area))), animals: true });
     fireTiles.clear();
     this.attach(sim);
+    // a freshly generated world is nobody's yet: nothing to protect until it is played
+    this.played = false; this.savedTick = -1; this.edited = false;
+    this.game.paused = false;
     if (genesis) { this.genAnim = 0; U.uGenesis.value = 0; }
   }
 
@@ -200,7 +234,8 @@ export class AppCtl {
     store.set({ screen: 'title', sel: null, panel: null, menu: false, confirm: null });
     this.ctl.enabled = false;
     this.gr.rig.tOrbit = 1;
-    this.game.speed = 1; this.game.paused = false;
+    // a played world waits behind the menu exactly as it was left (only a throwaway backdrop world lives on)
+    this.game.speed = 1; this.game.paused = this.played;
     audio.ui('close');
   }
 
@@ -208,6 +243,7 @@ export class AppCtl {
     if (store.s.screen === 'play' && this.played) this.autosave();
     store.set({ screen: 'create', panel: null, menu: false, sel: null, confirm: null });
     this.ctl.enabled = false;
+    this.game.paused = this.played;
     this.gr.rig.tOrbit = 1;
     audio.ui('open');
     this.previewWorld(store.s.opts);
@@ -240,7 +276,10 @@ export class AppCtl {
   }
 
   async save(slot: SlotKey): Promise<boolean> {
-    const ok = await saveSlot(slot, this.game.sim, this.thumbnail());
+    const sim = this.game.sim, tick = sim.tick;
+    this.edited = false;
+    const ok = await saveSlot(slot, sim, this.thumbnail());
+    if (ok && this.game.sim === sim) this.savedTick = tick;
     if (ok) { audio.ui('create'); this.toast('saveload', t('saved')); }
     else { audio.ui('deny'); this.toast('deny', t('saveFailed')); }
     return ok;
@@ -251,10 +290,11 @@ export class AppCtl {
     if (!sim) { audio.ui('deny'); this.toast('deny', t('loadFailed')); return; }
     this.cancelPreview();
     this.attach(sim);
+    this.markSaved();
     this.genAnim = 0; U.uGenesis.value = 0;
     store.set({ panel: null, menu: false });
     if (store.s.screen !== 'play') this.enterPlay();
-    else { this.played = true; audio.ui('create'); }
+    else { this.played = true; this.game.paused = false; audio.ui('create'); }
   }
 
   setQuality(q: 'high' | 'low') {
@@ -332,7 +372,7 @@ export class AppCtl {
     this.ctl.update(dt);
     this.labels.update(dt);
     // autosave on the wall clock: slow frames (and their clamped dt) must not stretch the interval
-    if (store.s.screen === 'play' && this.played && !this.game.paused) {
+    if (store.s.screen === 'play' && this.dirty && !this.game.paused) {
       const now = performance.now();
       if (!this.autoAt) this.autoAt = now;
       if (now - this.autoAt > AppCtl.AUTOSAVE_SECONDS * 1000) { this.autoAt = now; this.autosave(); }

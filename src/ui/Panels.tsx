@@ -30,7 +30,7 @@ function Laws({ app }: { app: AppCtl }) {
       {Object.keys(laws).map((k) => (
         <div class="law">
           <span>{t('law-' + k)}</span>
-          <div class={`toggle ${laws[k] ? 'on' : ''}`} onClick={() => { laws[k] = !laws[k]; set((n) => n + 1); app.click(); }} />
+          <div class={`toggle ${laws[k] ? 'on' : ''}`} onClick={() => { laws[k] = !laws[k]; app.markEdited(); set((n) => n + 1); app.click(); }} />
         </div>
       ))}
     </>
