@@ -108,10 +108,17 @@ const countShots = (sim: Sim) => { const o = sim.fx.length; return () => sim.fx.
   const plane = spawnVehicle(sim, Sp.Plane, v.cx - 25, v.cz, foe.id, -1);
   plane.y = 5;
   const hp0 = [...v.buildings].reduce((a, id) => a + (sim.buildings.get(id)?.hp ?? 0), 0);
-  let bombs = 0;
-  for (let i = 0; i < 400; i++) { sim.fx.length = 0; foe.target = v.id; sim.step(); bombs += sim.fx.filter((e) => e.t === 'bombdrop').length; }
+  // (the town repairs and builds meanwhile, so damage is counted as it is dealt)
+  let bombs = 0, dealt = 0;
+  const hps = new Map<number, number>();
+  for (let i = 0; i < 900; i++) {
+    for (const id of v.buildings) { const b = sim.buildings.get(id); if (b) hps.set(id, b.hp); }
+    sim.fx.length = 0; foe.target = v.id; sim.step(); bombs += sim.fx.filter((e) => e.t === 'bombdrop').length;
+    for (const [id, h] of hps) { const b = sim.buildings.get(id); const now = b && b.alive ? b.hp : 0; if (now < h) dealt += h - now; }
+    hps.clear();
+  }
   const hp1 = [...v.buildings].reduce((a, id) => a + (sim.buildings.get(id)?.hp ?? 0), 0);
-  check('bomber bombs an enemy town', bombs > 0 && hp1 < hp0, `bombs ${bombs}, town building hp ${Math.round(hp0)} -> ${Math.round(hp1)}`);
+  check('bomber bombs an enemy town', bombs >= 6 && dealt > 300, `bombs ${bombs}, damage dealt to buildings ${Math.round(dealt)} (town building hp ${Math.round(hp0)} -> ${Math.round(hp1)} with repairs and new construction)`);
   void home;
 }
 

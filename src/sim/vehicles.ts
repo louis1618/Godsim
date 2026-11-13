@@ -2,7 +2,7 @@ import { Sim } from './sim';
 import { PENDING } from './pending';
 import { Unit, Building, Village, Anim, UF } from './entities';
 import { Sp, SPECIES, Bk, TICK_DT, isCiv, isVehicle , isMonster } from './defs';
-import { stepToward, separate } from './nav';
+import { stepToward, separate, nearestFree } from './nav';
 import { completed } from './jobs';
 
 /**
@@ -448,109 +448,464 @@ export function launchFerry(sim: Sim, v: Village, dock: Building, settlers: Unit
   return true;
 }
 
-function tankTick(sim: Sim, u: Unit) {
-  u.anim = Anim.Drive;
-  const kid = u.kingdom;
-  const k = sim.kingdoms.get(kid);
-  if (u.cd <= 0) {
-    const e = findEnemy(sim, u.x, u.z, 8, kid);
-    const b = e ? null : enemyBuilding(sim, u.x, u.z, 8, kid);
-    if (e || b) {
-      const flight = e ? Math.max(3, Math.round(Math.hypot(e.x - u.x, e.z - u.z) * 0.9)) : 0;
-      const tx = e ? e.x + (e.x - e.px) * flight : b!.x + b!.size / 2, tz = e ? e.z + (e.z - e.pz) * flight : b!.z + b!.size / 2;
-      u.dir = Math.atan2(tx - u.x, tz - u.z);
-      fireShell(sim, u.x + Math.sin(u.dir) * 0.6, u.z + Math.cos(u.dir) * 0.6, 0.5, tx, tz, SPECIES[Sp.Tank].dmg, 1.5, kid);
-      u.cd = 22; u.animT = 5;
-      return;
-    }
+// --------------------------------------------------------------------------- tanks & planes: state machine
+
+/**
+ * Tanks and planes run an explicit state machine kept in `u.task` (so it is saved with the world):
+ *
+ *   Idle ── wait ──▶ Acquire ──▶ Move ──▶ Attack ──▶ Acquire …
+ *                      │  └────▶ Patrol ──▶ Idle
+ *                      └──(nothing to do, or hurt)──▶ Return ──▶ Idle (tank) / Landed (plane)
+ *   Move/Patrol/Return ──(no route)──▶ Repath ──(3 failures: target crossed off)──▶ Acquire
+ *   Move/Patrol/Return ──(no progress)──▶ Unstick ──▶ Acquire      (bounded retries, then a long rest)
+ *   plane only: Move ──▶ Attack (bombing run over the target) ──▶ Egress (fly on, straight) ──▶ Acquire
+ *
+ * Every state has one way in (`go`) that stamps its start; nothing waits or retries without a limit.
+ */
+export const enum MS { Idle = 0, Patrol = 1, Acquire = 2, Move = 3, Attack = 4, Evade = 5, Repath = 6, Unstick = 7, Return = 8, Landed = 9, Egress = 10 }
+export const MS_NAME = ['Idle', 'Patrol', 'AcquireTarget', 'MoveToTarget', 'Attack', 'Evade', 'Repath', 'StuckRecovery', 'ReturnToBase', 'Landed', 'Egress'];
+type Mach = Extract<NonNullable<Unit['task']>, { k: 'mach' }>;
+export const machOpts = { /** tools: count state changes and recoveries */ trace: null as ((u: Unit, from: number, to: number, why: string) => void) | null };
+
+function mach(sim: Sim, u: Unit): Mach {
+  const t = u.task;
+  if (t && t.k === 'mach') return t;
+  const m: Mach = { k: 'mach', st: u.sp === Sp.Plane ? (u.y > 0.5 ? MS.Return : MS.Landed) : MS.Idle, t0: sim.tick, tx: u.x, tz: u.z, tu: -1, tb: -1, tv: -1,
+    ax: u.x, az: u.z, at: sim.tick, fails: 0, wait: 10 + (u.id % 20), rec: 0, recT: -1e9, rx: u.x, rz: u.z, bad: -1, badT: 0, wp: 0, gx: -1, gz: -1, last: '' };
+  u.task = m;
+  return m;
+}
+function go(sim: Sim, u: Unit, m: Mach, st: MS, why = '') {
+  machOpts.trace?.(u, m.st, st, why);
+  m.st = st; m.t0 = sim.tick; m.ax = u.x; m.az = u.z; m.at = sim.tick;
+  if (why) m.last = why;
+}
+const clearTarget = (m: Mach) => { m.tu = -1; m.tb = -1; m.tv = -1; };
+
+/** Where a machine goes home to: in front of its factory, else its town, else where it stands. */
+function homeSpot(sim: Sim, u: Unit): [number, number] {
+  const b = sim.buildings.get(u.home);
+  if (b && b.alive && b.kind !== Bk.Ruin) {
+    const fx = [0, 1, 0, -1][b.rot], fz = [1, 0, -1, 0][b.rot];
+    const side = ((u.id % 3) - 1) * 1.3;
+    return [b.x + b.size / 2 + fx * 2.4 - fz * side, b.z + b.size / 2 + fz * 2.4 + fx * side];
   }
-  // roll toward the war target, otherwise guard home
-  let tx: number, tz: number;
-  if (k && k.wars.length && k.target >= 0 && sim.villages.get(k.target)) { const tv = sim.villages.get(k.target)!; tx = tv.cx + 0.5; tz = tv.cz + 0.5; }
-  else if (kid < 0) {
-    // rogue: hunt the nearest settlement
-    let best: Village | null = null, bd = 1e9;
-    for (const v of sim.villages.values()) { if (!v.alive) continue; const d = (v.cx - u.x) ** 2 + (v.cz - u.z) ** 2; if (d < bd) { bd = d; best = v; } }
-    if (!best) return;
-    tx = best.cx + 0.5; tz = best.cz + 0.5;
-  } else {
-    const v = sim.villages.get(u.village);
-    if (!v) return;
-    if (Math.hypot(u.x - v.cx, u.z - v.cz) < v.radius * 0.9 && sim.tick % 80 !== u.id % 80) return;
-    const a = (u.look % 628) / 100 + sim.tick * 0.002;
-    tx = v.cx + 0.5 + Math.cos(a) * v.radius * 0.6; tz = v.cz + 0.5 + Math.sin(a) * v.radius * 0.6;
-  }
-  if (Math.hypot(tx - u.x, tz - u.z) < 3.5) return;
-  driveTo(sim, u, tx, tz);
+  const v = sim.villages.get(u.village);
+  if (v && v.alive) return [v.cx + 0.5 + ((u.id % 5) - 2) * 1.1, v.cz + 0.5 + v.radius * 0.5];
+  return [u.x, u.z];
 }
 
-function driveTo(sim: Sim, u: Unit, tx: number, tz: number) {
+/** The enemy building a machine is working on: still standing, still an enemy's. */
+function targetBuilding(sim: Sim, u: Unit, m: Mach): Building | null {
+  const b = sim.buildings.get(m.tb);
+  if (!b || !b.alive || b.kind === Bk.Ruin) return null;
+  if (u.kingdom < 0) return b;
+  const v = sim.villages.get(b.village);
+  return v && sim.kingdoms.get(u.kingdom)?.wars.includes(v.kingdom) ? b : null;
+}
+/** Any building of any living town near a point (what a rogue machine goes for). */
+function anyBuilding(sim: Sim, x: number, z: number, r: number): Building | null {
+  let best: Building | null = null, bd = r * r;
+  for (const b of sim.buildings.values()) {
+    if (!b.alive || b.kind === Bk.Ruin || b.kind === Bk.Farm || b.village < 0) continue;
+    const d = (b.x + b.size / 2 - x) ** 2 + (b.z + b.size / 2 - z) ** 2;
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+/** The town a machine is sent against: the kingdom's war target (unless crossed off), or for a rogue the nearest town. */
+function targetVillage(sim: Sim, u: Unit, m: Mach, needLand: boolean): Village | null {
   const w = sim.world;
-  if (!u.path || u.pathNav !== sim.navVersion || sim.tick % 60 === u.id % 60) {
-    if (sim.pathCalls > 60) return;
-    sim.pathCalls++;
-    u.path = sim.pf.find(u.x, u.z, w.tileAt(tx, tz), 6000, 3);
-    u.pathI = 0; u.pathNav = sim.navVersion;
-    if (!u.path) {
-      // no road there: push straight on
-      stepToward(w, u, tx, tz, SPECIES[u.sp].speed * TICK_DT, false);
-      return;
+  const here = w.tileAt(u.x, u.z);
+  const reach = (v: Village) => {
+    if (v.id === m.bad && sim.tick < m.badT) return false;
+    if (!needLand) return true;
+    if (w.islandsDirty) w.computeIslands();
+    const a = here >= 0 ? w.island[here] : -1;
+    if (a < 0) return true;
+    // the town counts as reachable if any ground around its centre is on our landmass
+    for (let i = 0; i < 8; i++) { const t = w.tileAt(v.cx + Math.cos(i * 0.785) * (v.radius * 0.6), v.cz + Math.sin(i * 0.785) * (v.radius * 0.6)); if (t >= 0 && w.island[t] === a) return true; }
+    return false;
+  };
+  const k = sim.kingdoms.get(u.kingdom);
+  if (k) {
+    if (!k.wars.length) return null;
+    const tv = sim.villages.get(k.target);
+    if (tv && tv.alive && k.wars.includes(tv.kingdom) && reach(tv)) return tv;
+    // the appointed target is out of reach: the nearest enemy town we can get to
+    let best: Village | null = null, bd = 1e9;
+    for (const ek of k.wars) for (const vid of sim.kingdoms.get(ek)?.villages ?? []) {
+      const v = sim.villages.get(vid);
+      if (!v || !v.alive || !reach(v)) continue;
+      const d = (v.cx - u.x) ** 2 + (v.cz - u.z) ** 2;
+      if (d < bd) { bd = d; best = v; }
     }
+    return best;
+  }
+  let best: Village | null = null, bd = 1e9;
+  for (const v of sim.villages.values()) { if (!v.alive || !reach(v)) continue; const d = (v.cx - u.x) ** 2 + (v.cz - u.z) ** 2; if (d < bd) { bd = d; best = v; } }
+  return best;
+}
+
+// ----- tanks
+
+const TANK_RANGE = 8;
+function tankFire(sim: Sim, u: Unit, tx: number, tz: number) {
+  u.dir = Math.atan2(tx - u.x, tz - u.z);
+  fireShell(sim, u.x + Math.sin(u.dir) * 0.6, u.z + Math.cos(u.dir) * 0.6, 0.5, tx, tz, SPECIES[Sp.Tank].dmg, 1.5, u.kingdom);
+  u.cd = 22; u.animT = 5;
+}
+/** Lead a moving target by the shell's flight time. */
+function leadOf(u: Unit, e: Unit): [number, number] {
+  const flight = Math.max(3, Math.round(Math.hypot(e.x - u.x, e.z - u.z) * 0.9));
+  return [e.x + (e.x - e.px) * flight, e.z + (e.z - e.pz) * flight];
+}
+
+/** Follow a route toward (tx,tz). 1: there, 0: on the way (or waiting for a search slot), 2: no route. */
+function drive(sim: Sim, u: Unit, m: Mach, tx: number, tz: number, arrive: number): 0 | 1 | 2 {
+  const w = sim.world;
+  if (Math.hypot(tx - u.x, tz - u.z) <= arrive) { u.path = null; return 1; }
+  const moved = Math.hypot(tx - m.gx, tz - m.gz) > 3;
+  if (!u.path || u.pathNav !== sim.navVersion || moved) {
+    if (sim.pathCalls > 60) return 0;
+    sim.pathCalls++;
+    let goal = w.tileAt(tx, tz);
+    if (goal < 0) return 2;
+    if (!w.walkable(goal) || w.bld[goal] >= 0) { const nf = nearestFree(w, tx, tz, 6); if (nf) goal = w.tileAt(nf[0], nf[1]); }
+    u.path = sim.pf.find(u.x, u.z, goal, 8000, Math.max(2, Math.floor(arrive)));
+    u.pathI = 0; u.pathNav = sim.navVersion; m.gx = tx; m.gz = tz;
+    if (!u.path) return 2;
   }
   const p = u.path;
-  if (u.pathI >= p.length) { u.path = null; return; }
+  if (u.pathI >= p.length) { u.path = null; return Math.hypot(tx - u.x, tz - u.z) <= arrive + 2.5 ? 1 : 0; }
   const wt = p[u.pathI];
   const wx = (wt % w.W) + 0.5, wz = ((wt / w.W) | 0) + 0.5;
   const sp = SPECIES[u.sp].speed * TICK_DT / Math.sqrt(w.walkCost(Math.max(0, w.tileAt(u.x, u.z))));
-  const moved = stepToward(w, u, wx, wz, sp, false);
+  const step = stepToward(w, u, wx, wz, sp, false);
   if (Math.hypot(wx - u.x, wz - u.z) < 0.3) u.pathI++;
-  if (moved > 1e-5) {
+  if (step > 1e-5) {
     const want = Math.atan2(wx - u.x, wz - u.z);
     let dd = want - u.dir; while (dd > Math.PI) dd -= Math.PI * 2; while (dd < -Math.PI) dd += Math.PI * 2;
     u.dir += dd * 0.3;
-  } else if (++u.stuck > 20) { u.path = null; u.stuck = 0; }
+  }
+  return 0;
 }
 
-const CRUISE = 5;
-function planeTick(sim: Sim, u: Unit) {
-  u.anim = Anim.Soar;
-  const kid = u.kingdom;
-  const k = sim.kingdoms.get(kid);
-  const home = sim.buildings.get(u.home);
-  const v = sim.villages.get(u.village);
-  // altitude: climb out after take-off
-  const ammo = u.carryAmt; // bombs dropped this sortie
-  let tx: number, tz: number;
-  const tv = k && k.wars.length && k.target >= 0 ? sim.villages.get(k.target) : undefined;
-  if (tv && ammo < 6) { tx = tv.cx + 0.5; tz = tv.cz + 0.5; }
-  else if (kid < 0) {
-    let best: Village | null = null, bd = 1e9;
-    for (const vv of sim.villages.values()) { if (!vv.alive) continue; const d = (vv.cx - u.x) ** 2 + (vv.cz - u.z) ** 2; if (d < bd) { bd = d; best = vv; } }
-    if (!best) { tx = u.x + Math.sin(u.dir) * 5; tz = u.z + Math.cos(u.dir) * 5; }
-    else { tx = best.cx + 0.5; tz = best.cz + 0.5; }
-  } else {
-    // patrol circle over home; rearm
-    const cx = home ? home.x + 1.5 : v ? v.cx : u.x, cz = home ? home.z + 1.5 : v ? v.cz : u.z;
-    const a = sim.tick * 0.02 + u.id;
-    tx = cx + Math.cos(a) * 7; tz = cz + Math.sin(a) * 7;
-    if (Math.hypot(u.x - cx, u.z - cz) < 9) u.carryAmt = 0;
+/** A moving state that has not got anywhere for a while is stuck (whatever the reason). */
+function progress(sim: Sim, u: Unit, m: Mach, limit: number): boolean {
+  if (Math.hypot(u.x - m.ax, u.z - m.az) > 0.8) {
+    m.ax = u.x; m.az = u.z; m.at = sim.tick;
+    // a good stretch since the last recovery: the trouble is behind us
+    if (m.rec && Math.hypot(u.x - m.rx, u.z - m.rz) > 5) m.rec = 0;
+    return true;
   }
-  u.y += (CRUISE - u.y) * 0.05;
-  const sp = SPECIES[u.sp].speed * TICK_DT;
+  return sim.tick - m.at <= limit;
+}
+
+/** A machine whose town is gone is taken over by its kingdom's capital. */
+function rehome(sim: Sim, u: Unit) {
+  if (u.kingdom < 0 || sim.villages.get(u.village)?.alive) return;
+  const cap = sim.villages.get(sim.kingdoms.get(u.kingdom)?.capital ?? -1);
+  if (cap && cap.alive) { u.village = cap.id; u.home = -1; }
+}
+
+function tankTick(sim: Sim, u: Unit) {
+  u.anim = Anim.Drive;
+  if ((sim.tick + u.id) % 50 === 0) rehome(sim, u);
+  const m = mach(sim, u);
+  const w = sim.world;
+  const kid = u.kingdom;
+  const scan = (sim.tick + u.id) % 6 === 0;
+  // a gun that bears fires, whatever the tank is doing (never while recovering from being stuck)
+  if (u.cd <= 0 && m.st !== MS.Attack && m.st !== MS.Unstick && scan) {
+    const e = findEnemy(sim, u.x, u.z, TANK_RANGE, kid);
+    if (e) { const [lx, lz] = leadOf(u, e); tankFire(sim, u, lx, lz); }
+  }
+  // badly hurt: break off and go home to be mended
+  if (u.hp < u.maxHp * 0.3 && (m.st === MS.Move || m.st === MS.Attack || m.st === MS.Patrol) && sim.villages.get(u.village)?.alive) { clearTarget(m); go(sim, u, m, MS.Return, 'damaged'); }
+  switch (m.st) {
+    case MS.Idle: {
+      if (u.hp < u.maxHp && sim.tick % 10 === 0) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.01);
+      if (sim.tick - m.t0 >= m.wait || (scan && findEnemy(sim, u.x, u.z, 11, kid))) go(sim, u, m, MS.Acquire);
+      break;
+    }
+    case MS.Acquire: {
+      clearTarget(m); u.path = null;
+      const e = findEnemy(sim, u.x, u.z, 11, kid);
+      if (e) { m.tu = e.id; m.tx = e.x; m.tz = e.z; go(sim, u, m, Math.hypot(e.x - u.x, e.z - u.z) <= TANK_RANGE - 0.5 ? MS.Attack : MS.Move, 'enemy'); break; }
+      const b = kid < 0 ? anyBuilding(sim, u.x, u.z, 9) : enemyBuilding(sim, u.x, u.z, 9, kid);
+      if (b) { m.tb = b.id; m.tx = b.x + b.size / 2; m.tz = b.z + b.size / 2; go(sim, u, m, Math.hypot(m.tx - u.x, m.tz - u.z) <= TANK_RANGE - 0.5 ? MS.Attack : MS.Move, 'building'); break; }
+      const tv = targetVillage(sim, u, m, true);
+      if (tv) { m.tv = tv.id; m.tx = tv.cx + 0.5; m.tz = tv.cz + 0.5; go(sim, u, m, MS.Move, 'town'); break; }
+      // nothing to fight: patrol around home, or go back there first
+      const v = sim.villages.get(u.village);
+      const [hx, hz] = homeSpot(sim, u);
+      if (v && v.alive && Math.hypot(u.x - v.cx, u.z - v.cz) > v.radius + 6) { go(sim, u, m, MS.Return, 'home'); break; }
+      if (w.islandsDirty) w.computeIslands();
+      const here = w.tileAt(u.x, u.z), isl = here >= 0 ? w.island[here] : -1;
+      const cx = v && v.alive ? v.cx + 0.5 : hx, cz = v && v.alive ? v.cz + 0.5 : hz, R = v && v.alive ? v.radius : 8;
+      let found = false;
+      for (let i = 0; i < 8 && !found; i++) {
+        const a = sim.rng.range(0, Math.PI * 2), d = R * sim.rng.range(0.45, 0.95);
+        const px = cx + Math.cos(a) * d, pz = cz + Math.sin(a) * d, t = w.tileAt(px, pz);
+        if (t < 0 || !w.walkable(t) || w.bld[t] >= 0 || (isl >= 0 && w.island[t] !== isl) || Math.hypot(px - u.x, pz - u.z) < 3) continue;
+        m.tx = px; m.tz = pz; found = true;
+      }
+      if (found) go(sim, u, m, MS.Patrol, 'patrol'); else { m.wait = 40; go(sim, u, m, MS.Idle); }
+      break;
+    }
+    case MS.Patrol: {
+      if (scan && (findEnemy(sim, u.x, u.z, 11, kid) || (sim.kingdoms.get(kid)?.wars.length && targetVillage(sim, u, m, true)))) { go(sim, u, m, MS.Acquire, 'alert'); break; }
+      const r = drive(sim, u, m, m.tx, m.tz, 1.2);
+      if (r === 1) { m.wait = 30 + sim.rng.int(0, 50); m.fails = 0; go(sim, u, m, MS.Idle); }
+      else if (r === 2) { m.wait = 20; go(sim, u, m, MS.Idle, 'no route to patrol point'); }
+      else if (!progress(sim, u, m, 45)) unstick(sim, u, m, 'no progress on patrol');
+      break;
+    }
+    case MS.Move: {
+      let arrive = 2;
+      if (m.tu >= 0) {
+        const e = sim.getUnit(m.tu);
+        if (!e || !enemyOf(sim, kid, e)) { go(sim, u, m, MS.Acquire, 'target lost'); break; }
+        m.tx = e.x; m.tz = e.z;
+        if (Math.hypot(e.x - u.x, e.z - u.z) <= TANK_RANGE - 1) { u.path = null; go(sim, u, m, MS.Attack); break; }
+      } else if (m.tb >= 0) {
+        const b = targetBuilding(sim, u, m);
+        if (!b) { go(sim, u, m, MS.Acquire, 'target lost'); break; }
+        if (Math.hypot(m.tx - u.x, m.tz - u.z) <= TANK_RANGE - 1) { u.path = null; go(sim, u, m, MS.Attack); break; }
+      } else {
+        const tv = sim.villages.get(m.tv);
+        const k = sim.kingdoms.get(kid);
+        if (!tv || !tv.alive || (k && !k.wars.includes(tv.kingdom))) { go(sim, u, m, MS.Acquire, 'target lost'); break; }
+        arrive = 3;
+        // close to the town: pick something to shoot at
+        if (scan && Math.hypot(tv.cx - u.x, tv.cz - u.z) < tv.radius + 9) {
+          const e = findEnemy(sim, u.x, u.z, 11, kid);
+          const b = e ? null : kid < 0 ? anyBuilding(sim, u.x, u.z, 10) : enemyBuilding(sim, u.x, u.z, 10, kid);
+          if (e || b) { go(sim, u, m, MS.Acquire, 'in sight'); break; }
+        }
+      }
+      const r = drive(sim, u, m, m.tx, m.tz, arrive);
+      if (r === 1) { m.fails = 0; if (m.tv >= 0 && m.tu < 0 && m.tb < 0) { m.wait = 30; go(sim, u, m, MS.Idle, 'holding the town'); } else go(sim, u, m, MS.Attack); }
+      else if (r === 2) { m.fails++; m.wait = 20 * m.fails; go(sim, u, m, MS.Repath, 'no route'); }
+      else if (!progress(sim, u, m, 45)) unstick(sim, u, m, 'no progress');
+      break;
+    }
+    case MS.Attack: {
+      let ax = 0, az = 0, ok = false;
+      if (m.tu >= 0) { const e = sim.getUnit(m.tu); if (e && enemyOf(sim, kid, e)) { [ax, az] = leadOf(u, e); m.tx = e.x; m.tz = e.z; ok = true; } }
+      else if (m.tb >= 0) { const b = targetBuilding(sim, u, m); if (b) { ax = b.x + b.size / 2; az = b.z + b.size / 2; ok = true; } }
+      if (!ok) { go(sim, u, m, MS.Acquire, 'target down'); break; }
+      const d = Math.hypot(m.tx - u.x, m.tz - u.z);
+      if (d > TANK_RANGE + 1) { go(sim, u, m, MS.Move, 'out of range'); break; }
+      // lay the gun, then fire
+      const want = Math.atan2(ax - u.x, az - u.z);
+      let dd = want - u.dir; while (dd > Math.PI) dd -= Math.PI * 2; while (dd < -Math.PI) dd += Math.PI * 2;
+      u.dir += Math.max(-0.25, Math.min(0.25, dd));
+      if (u.cd <= 0 && Math.abs(dd) < 0.3) tankFire(sim, u, ax, az);
+      // a nearer threat takes over
+      if (scan && m.tb >= 0) { const e = findEnemy(sim, u.x, u.z, TANK_RANGE, kid); if (e) { m.tb = -1; m.tu = e.id; } }
+      break;
+    }
+    case MS.Repath: {
+      if (sim.tick - m.t0 < m.wait) break;
+      if (m.fails >= 3) {
+        // no way there: cross the town off for two minutes and think again
+        if (m.tv >= 0) { m.bad = m.tv; m.badT = sim.tick + 1200; }
+        m.fails = 0; go(sim, u, m, MS.Acquire, 'gave up on an unreachable target');
+      } else go(sim, u, m, MS.Move, 'retry route');
+      break;
+    }
+    case MS.Unstick: {
+      const sp = SPECIES[u.sp].speed * TICK_DT;
+      stepToward(w, u, m.tx, m.tz, sp, false);
+      u.dir = Math.atan2(m.tx - u.x, m.tz - u.z);
+      if (Math.hypot(m.tx - u.x, m.tz - u.z) < 0.4 || sim.tick - m.t0 > 40) go(sim, u, m, MS.Acquire, 'replanning after backing off');
+      break;
+    }
+    case MS.Return: {
+      const [hx, hz] = homeSpot(sim, u);
+      if (scan && u.hp >= u.maxHp * 0.3 && findEnemy(sim, u.x, u.z, 9, kid)) { go(sim, u, m, MS.Acquire, 'alert'); break; }
+      const r = drive(sim, u, m, hx, hz, 2.5);
+      if (r === 1) { m.wait = 60; m.fails = 0; go(sim, u, m, MS.Idle, 'home'); }
+      else if (r === 2) { m.wait = 100; go(sim, u, m, MS.Idle, 'no route home: holding here'); }
+      else if (!progress(sim, u, m, 45)) unstick(sim, u, m, 'no progress going home');
+      break;
+    }
+    default: go(sim, u, m, MS.Acquire);
+  }
+}
+
+/**
+ * Stuck recovery for a tank: drop the route, back off to a clear spot and plan afresh. Repeated
+ * trouble escalates (move to open ground and go home; then a long rest) so it can never loop for ever.
+ */
+function unstick(sim: Sim, u: Unit, m: Mach, why: string) {
+  const w = sim.world;
+  m.rec++; m.recT = sim.tick; m.rx = u.x; m.rz = u.z; u.path = null; u.stuck = 0;
+  if (m.rec >= 6) { m.rec = 0; m.wait = 150; clearTarget(m); go(sim, u, m, MS.Idle, 'stuck too often: resting'); return; }
+  if (m.rec >= 4) {
+    // boxed in: shift to the nearest open ground, then head home
+    const nf = nearestFree(w, u.x + sim.rng.range(-2, 2), u.z + sim.rng.range(-2, 2), 5);
+    if (nf) { u.x = nf[0]; u.z = nf[1]; u.px = u.x; u.pz = u.z; }
+    go(sim, u, m, MS.Return, 'moved to open ground'); return;
+  }
+  // back off to a clear spot a few tiles away and plan afresh from there
+  for (let i = 0; i < 10; i++) {
+    const a = sim.rng.range(0, Math.PI * 2), d = sim.rng.range(2, 4.5);
+    const px = u.x + Math.cos(a) * d, pz = u.z + Math.sin(a) * d, t = w.tileAt(px, pz);
+    if (t >= 0 && w.walkable(t) && w.bld[t] < 0 && lineFree(w, u.x, u.z, px, pz)) { m.tx = px; m.tz = pz; go(sim, u, m, MS.Unstick, why); return; }
+  }
+  m.wait = 30; go(sim, u, m, MS.Idle, 'no room to back off');
+}
+
+function lineFree(w: Sim['world'], ax: number, az: number, bx: number, bz: number): boolean {
+  const n = Math.ceil(Math.hypot(bx - ax, bz - az) * 3);
+  for (let i = 1; i <= n; i++) { const t = w.tileAt(ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n); if (t < 0 || !w.walkable(t) || (w.bld[t] >= 0 && !w.bldPassable(t))) return false; }
+  return true;
+}
+
+// ----- planes
+
+const CRUISE = 5, BOMBS = 6, TURN = 0.09;
+/** Steer toward a point at a limited turn rate and move on; the map edge turns the plane back inside. */
+function fly(sim: Sim, u: Unit, tx: number, tz: number, speedMul = 1, turn = TURN, alt = CRUISE) {
+  const w = sim.world;
+  // near the edge the only heading is back toward the middle of the map
+  const mrg = 3;
+  if (u.x < mrg || u.z < mrg || u.x > w.W - mrg || u.z > w.H - mrg) { tx = w.W / 2; tz = w.H / 2; turn = Math.max(turn, 0.14); }
   const want = Math.atan2(tx - u.x, tz - u.z);
   let dd = want - u.dir; while (dd > Math.PI) dd -= Math.PI * 2; while (dd < -Math.PI) dd += Math.PI * 2;
-  u.dir += Math.max(-0.09, Math.min(0.09, dd));
-  const nx = u.x + Math.sin(u.dir) * sp, nz = u.z + Math.cos(u.dir) * sp;
-  if (sim.world.tileAt(nx, nz) >= 0) { u.x = nx; u.z = nz; } else u.dir += 0.5;
-  // bombing run
-  if (u.cd <= 0 && (tv || kid < 0)) {
-    const e = findEnemy(sim, u.x, u.z, 2.5, kid);
-    const b = e ? null : enemyBuilding(sim, u.x, u.z, 2.5, kid);
-    if (e || b || (kid < 0 && sim.rng.chance(0.05))) {
-      fireShell(sim, u.x, u.z, u.y, u.x + Math.sin(u.dir) * 1.2, u.z + Math.cos(u.dir) * 1.2, SPECIES[Sp.Plane].dmg, 1.8, kid, 'bomb');
-      u.cd = 8; u.carryAmt = ammo + 1;
+  const d = Math.max(-turn, Math.min(turn, dd));
+  u.dir += d;
+  u.spin = d / TURN;                       // bank into the turn (drawn as roll)
+  const sp = SPECIES[u.sp].speed * TICK_DT * speedMul;
+  u.x = Math.max(0.5, Math.min(w.W - 0.5, u.x + Math.sin(u.dir) * sp));
+  u.z = Math.max(0.5, Math.min(w.H - 0.5, u.z + Math.cos(u.dir) * sp));
+  u.y += (alt - u.y) * 0.06;
+  return dd;
+}
+
+function planeTick(sim: Sim, u: Unit) {
+  if ((sim.tick + u.id) % 50 === 0) rehome(sim, u);
+  const m = mach(sim, u);
+  const kid = u.kingdom;
+  const k = sim.kingdoms.get(kid);
+  const scan = (sim.tick + u.id) % 6 === 0;
+  const [hx, hz] = homeSpot(sim, u);
+  const hasHome = !!sim.villages.get(u.village)?.alive;
+  u.anim = m.st === MS.Landed ? Anim.Idle : Anim.Soar;
+  if (m.st !== MS.Landed && m.st !== MS.Return && u.hp < u.maxHp * 0.35 && hasHome) { clearTarget(m); go(sim, u, m, MS.Return, 'damaged'); }
+  switch (m.st) {
+    case MS.Landed: {
+      // parked: mended and rearmed on the ground; up again for a war, a raid on the town, or a patrol flight
+      u.y += (0 - u.y) * 0.25; if (u.y < 0.02) u.y = 0;
+      u.spin = 0;
+      if (sim.tick % 10 === 0 && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.02);
+      if (sim.tick - m.t0 < 50) break;       // turnaround time
+      u.carryAmt = 0;
+      if (!scan) break;
+      const fit = u.hp >= u.maxHp * 0.7;
+      if (!hasHome && kid >= 0) { go(sim, u, m, MS.Acquire, 'base lost'); break; }
+      if (fit && (kid < 0 || targetVillage(sim, u, m, false) || findEnemy(sim, hx, hz, 14, kid, true))) { go(sim, u, m, MS.Acquire, 'scramble'); break; }
+      if (fit && sim.tick - m.t0 > m.wait) { m.wp = 0; go(sim, u, m, MS.Patrol, 'patrol flight'); }
+      break;
     }
+    case MS.Acquire: {
+      clearTarget(m);
+      if (u.carryAmt >= BOMBS) {
+        if (hasHome) go(sim, u, m, MS.Return, 'out of bombs');
+        else { m.wp = 0; go(sim, u, m, MS.Patrol, 'out of bombs: roaming'); } // no base: a long circuit before the next attack
+        break;
+      }
+      const tv = targetVillage(sim, u, m, false);
+      if (tv) {
+        // aim at a building of that town (the nearest one to us), else at its centre
+        let best: Building | null = null, bd = 1e9;
+        for (const id of tv.buildings) { const b = sim.buildings.get(id); if (!b || !b.alive || b.kind === Bk.Farm) continue; const d = (b.x + b.size / 2 - u.x) ** 2 + (b.z + b.size / 2 - u.z) ** 2; if (d < bd) { bd = d; best = b; } }
+        m.tv = tv.id; m.tb = best ? best.id : -1;
+        m.tx = best ? best.x + best.size / 2 : tv.cx + 0.5; m.tz = best ? best.z + best.size / 2 : tv.cz + 0.5;
+        go(sim, u, m, MS.Move, 'target town');
+        break;
+      }
+      const e = findEnemy(sim, u.x, u.z, 16, kid);
+      if (e) { m.tu = e.id; m.tx = e.x; m.tz = e.z; go(sim, u, m, MS.Move, 'enemy'); break; }
+      if (hasHome) go(sim, u, m, MS.Return, 'nothing to attack');
+      else { m.wp = 0; go(sim, u, m, MS.Patrol, 'roaming'); }
+      break;
+    }
+    case MS.Move: {
+      // approach: line up on the target from a distance; too close and badly lined up means flying on first
+      if (m.tu >= 0) { const e = sim.getUnit(m.tu); if (!e || !enemyOf(sim, kid, e)) { go(sim, u, m, MS.Acquire, 'target lost'); break; } m.tx = e.x; m.tz = e.z; }
+      else if (k && !(sim.villages.get(m.tv)?.alive && k.wars.includes(sim.villages.get(m.tv)!.kingdom))) { go(sim, u, m, MS.Acquire, 'target lost'); break; }
+      const d = Math.hypot(m.tx - u.x, m.tz - u.z);
+      const off = fly(sim, u, m.tx, m.tz);
+      if (d < 9 && Math.abs(off) > 0.9) { go(sim, u, m, MS.Egress, 'too close to line up'); break; }
+      if (d < 7 && Math.abs(off) < 0.35) { go(sim, u, m, MS.Attack, 'run in'); break; }
+      if (sim.tick - m.t0 > 400) go(sim, u, m, MS.Egress, 'approach took too long');
+      break;
+    }
+    case MS.Attack: {
+      // bombing run: hold the line over the target, release on top of it, keep going
+      if (m.tu >= 0) { const e = sim.getUnit(m.tu); if (e && enemyOf(sim, kid, e)) { m.tx = e.x; m.tz = e.z; } }
+      const d = Math.hypot(m.tx - u.x, m.tz - u.z);
+      const ahead = Math.sin(u.dir) * (m.tx - u.x) + Math.cos(u.dir) * (m.tz - u.z);
+      fly(sim, u, m.tx, m.tz, 1, d > 3 ? TURN : 0.02, 3.6);
+      if (u.cd <= 0 && u.carryAmt < BOMBS && d < 2.4) {
+        fireShell(sim, u.x, u.z, u.y, m.tx, m.tz, SPECIES[Sp.Plane].dmg, 1.8, kid, 'bomb');
+        u.cd = 5; u.carryAmt++; m.wp++;
+        // walk the stick of bombs on through the town
+        const nb = kid < 0 ? anyBuilding(sim, u.x + Math.sin(u.dir) * 2.5, u.z + Math.cos(u.dir) * 2.5, 2.6) : enemyBuilding(sim, u.x + Math.sin(u.dir) * 2.5, u.z + Math.cos(u.dir) * 2.5, 2.6, kid);
+        if (nb && m.wp < 3) { m.tx = nb.x + nb.size / 2; m.tz = nb.z + nb.size / 2; m.tu = -1; }
+        else { m.wp = 0; go(sim, u, m, MS.Egress, 'bombs away'); }
+        break;
+      }
+      if (ahead < -0.5 || sim.tick - m.t0 > 80) { m.wp = 0; go(sim, u, m, MS.Egress, ahead < -0.5 ? 'overflew' : 'run timed out'); }
+      break;
+    }
+    case MS.Egress: {
+      // fly straight on until there is room to come round again (never a tight circle over the target)
+      fly(sim, u, u.x + Math.sin(u.dir) * 10, u.z + Math.cos(u.dir) * 10);
+      if (Math.hypot(m.tx - u.x, m.tz - u.z) > 12 || sim.tick - m.t0 > 45) go(sim, u, m, MS.Acquire, 'coming round');
+      break;
+    }
+    case MS.Patrol: {
+      // one circuit over the town's land, then home (a rogue or homeless plane roams the map instead)
+      const v = sim.villages.get(u.village);
+      const w = sim.world;
+      if (scan && u.carryAmt < BOMBS && (targetVillage(sim, u, m, false) || findEnemy(sim, u.x, u.z, 12, kid))) { go(sim, u, m, MS.Acquire, 'alert'); break; }
+      let px: number, pz: number;
+      if (v && v.alive) { const a = (u.id % 7) + m.wp * 1.57, R = v.radius + 8; px = v.cx + Math.cos(a) * R; pz = v.cz + Math.sin(a) * R; }
+      else { const a = u.id * 2.4 + m.wp * 2.1; px = w.W / 2 + Math.cos(a) * w.W * 0.33; pz = w.H / 2 + Math.sin(a) * w.H * 0.33; }
+      fly(sim, u, px, pz);
+      if (Math.hypot(px - u.x, pz - u.z) < 5 || sim.tick - m.t0 > 300) { m.wp++; m.t0 = sim.tick; if (m.wp >= 4) { m.wp = 0; if (hasHome) go(sim, u, m, MS.Return, 'patrol done'); else { u.carryAmt = 0; go(sim, u, m, MS.Acquire, 'circuit done'); } } }
+      break;
+    }
+    case MS.Return: {
+      if (!hasHome) { go(sim, u, m, MS.Acquire, 'base lost'); break; }
+      if (scan && u.carryAmt < BOMBS && u.hp >= u.maxHp * 0.35 && sim.tick - m.t0 > 30 && targetVillage(sim, u, m, false) && k?.wars.length && m.last !== 'out of bombs' && m.last !== 'damaged') { go(sim, u, m, MS.Acquire, 'alert'); break; }
+      const d = Math.hypot(hx - u.x, hz - u.z);
+      // final approach: slow, low and able to turn tighter, so the pad is reached rather than orbited
+      const near = d < 9;
+      fly(sim, u, hx, hz, near ? 0.45 : 1, near ? 0.2 : TURN, near ? Math.max(0.3, d * 0.35) : CRUISE);
+      if (d < 0.9 || (near && sim.tick - m.t0 > 500)) {
+        if (d >= 0.9) { m.rec++; m.recT = sim.tick; m.last = 'landing forced after a long approach'; }
+        u.x = hx; u.z = hz; u.spin = 0;
+        m.wait = 500 + (u.id % 5) * 80;
+        go(sim, u, m, MS.Landed, m.last === 'out of bombs' ? 'rearming' : 'landed');
+      }
+      break;
+    }
+    default: go(sim, u, m, MS.Acquire);
   }
+}
+
+/** For the inspector / debug overlay: what a machine is doing and why. */
+export function machineDebug(sim: Sim, u: Unit): { state: string; target: string; dest: string; path: number; sinceMove: number; recoveries: number; last: string; bombs?: number } | null {
+  const m = u.task;
+  if (!m || m.k !== 'mach') return null;
+  const tgt = m.tu >= 0 ? `unit #${m.tu}` : m.tb >= 0 ? `building #${m.tb}` : m.tv >= 0 ? `town ${sim.villages.get(m.tv)?.name ?? m.tv}` : '-';
+  return { state: MS_NAME[m.st] ?? String(m.st), target: tgt, dest: `${m.tx.toFixed(0)},${m.tz.toFixed(0)}`, path: u.path ? u.path.length - u.pathI : 0, sinceMove: sim.tick - m.at, recoveries: m.rec, last: m.last, bombs: u.sp === Sp.Plane ? BOMBS - u.carryAmt : undefined };
 }
 
 // --------------------------------------------------------------------------- cannons

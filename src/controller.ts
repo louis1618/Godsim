@@ -139,6 +139,7 @@ export class Controller {
     if (e.code === 'BracketLeft') { if (e.shiftKey) this.bumpStrength(-25); else this.bumpBrush(-1); return; }
     if (e.code === 'BracketRight') { if (e.shiftKey) this.bumpStrength(25); else this.bumpBrush(1); return; }
     if (e.code === 'Home') { g.gr.rig.resetYaw(); return; }
+    if (e.code === 'F3') { store.set({ dev: !store.s.dev }); e.preventDefault(); return; }
     if (e.code === 'Comma') { this.setSpeed(-1); return; }
     if (e.code === 'Period') { this.setSpeed(1); return; }
     const p = POWERS.find((p) => p.key === e.code);

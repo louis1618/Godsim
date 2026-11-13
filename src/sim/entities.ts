@@ -18,6 +18,13 @@ export type Task =
   | { k: 'deliver' }
   | { k: 'build'; b: number; sx?: number; sz?: number }
   | { k: 'salvage'; b: number; work: number; sx?: number; sz?: number }
+  // tanks and planes: an explicit state machine (see vehicles.ts). tu/tb/tv: target unit, building, village
+  | { k: 'mach'; st: number; t0: number; tx: number; tz: number; tu: number; tb: number; tv: number;
+      ax: number; az: number; at: number;      // last spot real progress was made from, and when
+      fails: number; wait: number;              // path failures in a row; ticks to wait in the current state
+      rec: number; recT: number; rx: number; rz: number; // stuck recoveries since the last good stretch, when, and where
+      bad: number; badT: number;                // a village found unreachable, ignored until badT
+      wp: number; gx: number; gz: number; last: string }
   | { k: 'farm'; b: number; tile: number; work: number }
   | { k: 'attack'; u: number }
   | { k: 'raze'; b: number; sx?: number; sz?: number }

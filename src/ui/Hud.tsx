@@ -9,6 +9,7 @@ import { UF, Job } from '../sim/entities';
 import { Pause, Play, Season, SEASON_BG } from './glyphs';
 import { Badges, BadgeSection, unitBadges } from './badges';
 import type { AppCtl } from '../app';
+import { unitDebug, villageDebug } from '../sim/debug';
 
 export const ACC: Record<string, string> = { world: '#6cc04a', life: '#ff7a8a', civ: '#ffc53d', nature: '#33c2a6', disaster: '#ff6a3a', military: '#7f8fa3', observe: '#8f7cf2', settings: '#9aa7bd' };
 export const ACC_L: Record<string, string> = { world: '#d8f2c4', life: '#ffd8de', civ: '#fff0bf', nature: '#c8f2ea', disaster: '#ffd6c8', military: '#dde3ea', observe: '#e2dcff', settings: '#e3e8f0' };
@@ -282,6 +283,16 @@ function EditName({ value, onSave }: { value: string; onSave: (v: string) => voi
 
 const ACTION_KEY: Record<string, string> = { gather: 'act-gather', build: 'act-build', farm: 'act-farm', attack: 'act-fight', hunt: 'act-hunt', raze: 'act-raze', flee: 'act-flee', eat: 'act-eat', deliver: 'act-deliver', sleep: 'act-sleep', chat: 'act-chat', love: 'act-chat', dance: 'act-dance', steal: 'act-steal', march: 'act-march', rally: 'act-march', settle: 'act-settle', graze: 'act-eat', wander: 'act-wander', move: 'act-wander', idle: 'act-idle', arrest: 'act-arrest', jailed: 'act-jailed', post: 'act-post', trade: 'act-trade', escort: 'act-escort', escorted: 'act-escorted', board: 'act-board', voyage: 'act-voyage', swim: 'act-swim', heal: 'act-heal', abduct: 'act-abduct' };
 
+/** Developer view (F3): raw AI state under a card. */
+function DevRows({ title, rows }: { title: string; rows: [string, string][] }) {
+  return (
+    <div class="dev-rows">
+      <b>{title}</b>
+      {rows.map(([k, v]) => <div><span>{k}</span><code>{v}</code></div>)}
+    </div>
+  );
+}
+
 function UnitCard({ app, id }: { app: AppCtl; id: number }) {
   usePulse(250);
   const s = useStore();
@@ -328,6 +339,7 @@ function UnitCard({ app, id }: { app: AppCtl; id: number }) {
           </>;
         })()}
         <Relations app={app} u={u} />
+        {s.dev && <DevRows title="AI" rows={unitDebug(sim, u)} />}
       </div>
       <div class="actions">
         <button class="gs-btn" onClick={() => app.ctl.follow(u.id)}><img src={s.icons['follow']} style={{ width: '24px', height: '24px' }} />{t('follow')}</button>
@@ -415,6 +427,7 @@ function VillageCard({ app, id }: { app: AppCtl; id: number }) {
         {k && <div class="stat"><span class="lbl">{t('kingdom')}</span><EditName value={k.name} onSave={(n) => { k.name = n; }} /></div>}
         <div class="stat"><span class="lbl">{t('loyalty')}</span><div class={`meter ${v.loyalty < 20 ? 'red' : ''}`}><i style={{ width: `${Math.max(0, Math.min(100, v.loyalty))}%` }} /></div></div>
         {k && k.wars.length > 0 && <div class="pills"><span class="pill bad"><img src={s.icons['war']} class="pi" />{t('atWar')}</span>{k.wars.map((w) => { const e = sim.kingdoms.get(w); return e && <span class="pill" style={{ background: hex(KINGDOM_COLORS[e.color][0]), color: '#fff', textShadow: '0 1px 0 #2a2238' }}>{e.name}</span>; })}</div>}
+        {s.dev && <DevRows title="TOWN" rows={villageDebug(sim, v)} />}
       </div>
       <div class="actions">
         <button class="gs-btn" onClick={() => { app.game.gr.rig.flyTo(v.cx + 0.5, v.cz + 0.5, app.game.gr.rig.vFromZoom(0.25)); app.whoosh(); }}><img src={s.icons['follow']} style={{ width: '24px', height: '24px' }} /></button>
