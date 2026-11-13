@@ -124,6 +124,12 @@ export class BuildingRenderer {
       const age = sim.tick - b.born;
       const sc = age < 6 ? 0.7 + 0.3 * (age / 6) : 1;
       this.s.set(sc, 1, sc);
+      if (b.kind === Bk.Ruin) {
+        // rubble covers the plot of what stood there and dwindles as it is carried off (or weathers away)
+        const sv = b.salvage, left = sv && sv[3] > 0 ? Math.min(1, (sv[0] + sv[1] + sv[2]) / sv[3]) : 1;
+        const k = (b.size / 2) * sc;
+        this.s.set(k * (0.75 + 0.25 * left), 0.3 + 0.7 * left, k * (0.75 + 0.25 * left));
+      }
       this.p.set(cx, y - 0.02, cz);
       this.m.compose(this.p, this.q, this.s);
       pool.mesh.setMatrixAt(i, this.m);

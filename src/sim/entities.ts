@@ -17,6 +17,7 @@ export type Task =
   | { k: 'gather'; tile: number; res: Res; work: number; sx?: number; sz?: number }
   | { k: 'deliver' }
   | { k: 'build'; b: number; sx?: number; sz?: number }
+  | { k: 'salvage'; b: number; work: number; sx?: number; sz?: number }
   | { k: 'farm'; b: number; tile: number; work: number }
   | { k: 'attack'; u: number }
   | { k: 'raze'; b: number; sx?: number; sz?: number }
@@ -124,7 +125,16 @@ export interface Building {
   born: number;
   look: number;
   aim?: number;             // turret yaw (cannons)
+  // ---- ruins (kind === Bk.Ruin): what stood here and what can still be recovered from it
+  was?: Bk;                 // the building this rubble used to be
+  salvage?: number[];       // [wood, stone, gold, total at the moment of collapse]
+  site?: number;            // village that owned it (it may rebuild here once the rubble is cleared)
+  rebuild?: boolean;        // that village means to rebuild
+  workT?: number;           // last tick someone worked on the rubble
 }
+
+/** What a building is going through (derived from its data; shown in the inspector and debug views). */
+export type BuildingState = 'construction' | 'normal' | 'damaged' | 'ruined' | 'salvageable' | 'clearing' | 'rebuildQueued';
 
 export interface Village {
   id: number;
@@ -158,6 +168,10 @@ export interface Village {
   needStone?: boolean;      // a wanted building is waiting on stone
   saveFor?: number;         // building kind the town is saving materials for
   saveT?: number;
+  salvageSite?: number;     // rubble the town's builders are working through (-1: none)
+  repairSite?: number;      // damaged building being repaired (-1: none)
+  /** cleared plots waiting to be built on again (delayed by shortages and by war) */
+  rebuilds?: { x: number; z: number; kind: Bk; rot: number; at: number }[];
 }
 
 export interface Banner { symbol: number; pattern: number; c1: number; c2: number; }

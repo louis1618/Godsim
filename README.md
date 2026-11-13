@@ -67,6 +67,7 @@ npm run dev
 | `tools/wartest.ts` | 전쟁 지도: 원정, 전선, 평화 후 정리 |
 | `tools/tickprof.ts` | 틱 비용 분해와 백분위수(빨리 감기에서 느껴지는 끊김): `npx tsx tools/tickprof.ts [size] [years] [ticks]` |
 | `tools/savecompat.ts` | 이전 버전 세이브 호환: 예전 코드로 만든 세이브를 불러와 몇 년 더 실행(필드 누락·예외·멈춤 없음, 물속 식물 정리, 재저장 후 동일 재생): `npx tsx tools/savecompat.ts <save.json>...` |
+| `tools/ruintest.ts` | 파괴된 건물: 잔해 자원 회수 → 부지 정리 → 같은 자리에 재건, 수리, 자재 부족·전쟁 중 지연, 방치된 잔해의 소멸 |
 | `tools/terraintest.ts` | 지형 도구: 한 번 찍기로 채우기, 강도, 다듬기, 호수·강, 물 빼기, 메우기, Undo/Redo |
 | `tools/browser/*.cjs` | 실제 페이지를 조작하는 검사(개발 서버 필요): 타이틀 저장 모달(`intro_save`), 브러시 스트로크(`brush_stroke`) |
 | `tools/soak.ts` | 무인 장시간 실행 + 저장→불러오기 후 결정론 확인: `npx tsx tools/soak.ts <years> <size>` |

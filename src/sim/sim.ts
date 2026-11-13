@@ -8,7 +8,7 @@ import { addWanted } from './jobs';
 import { Unit, Building, Village, Kingdom, HistoryEntry, Job, Anim, Emote, UF, Res } from './entities';
 import { unitName } from './names';
 import { unitTick } from './ai';
-import { villageThink, kingdomThink, diplomacyThink, onBuildingDestroyed } from './civ';
+import { villageThink, kingdomThink, diplomacyThink, onBuildingDestroyed, ruinDecay } from './civ';
 import { natureTick } from './nature';
 import { disasterTick } from './disasters';
 import { nearestFree, resolveInside } from './nav';
@@ -88,7 +88,7 @@ export class Sim {
   cellHead: Int32Array;
   cellNext: Int32Array = new Int32Array(0);
   readonly cellSize = CELL;
-  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0, abducted: 0 };
+  stats = { births: 0, deaths: 0, wars: 0, kills: 0, jailed: 0, trades: 0, machines: 0, rescued: 0, abducted: 0, salvaged: 0, cleared: 0, rebuilt: 0, repaired: 0 };
   deathCauses: Record<string, number> = {};
   /** recent deaths a sorcerer can raise (simulation state, saved) */
   recentDead: { x: number; z: number; sp: number; tick: number; raised: boolean }[] = [];
@@ -332,8 +332,14 @@ export class Sim {
     if (v) { const i = v.buildings.indexOf(b.id); if (i >= 0) v.buildings.splice(i, 1); }
     this.fx.push({ t: 'collapse', x: b.x + b.size / 2, z: b.z + b.size / 2, a: b.kind, b: b.size });
     onBuildingDestroyed(this, b);
-    if (ruin && b.kind !== Bk.Farm && b.size >= 2 && b.progress > 0.5) {
-      const r: Building = { ...b, id: this.id(), kind: Bk.Ruin, village: -1, alive: true, hp: 1, fire: 0, progress: 1, born: this.tick };
+    if (ruin && b.kind !== Bk.Farm && b.kind !== Bk.Ruin && b.size >= 2 && b.progress > 0.5) {
+      // rubble keeps part of what the building was made of, and remembers whose it was
+      const c = BUILDINGS[b.kind].cost, f = 0.45 * b.progress;
+      const sv = [Math.round(c.wood * f), Math.round(c.stone * f), Math.round(c.gold * f * 0.5), 0];
+      if (sv[0] + sv[1] + sv[2] === 0) sv[0] = 2;
+      sv[3] = sv[0] + sv[1] + sv[2];
+      const r: Building = { ...b, id: this.id(), kind: Bk.Ruin, village: -1, alive: true, hp: 1, fire: 0, progress: 1, born: this.tick,
+        was: b.kind, salvage: sv, site: v && v.alive ? v.id : -1, rebuild: !!v && v.alive && b.kind !== Bk.TownHall, workT: -1 };
       this.buildings.set(r.id, r);
       for (let dz = 0; dz < b.size; dz++) for (let dx = 0; dx < b.size; dx++) w.bld[w.idx(b.x + dx, b.z + dz)] = r.id;
     }
@@ -407,6 +413,7 @@ export class Sim {
     for (const b of this.buildings.values()) {
       if (b.kind === Bk.Cannon) cannonTick(this, b);
       else if (b.kind === Bk.Tower) towerTick(this, b);
+      else if (b.kind === Bk.Ruin && (this.tick + b.id) % 100 === 0) ruinDecay(this, b);
       if (b.fire > 0) {
         b.fire--;
         if (this.tick % 5 === 0) this.damageBuilding(b, b.maxHp * 0.025);

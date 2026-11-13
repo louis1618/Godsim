@@ -442,7 +442,8 @@ export function villageThink(sim: Sim, v: Village) {
   const nA = adults.length;
   const want: Record<number, number> = {};
   want[Job.Warrior] = atWar ? Math.ceil(nA * 0.4) : nA >= 6 ? Math.max(1, Math.floor(nA * 0.1)) : 0;
-  want[Job.Builder] = pending > 0 ? Math.min(pending * 2 + 1, Math.max(1, Math.ceil(nA * 0.3))) : 0;
+  want[Job.Builder] = pending > 0 ? Math.min(pending * 2 + 1, Math.max(1, Math.ceil(nA * 0.3)))
+    : nA >= 5 && ((v.salvageSite ?? -1) >= 0 || (v.repairSite ?? -1) >= 0) ? Math.min(2, Math.max(1, Math.floor(nA / 10))) : 0; // rubble and repairs keep a small crew (a hamlet needs every hand in the fields)
   want[Job.Farmer] = Math.min(farms * 2, Math.ceil(nA * 0.35));
   const woodNeed = v.wood < 25 + v.level * 12;
   want[Job.Woodcutter] = Math.ceil(nA * (woodNeed ? 0.28 : 0.12));
@@ -464,7 +465,8 @@ export function villageThink(sim: Sim, v: Village) {
     if (pick) { assigned[pick.job] = (assigned[pick.job] ?? 1) - 1; pick.job = Job.Mage; assigned[Job.Mage] = (assigned[Job.Mage] ?? 0) + 1; pick.item = jobItem(pick, era); pick.task = null; }
   }
   for (const u of adults) {
-    if (u.flags & UF.King && u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; continue; }
+    // the king holds no trade (he used to be drafted into an open post one think and released the next)
+    if (u.flags & UF.King) { if (u.job !== Job.None) { assigned[u.job]--; u.job = Job.None; } continue; }
     const cur = u.job;
     if (cur !== Job.None && cur !== Job.Gatherer && (assigned[cur] ?? 0) <= (want[cur] ?? 0)) continue;
     for (const j of order) {
@@ -500,6 +502,7 @@ export function villageThink(sim: Sim, v: Village) {
   if (sim.rng.chance(0.34)) shipyardTick(sim, v);
   if (v.crime) v.crime *= 0.985;
 
+  upkeepPlan(sim, v, atWar, era, pop);
   // construction planning: walk the town's wish list; essentials wait for materials, extras are skipped
   if (pending < 1 + Math.floor(pop / 14) && sim.tick >= v.planT) {
     v.needStone = false;
@@ -655,6 +658,96 @@ function killKingdom(sim: Sim, k: Kingdom) {
   sim.log('kingdomFell', { a: k.id, text: k.name });
 }
 
+// ------------------------------------------------------------------ ruins: salvage, clearing, rebuilding
+
+const RUIN_DEFAULT = [3, 2, 0, 5];
+/** Materials still in a ruin (ruins from older saves get a modest default). */
+export function ruinSalvage(b: Building): number[] { return b.salvage ?? (b.salvage = RUIN_DEFAULT.slice()); }
+export const ruinLeft = (b: Building) => { const s = ruinSalvage(b); return s[0] + s[1] + s[2]; };
+
+/** What a building is going through right now. */
+export function buildingState(sim: Sim, b: Building): import('./entities').BuildingState {
+  if (b.kind === Bk.Ruin) {
+    if (sim.tick - (b.workT ?? -1e9) < 60) return 'clearing';
+    if (ruinLeft(b) > 0) return b.rebuild && sim.villages.get(b.site ?? -1)?.alive ? 'rebuildQueued' : 'salvageable';
+    return 'ruined';
+  }
+  if (b.progress < 1) return 'construction';
+  return b.hp < b.maxHp * 0.6 ? 'damaged' : 'normal';
+}
+
+/** The rubble is gone: free the plot, and let the town that owned it queue a rebuild there. */
+export function clearRuin(sim: Sim, b: Building) {
+  const v = sim.villages.get(b.site ?? -1);
+  const { x, z, rot, was } = b;
+  sim.removeBuilding(b, false);
+  if (b.rebuild && v && v.alive && was !== undefined && was !== Bk.Ruin) {
+    (v.rebuilds ??= []).push({ x, z, kind: was, rot, at: sim.tick });
+    if (v.rebuilds.length > 12) v.rebuilds.shift();
+  }
+}
+
+/** Rubble nobody works on weathers away: the materials rot first, then the heap itself is gone. */
+export function ruinDecay(sim: Sim, b: Building) {
+  const age = sim.tick - b.born;
+  if (sim.tick - (b.workT ?? -1e9) < 400) return;      // being worked: leave it to the builders
+  const sv = ruinSalvage(b);
+  if (age > YEAR_TICKS * 2) {
+    // one unit every 100 ticks, wood before stone
+    if (sv[0] > 0) sv[0]--; else if (sv[1] > 0) sv[1]--; else if (sv[2] > 0) sv[2]--;
+  }
+  if (ruinLeft(b) <= 0 || age > YEAR_TICKS * 8) { b.rebuild = false; clearRuin(sim, b); }
+}
+
+/** Town upkeep each think: pick the rubble to work through, the building to repair, and rebuild cleared plots. */
+function upkeepPlan(sim: Sim, v: Village, atWar: boolean, era: number, pop: number) {
+  const w = sim.world;
+  // nearest rubble on or beside the town's land
+  let best = -1, bd = 1e9;
+  for (const b of sim.buildings.values()) {
+    if (b.kind !== Bk.Ruin || !b.alive) continue;
+    const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
+    const d = Math.hypot(cx - v.cx - 0.5, cz - v.cz - 0.5);
+    if (d > v.radius + 4) continue;
+    const o = w.owner[w.idx(Math.floor(cx), Math.floor(cz))];
+    if (o >= 0 && o !== v.id) continue;                  // on a neighbour's land: theirs to clear
+    if (d < bd) { bd = d; best = b.id; }
+  }
+  v.salvageSite = best;
+  // the most damaged finished building
+  let rep = -1, worst = 0.85;
+  for (const id of v.buildings) {
+    const b = sim.buildings.get(id);
+    if (!b || !b.alive || b.progress < 1 || b.kind === Bk.Farm || b.fire > 0) continue;
+    const f = b.hp / b.maxHp;
+    if (f < worst) { worst = f; rep = id; }
+  }
+  v.repairSite = rep;
+  // rebuilding waits while the town is under attack, and for materials
+  const q = v.rebuilds;
+  if (!q || !q.length) return;
+  const underAttack = atWar && sim.tick - v.lastAttacked < 400;
+  for (let i = 0; i < q.length; i++) {
+    const r = q[i];
+    if (sim.tick - r.at > YEAR_TICKS * 6) { q.splice(i--, 1); continue; }   // given up on
+    if (underAttack) continue;
+    // a later age rebuilds in its own way (the plot must still fit the newer building)
+    let kind = r.kind;
+    if (kind === Bk.House && era >= 4 && pop >= BUILDINGS[Bk.Apartment].minPop) kind = Bk.Apartment;
+    const def = BUILDINGS[kind], c = def.cost;
+    if (pop < def.minPop * 0.5) continue;
+    if (v.wood < c.wood || v.stone < c.stone || v.gold < c.gold) { if (c.stone > v.stone) v.needStone = true; continue; }
+    if (!siteOk(sim, r.x, r.z, def.size, v.id, 0, 2.5)) { if (sim.tick - r.at > YEAR_TICKS) q.splice(i--, 1); continue; }
+    v.wood -= c.wood; v.stone -= c.stone; v.gold -= c.gold;
+    const nb = placeBuilding(sim, v, kind, r.x, r.z, v.race, 0.02);
+    nb.rot = r.rot;
+    sim.fx.push({ t: 'rebuild', x: r.x + def.size / 2, z: r.z + def.size / 2, a: kind, b: def.size });
+    sim.stats.rebuilt = (sim.stats.rebuilt ?? 0) + 1;
+    q.splice(i, 1);
+    break;                                               // one new site per think
+  }
+}
+
 export function onBuildingDestroyed(sim: Sim, b: Building) {
   const v = sim.villages.get(b.village);
   if (!v || !v.alive || b.kind !== Bk.TownHall) return;
@@ -722,6 +815,11 @@ export function findWork(sim: Sim, u: Unit, v: Village): Task | null {
         if (d < bd) { bd = d; best = b; }
       }
       if (best) return { k: 'build', b: best.id };
+      // nothing to build: mend what is damaged, then work through the rubble
+      const rep = sim.buildings.get(v.repairSite ?? -1);
+      if (rep && rep.alive && rep.hp < rep.maxHp) return { k: 'build', b: rep.id };
+      const ruin = sim.buildings.get(v.salvageSite ?? -1);
+      if (ruin && ruin.alive && ruin.kind === Bk.Ruin) return { k: 'salvage', b: ruin.id, work: 0 };
       break;
     }
     case Job.Farmer: {

@@ -2,7 +2,7 @@ import { Sim } from './sim';
 import { PENDING } from './pending';
 import { Unit, Task, Job, Anim, Emote, UF, Res, Mem } from './entities';
 import { SPECIES, Sp, Feat, TICK_DT, YEAR_TICKS, isCiv, isVehicle, isMonster, Trait, Bk, BUILDINGS, isWoodTree, Mat } from './defs';
-import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf, loot } from './civ';
+import { tryFoundVillage, joinVillage, deliverTarget, findWork, villageOf, loot, ruinSalvage, ruinLeft, clearRuin } from './civ';
 import { stepToward, nearestFree, standAtBuilding, standAtFeature, featureOffset, resolveInside, free, separate } from './nav';
 import { mindTick, socialise, remember } from './mind';
 import { addWanted, runPost, runArrest, runEscort, runTrade, jailTick, escortedTick, suspectFlee } from './jobs';
@@ -985,7 +985,7 @@ function run(sim: Sim, u: Unit, t: Task) {
     }
     case 'build': {
       const b = sim.buildings.get(t.b);
-      if (!b || !b.alive || b.progress >= 1) { u.task = null; u.think = 0; break; }
+      if (!b || !b.alive || b.kind === Bk.Ruin || (b.progress >= 1 && b.hp >= b.maxHp)) { u.task = null; u.think = 0; break; }
       const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
       // stand right against the footprint (tools touch the wall)
       if (t.sx === undefined || t.sz === undefined) { [t.sx, t.sz] = standAtBuilding(sim, b, u, 3); }
@@ -994,6 +994,14 @@ function run(sim: Sim, u: Unit, t: Task) {
         u.anim = Anim.Work;
         const def = BUILDINGS[b.kind];
         const bs = SPECIES[u.sp].buildSpeed * (u.traits & Trait.Wise ? 1.2 : 1) * workRate(u);
+        if (b.progress >= 1) {
+          // repairs: a finished building that took damage is mended (not while it burns)
+          if (b.fire > 0) { u.task = null; u.think = 0; break; }
+          b.hp = Math.min(b.maxHp, b.hp + (b.maxHp * bs * TICK_DT) / (def.work * 0.6));
+          if (sim.tick % 6 === u.id % 6) sim.fx.push({ t: 'hammer', x: u.x, z: u.z, u: u.id, tx: cx, tz: cz });
+          if (b.hp >= b.maxHp) { sim.stats.repaired = (sim.stats.repaired ?? 0) + 1; u.task = null; u.think = 0; sim.emote(u, Emote.Star, 15); }
+          break;
+        }
         const before = b.progress;
         b.progress = Math.min(1, b.progress + (bs * TICK_DT) / def.work);
         if (before < 0.15 && b.progress >= 0.15) {
@@ -1014,6 +1022,33 @@ function run(sim: Sim, u: Unit, t: Task) {
           }
           u.task = null; u.think = 0;
           sim.emote(u, Emote.Star, 15);
+        }
+      }
+      break;
+    }
+    case 'salvage': {
+      // pull usable timber and stone out of rubble, a load at a time, and carry it home
+      const b = sim.buildings.get(t.b);
+      if (!b || !b.alive || b.kind !== Bk.Ruin) { u.task = null; u.think = 0; break; }
+      const cx = b.x + b.size / 2, cz = b.z + b.size / 2;
+      if (t.sx === undefined || t.sz === undefined) { [t.sx, t.sz] = standAtBuilding(sim, b, u, 3); }
+      if (moveTo(sim, u, t.sx, t.sz!, 0.12)) {
+        face(u, cx, cz);
+        u.anim = Anim.Work;
+        b.workT = sim.tick;
+        t.work += SPECIES[u.sp].buildSpeed * workRate(u);
+        if (sim.tick % 6 === u.id % 6) sim.fx.push({ t: 'hammer', x: u.x, z: u.z, u: u.id, tx: cx, tz: cz });
+        if (t.work >= 16) {
+          const sv = ruinSalvage(b);
+          const i = sv[0] > 0 ? 0 : sv[1] > 0 ? 1 : sv[2] > 0 ? 2 : -1;
+          if (i >= 0) {
+            const n = Math.min(3, sv[i]);
+            sv[i] -= n;
+            u.carry = i === 0 ? Res.Wood : i === 1 ? Res.Stone : Res.Gold; u.carryAmt = n;
+            sim.stats.salvaged = (sim.stats.salvaged ?? 0) + n;
+          }
+          if (ruinLeft(b) <= 0) { clearRuin(sim, b); sim.stats.cleared = (sim.stats.cleared ?? 0) + 1; sim.emote(u, Emote.Star, 15); }
+          if (u.carryAmt > 0) setTask(sim, u, { k: 'deliver' }); else { u.task = null; u.think = 0; }
         }
       }
       break;

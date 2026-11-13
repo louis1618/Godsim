@@ -31,7 +31,8 @@ let fails = 0;
 const check = (name: string, ok: boolean, info: string) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${info}`); if (!ok) fails++; };
 
 // ---------------- A. shortage -> trade
-for (const seedA of [101, 102, 103, 104, 105]) {
+let tradeRan = false;
+for (const seedA of [101, 102, 103, 104, 105, 106, 107, 108]) {
   const sim = world(seedA);
   const vs = alive(sim);
   // two towns of different kingdoms at peace; the rich one has a market
@@ -43,7 +44,8 @@ for (const seedA of [101, 102, 103, 104, 105]) {
     const d = Math.hypot(rich.cx - b.cx, rich.cz - b.cz);
     if (d < best && d < 90) { best = d; poor = b; }
   }
-  if (rich && poor) {
+  // the scenario needs a town big enough to spare a trader (a hamlet of four adults cannot)
+  if (rich && poor && adultsOf(rich) >= 5) {
     const ka = sim.kingdoms.get(rich.kingdom)!, kb = sim.kingdoms.get(poor.kingdom)!;
     if (ka.wars.includes(kb.id)) makePeace(sim, ka, kb);
     ka.era = Math.max(ka.era, 1); ka.opinion[kb.id] = 20; kb.opinion[ka.id] = 20;
@@ -63,9 +65,12 @@ for (const seedA of [101, 102, 103, 104, 105]) {
     const traders = rich.residents.filter((id) => sim.getUnit(id)?.job === Job.Trader).length;
     console.log('   rich town', rich.name, 'pop', rich.residents.length, 'jobs', JSON.stringify(rich.residents.reduce((m: Record<number, number>, id) => { const u = sim.getUnit(id); if (u) m[u.job] = (m[u.job] ?? 0) + 1; return m; }, {})));
     check(`shortage->trade (seed ${seedA})`, (sim.stats.trades ?? 0) - before >= 2 && abMax > 0, `caravans=${(sim.stats.trades ?? 0) - before} traders=${traders} tradeAB peak=${abMax.toFixed(1)} opinion ${ka.opinion[kb.id]?.toFixed(0)} poor town received ~${poorGot.toFixed(0)} goods`);
+    tradeRan = true;
     break;
-  } else console.log(`   seed ${seedA}: no foreign town within reach, next world`);
+  } else console.log(`   seed ${seedA}: no big enough town with a foreign neighbour in reach, next world`);
 }
+
+if (!tradeRan) check('shortage->trade', false, 'no test world had a town of five adults with a foreign neighbour in reach');
 
 // ---------------- B. shortage -> war
 for (const seedB of [202, 203, 204, 205, 206, 207]) {
