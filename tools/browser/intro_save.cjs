@@ -19,8 +19,8 @@ const { chromium } = require('playwright');
   const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${info}`); if (!ok) fails++; };
   const url = process.env.URL || 'http://localhost:5173/?noauto';
   const boot = async () => { await p.goto(url); await p.waitForSelector('.title-menu', { timeout: 240000 }); await p.waitForTimeout(500); };
-  const st = () => p.evaluate(async () => { const { store } = await import('/src/ui/store.ts'); return { screen: store.s.screen, confirm: !!store.s.confirm, tick: game.sim.tick, paused: game.paused, cont: !!store.s.continueMeta }; });
-  const act = (code) => p.evaluate(`(async () => { const { store } = await import('/src/ui/store.ts'); ${code} })()`);
+  const st = () => p.evaluate(async () => { return { screen: store.s.screen, confirm: !!store.s.confirm, tick: game.sim.tick, paused: game.paused, cont: !!store.s.continueMeta }; });
+  const act = (code) => p.evaluate(`(async () => { ${code} })()`);
   const pressConfirm = (i) => act(`const c = store.s.confirm; store.set({ confirm: null }); await c.actions[${i}].fn();`);
 
   // 1. first visit

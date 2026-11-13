@@ -407,3 +407,10 @@
 .popover .ph b { font-size: 16px; }
 .popover .pv { margin-left: auto; font-weight: 800; background: var(--ink); color: #fff; border-radius: 8px; padding: 1px 7px; font-size: 13px; }
 .popover p { margin: 6px 0 0; font-size: 13px; line-height: 1.4; }
+
+.brush-btn .bstr { position: absolute; left: -6px; bottom: -6px; padding: 0 6px; height: 22px; line-height: 18px; border-radius: 11px; background: #5ab4ff; color: #fff; font-family: var(--font-display); font-size: 11px; border: 2px solid #fff; }
+.undo-col { display: flex; flex-direction: column; gap: 6px; margin: 0 2px 6px 0; flex: 0 0 auto; }
+.undo-btn { width: 40px; height: 36px; border-radius: 14px; padding: 0; font-size: 20px; line-height: 1; cursor: pointer; position: relative; color: var(--ink); transition: transform .12s; }
+.undo-btn:hover:not(:disabled) { transform: translateY(-2px); }
+.undo-btn:disabled { opacity: .4; cursor: default; }
+.undo-btn small { position: absolute; right: -5px; top: -6px; min-width: 18px; height: 18px; line-height: 15px; border-radius: 9px; background: var(--ink); color: #fff; font-size: 10px; border: 2px solid #fff; }

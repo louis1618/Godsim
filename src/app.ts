@@ -180,8 +180,12 @@ export class AppCtl {
   /** Grow the world so a brush at (x,z) with radius r fits, keeping the camera where it is. */
   expandAt(x: number, z: number, r: number): { dx: number; dz: number } | null {
     const sim = this.game.sim, w = sim.world, m = 8;
-    const left = x - r < m ? m - (x - r) : 0, top = z - r < m ? m - (z - r) : 0;
-    const right = x + r > w.W - m ? x + r - (w.W - m) : 0, bottom = z + r > w.H - m ? z + r - (w.H - m) : 0;
+    // grow with room to spare on the side being painted: growing rebuilds the whole scene, so a
+    // stroke along the edge must not trigger it at every stamp (a big brush used to do exactly that)
+    const slack = Math.max(32, Math.round(r));
+    const need = (n: number) => (n > 0 ? n + slack : 0);
+    const left = need(x - r < m ? m - (x - r) : 0), top = need(z - r < m ? m - (z - r) : 0);
+    const right = need(x + r > w.W - m ? x + r - (w.W - m) : 0), bottom = need(z + r > w.H - m ? z + r - (w.H - m) : 0);
     const rig = this.gr.rig;
     const keep = { f: rig.focus.clone(), tf: rig.tFocus.clone(), V: rig.V, tV: rig.tV, yaw: rig.yaw, tYaw: rig.tYaw, tilt: rig.tilt, tTilt: rig.tTilt };
     const sh = growWorld(sim, left, top, right, bottom);
@@ -220,6 +224,7 @@ export class AppCtl {
     // work claims are per-world: never let a previous world's reservations block tiles in this one
     clearClaims(); clearFarmClaims();
     this.game.setSim(sim.world, sim);
+    this.ctl?.resetHistory();
     this.labels?.clear();
     this.feed = [];
     this.popHistory = [];

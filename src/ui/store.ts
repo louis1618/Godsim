@@ -27,6 +27,8 @@ export interface UIState {
   brushShape: BrushShape;
   count: number;          // how many to summon / strike per click
   brushModal: boolean;
+  strength: number;       // sculpting strength in percent (25..300)
+  undo: number; redo: number; // strokes that can be undone / redone (for the buttons)
   recent: string[];       // recently used powers (home menu)
 }
 
@@ -39,7 +41,7 @@ function firstVisit(): boolean {
 class Store {
   s: UIState = {
     screen: 'boot', bootProgress: 0, cat: 'home', power: 'none', brush: 3, sel: null, panel: null, pairFirst: -1, icons: {},
-    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null, confirm: null, continueMeta: null, lastAutosave: 0, firstVisit: firstVisit(), brushShape: 'circle', count: 1, brushModal: false, recent: [],
+    opts: { size: 192, shape: 'continents', life: 1, seed: Math.floor(Math.random() * 99999) }, menu: false, hover: null, tick: 0, toast: null, confirm: null, continueMeta: null, lastAutosave: 0, firstVisit: firstVisit(), brushShape: 'circle', count: 1, brushModal: false, strength: 100, undo: 0, redo: 0, recent: [],
   };
   private ls = new Set<L>();
   set(p: Partial<UIState>) { this.s = { ...this.s, ...p }; for (const l of this.ls) l(); }

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Game } from './game';
 import { store } from './ui/store';
-import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, enlighten, kingdomAt, MAX_COUNT, brushDist } from './sim/powers';
+import { POWER_MAP, POWERS, applyPower, applyUnitPower, applyPairPower, incite, enlighten, kingdomAt, MAX_COUNT, brushDist, editHooks } from './sim/powers';
+import { TerrainHistory } from './sim/undo';
 import { heightCubic } from './sim/world';
 import { UF } from './sim/entities';
 import { SPECIES, isCiv } from './sim/defs';
@@ -9,6 +10,8 @@ import { U } from './render/shared';
 import { audio } from './audio/audio';
 
 const EXPANDERS = new Set(['land', 'raise', 'mountain', 'grass', 'sand', 'desert', 'snow', 'swamp', 'lava']);
+/** Tools whose strokes can be undone (they only reshape or repaint the land). */
+const UNDOABLE = new Set(['raise', 'lower', 'flatten', 'smooth', 'ocean', 'land', 'mountain', 'lake', 'drain', 'fill', 'grass', 'sand', 'desert', 'snow', 'swamp', 'forest']);
 const ACCENT: Record<string, number> = { world: 0x6cc04a, life: 0xff7a8a, civ: 0xffc53d, nature: 0x33c2a6, disaster: 0xff6a3a, observe: 0x8f7cf2, settings: 0x9aa7bd };
 
 /** Turns mouse + keyboard into camera motion and god powers. */
@@ -22,6 +25,10 @@ export class Controller {
   private downAt = { x: 0, y: 0, t: 0 };
   private moved = false;
   private applyAcc = 0;
+  /** where the brush last stamped during this stroke (strokes are laid along the cursor's path) */
+  private lastStamp: THREE.Vector3 | null = null;
+  private strokeLevel: number | undefined;
+  readonly history = new TerrainHistory();
   ring: THREE.LineLoop;
   private ringFill: THREE.Mesh;
   private held: { id: number; pos: THREE.Vector3; vel: THREE.Vector3; last: THREE.Vector3 } | null = null;
@@ -79,6 +86,9 @@ export class Controller {
         rig.tYaw -= (e.clientX - lx) * 0.006;
         rig.tTilt = Math.max(-16, Math.min(46, rig.tTilt + (e.clientY - ly) * 0.15));
       } else if (rig.dragStart) rig.drag(this.ndc.x, this.ndc.y, dt);
+      // a brush stroke follows the pointer itself, not the frame rate: every mouse event extends it
+      // (a quick flick on a slow machine used to fall between two frames and paint nothing)
+      if (this.btn === 0 && POWER_MAP.get(store.s.power)?.mode === 'brush') { this.ground = this.pickGround(); this.applyHeld(0); }
     });
     el.addEventListener('pointerup', (e) => {
       if (!this.enabled) return;
@@ -87,6 +97,13 @@ export class Controller {
       if (e.button === 0) {
         if (!this.moved && (!p || p.mode === 'inspect' || p.mode === 'panel')) this.inspectClick();
         if (this.held) this.releaseHeld();
+        // finish the stroke exactly where the pointer was let go (the last stretch is shorter than a stamp step)
+        if (this.btn === 0 && p?.mode === 'brush' && this.lastStamp) {
+          this.updateMouse(e);
+          const g = this.pickGround();
+          if (g && Math.hypot(g.x - this.lastStamp.x, g.z - this.lastStamp.z) > 0.5) applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt: 0, first: true, shape: store.s.brushShape, strength: store.s.strength / 100, level: this.strokeLevel });
+        }
+        this.endStroke();
       }
       this.btn = -1;
     });
@@ -116,8 +133,11 @@ export class Controller {
       g.gr.rig.follow = null;
       return;
     }
-    if (e.code === 'BracketLeft') { this.bumpBrush(-1); return; }
-    if (e.code === 'BracketRight') { this.bumpBrush(1); return; }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { if (e.shiftKey) this.redo(); else this.undo(); e.preventDefault(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { this.redo(); e.preventDefault(); return; }
+    if (e.ctrlKey || e.metaKey) return; // browser shortcuts are not tool keys
+    if (e.code === 'BracketLeft') { if (e.shiftKey) this.bumpStrength(-25); else this.bumpBrush(-1); return; }
+    if (e.code === 'BracketRight') { if (e.shiftKey) this.bumpStrength(25); else this.bumpBrush(1); return; }
     if (e.code === 'Home') { g.gr.rig.resetYaw(); return; }
     if (e.code === 'Comma') { this.setSpeed(-1); return; }
     if (e.code === 'Period') { this.setSpeed(1); return; }
@@ -136,8 +156,29 @@ export class Controller {
   bumpBrush(d: number) {
     const p = POWER_MAP.get(store.s.power);
     if (!p?.size) return;
-    const b = Math.max(p.size[0], Math.min(p.size[2], store.s.brush + d));
+    // big brushes change in bigger steps, so one key press is always a visible change
+    const step = d * Math.max(1, Math.round(store.s.brush / 8));
+    const b = Math.max(p.size[0], Math.min(p.size[2], store.s.brush + step));
     store.set({ brush: b });
+  }
+  bumpStrength(d: number) { store.set({ strength: Math.max(25, Math.min(300, store.s.strength + d)) }); }
+
+  // ------------------------------------------------------------- undo / redo of land edits
+  private syncHistory() { store.set({ undo: this.history.depth, redo: this.history.canRedo ? 1 : 0 }); }
+  undo() { if (this.history.undo(this.game.sim)) { this.onEdit?.(); audio.ui('whoosh'); } else audio.ui('deny'); this.syncHistory(); }
+  redo() { if (this.history.redo(this.game.sim)) { this.onEdit?.(); audio.ui('whoosh'); } else audio.ui('deny'); this.syncHistory(); }
+  /** The world was replaced or resized: old strokes no longer fit it. */
+  resetHistory() { this.history.clear(); editHooks.touch = null; this.lastStamp = null; this.syncHistory(); }
+  private beginStroke(id: string) {
+    this.lastStamp = null; this.strokeLevel = undefined;
+    if (!UNDOABLE.has(id)) { editHooks.touch = null; return; }
+    const w = this.game.sim.world;
+    this.history.begin(w);
+    editHooks.touch = (x0, z0, x1, z1) => this.history.touch(w, x0, z0, x1, z1);
+  }
+  private endStroke() {
+    if (editHooks.touch) { editHooks.touch = null; this.history.end(); this.syncHistory(); }
+    this.lastStamp = null;
   }
 
   /** Pressing the selected power again puts the cursor back to free movement. */
@@ -251,6 +292,10 @@ export class Controller {
       return;
     }
     if (p.mode === 'brush' || p.mode === 'click') {
+      this.beginStroke(id);
+      this.ground = g;
+      const t = sim.world.tileAt(g.x, g.z);
+      this.strokeLevel = t >= 0 ? sim.world.height[t] : undefined;
       this.applyAcc = 1;
       this.applyHeld(0);
     }
@@ -273,8 +318,6 @@ export class Controller {
     if (p.mode !== 'brush' && p.mode !== 'click') return;
     const rate = p.rate ?? 1;
     this.applyAcc += dt * rate;
-    if (this.applyAcc < 1) return;
-    this.applyAcc = Math.min(this.applyAcc - 1, 1);
     let g = this.ground;
     if (!g) return;
     // painting land past the edge grows the world (infinite canvas)
@@ -282,9 +325,35 @@ export class Controller {
       const w = this.game.sim.world, r = store.s.brush + 2;
       if (g.x - r < 4 || g.z - r < 4 || g.x + r > w.W - 4 || g.z + r > w.H - 4) {
         const sh = this.expandHook(g.x, g.z, r);
-        if (sh) { g = g.clone(); g.x += sh.dx; g.z += sh.dz; this.ground = g; }
+        if (sh) { g = g.clone(); g.x += sh.dx; g.z += sh.dz; this.ground = g; this.resetHistory(); }
       }
     }
+    if (p.mode === 'brush') {
+      // A stroke is laid along the path the cursor took since the last frame, one stamp every
+      // third of the brush: however fast the mouse moves, the line is unbroken. A cursor held
+      // still keeps working at the tool's own rate.
+      const ctx = { brush: store.s.brush, dt, first: true, shape: store.s.brushShape, strength: store.s.strength / 100, level: this.strokeLevel };
+      const spacing = Math.max(0.6, store.s.brush * 0.33);
+      const last = this.lastStamp;
+      let ok = false, stamped = false;
+      if (!last) { ok = applyPower(this.game.sim, p.id, g.x, g.z, ctx); this.lastStamp = g.clone(); stamped = true; }
+      else {
+        const dx = g.x - last.x, dz = g.z - last.z, d = Math.hypot(dx, dz);
+        if (d >= spacing) {
+          const n = Math.min(48, Math.floor(d / spacing));
+          for (let i = 1; i <= n; i++) ok = applyPower(this.game.sim, p.id, last.x + (dx / d) * spacing * i, last.z + (dz / d) * spacing * i, ctx) || ok;
+          last.set(last.x + (dx / d) * spacing * n, g.y, last.z + (dz / d) * spacing * n);
+          stamped = true; this.applyAcc = 0;
+        } else if (this.applyAcc >= 1) { ok = applyPower(this.game.sim, p.id, g.x, g.z, ctx); stamped = true; }
+      }
+      if (!stamped) return;
+      this.applyAcc = Math.min(Math.max(0, this.applyAcc - 1), 1);
+      if (ok) this.onEdit?.();
+      audio.play(p.id, g.x, g.z, ok);
+      return;
+    }
+    if (this.applyAcc < 1) return;
+    this.applyAcc = Math.min(this.applyAcc - 1, 1);
     let ok = false;
     if (p.mode === 'click') {
       // summon / strike `count` times scattered over the radius
@@ -294,7 +363,7 @@ export class Controller {
         const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * R;
         ok = applyPower(this.game.sim, p.id, g.x + Math.cos(a) * d, g.z + Math.sin(a) * d, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape }) || ok;
       }
-    } else ok = applyPower(this.game.sim, p.id, g.x, g.z, { brush: store.s.brush, dt, first: true, shape: store.s.brushShape });
+    }
     if (ok) this.onEdit?.();
     audio.play(p.id, g.x, g.z, ok);
     if (p.mode === 'click' && rate <= 1.5) this.btn = -1; // single-shot disasters

@@ -23,6 +23,9 @@ const S: Record<string, Entry> = {
   follow: ['따라가기', 'Follow', '주민을 따라 3D로', 'Ride along in 3D'], stats: ['세계 통계', 'World Stats'], history: ['연대기', 'Chronicle'], kingdoms: ['왕국', 'Kingdoms'],
   // world
   raise: ['융기', 'Raise'], lower: ['침강', 'Lower'], flatten: ['평탄화', 'Flatten'], ocean: ['바다', 'Ocean'], land: ['땅', 'Land'], mountain: ['산맥', 'Mountain'],
+  smooth: ['다듬기', 'Smooth', '울퉁불퉁한 땅을 고르게', 'Even out rough ground'], lake: ['호수·강', 'Lake / River', '땅을 파고 물을 채움 · 끌면 강', 'Dig and fill with water · drag for a river'],
+  drain: ['물 빼기', 'Drain', '호수·강·고인 물 제거', 'Remove lakes, rivers and standing water'], fill: ['메우기', 'Fill', '커서 아래 물을 한 번에 땅으로', 'Turn the water under the cursor into land'],
+  strength: ['강도', 'Strength'], undo: ['되돌리기', 'Undo'], redo: ['다시 실행', 'Redo'],
   grass: ['초원', 'Grassland'], sand: ['모래', 'Sand'], desert: ['사막', 'Desert'], snow: ['설원', 'Snow'], swamp: ['늪', 'Swamp'], lava: ['용암', 'Lava'],
   // life
   human: ['인간', 'Humans'], elf: ['엘프', 'Elves'], dwarf: ['드워프', 'Dwarves'], orc: ['오크', 'Orcs'], sheep: ['양', 'Sheep'], chicken: ['닭', 'Chicken'],

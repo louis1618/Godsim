@@ -128,6 +128,7 @@ function Dock({ app }: { app: AppCtl }) {
         ))}
       </div>
       <div class="dock-row">
+        <UndoButtons app={app} />
         <BrushButton app={app} />
         <div class={`gs-panel tray ${s.cat === 'home' ? 'home' : ''}`} ref={trayRef} onPointerDown={onDown as any}
           onWheel={(e) => { if (trayRef.current && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { trayRef.current.scrollLeft += e.deltaY; } }}>
@@ -175,7 +176,20 @@ function BrushButton({ app }: { app: AppCtl }) {
       <div class="bshape" style={{ transform: `scale(${0.55 + Math.min(1, s.brush / 14) * 0.45})` }}><ShapeGlyph shape={s.brushShape} size={34} /></div>
       <span class="bnum">{s.brush}</span>
       {s.count > 1 && <span class="bcount">×{s.count}</span>}
+      {s.strength !== 100 && p?.mode === 'brush' && <span class="bstr">{s.strength}%</span>}
     </button>
+  );
+}
+
+/** Undo / redo for land edits, next to the brush. */
+function UndoButtons({ app }: { app: AppCtl }) {
+  const s = useStore();
+  if (!s.undo && !s.redo) return null;
+  return (
+    <div class="undo-col">
+      <button class="gs-panel undo-btn" disabled={!s.undo} title={`${t('undo')} (Ctrl+Z)`} onClick={() => app.ctl.undo()}>↶{s.undo > 0 && <small>{s.undo}</small>}</button>
+      <button class="gs-panel undo-btn" disabled={!s.redo} title={`${t('redo')} (Ctrl+Y)`} onClick={() => app.ctl.redo()}>↷</button>
+    </div>
   );
 }
 
@@ -190,8 +204,9 @@ export function BrushModal({ app }: { app: AppCtl }) {
   const N = 31, C = 7; // preview grid
   const cells: any[] = [];
   const half = (N - 1) / 2;
+  const per = Math.max(1, Math.ceil(s.brush / 14)); // tiles per preview cell (big brushes are shown scaled down)
   for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
-    const dx = x - half, dz = z - half;
+    const dx = (x - half) * per, dz = (z - half) * per;
     const d = brushDist(s.brushShape, dx, dz);
     let on = d <= s.brush + 0.5;
     if (on && s.brushShape === 'spray') on = hashCell(x, z) < 0.32;
@@ -215,6 +230,13 @@ export function BrushModal({ app }: { app: AppCtl }) {
               <input type="range" min={mn} max={Math.max(mx, 20)} value={s.brush} onInput={(e) => store.set({ brush: Number((e.target as HTMLInputElement).value) })} />
               <b class="bm-val">{s.brush}</b>
             </label>
+            {p?.mode === 'brush' && (
+              <label class="bm-slider">
+                <span>{t('strength')}</span>
+                <input type="range" min={25} max={300} step={25} value={s.strength} onInput={(e) => store.set({ strength: Number((e.target as HTMLInputElement).value) })} />
+                <b class="bm-val">{s.strength}%</b>
+              </label>
+            )}
             <label class="bm-slider">
               <span>{t('count')}</span>
               <input type="range" min={1} max={30} value={s.count} onInput={(e) => store.set({ count: Number((e.target as HTMLInputElement).value) })} />

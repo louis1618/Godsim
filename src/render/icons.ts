@@ -179,6 +179,26 @@ function makeIcons(): Record<string, Maker> {
     b.add(geo.sphere(0.07, 8, 6), { color: 0x6b4428 }, T(0, 0.95, 0));
   });
   m['ocean'] = () => block(0x2a7fc4, 0x2a5f94, (b) => { for (let i = 0; i < 3; i++) b.add(geo.torus(0.12, 0.035, 6, 14, Math.PI), { color: 0xffffff }, T(-0.25 + i * 0.25, 0.56, -0.1 + (i % 2) * 0.2, 0, 0.3, 0)); });
+  m['smooth'] = () => block(0x86c94f, soil, (b) => {
+    // a rolling surface being ironed flat by a wide trowel
+    for (let i = 0; i < 4; i++) b.add(geo.sphere(0.13, 8, 6), { color: 0x9ad860 }, T(-0.28 + i * 0.19, 0.5 + (i % 2) * 0.03, 0.18, 0, 0, 0, 1, 0.45, 1));
+    b.add(geo.rbox(0.62, 0.05, 0.26, 0.02, 1), { color: 0xdfe5ea }, T(0.02, 0.66, -0.08, 0, 0.5, 0.12));
+    b.add(geo.cyl(0.035, 0.035, 0.24, 8), { color: 0x6b4428 }, T(0.02, 0.8, -0.08, 0.6, 0.5, 0));
+  });
+  m['lake'] = () => block(0x86c94f, soil, (b) => {
+    b.add(geo.cyl(0.36, 0.36, 0.05, 20), { color: 0x4fb6e8 }, T(0, 0.53, 0, 0, 0, 0, 1.15, 1, 0.8));
+    b.add(geo.cyl(0.2, 0.2, 0.055, 16), { color: 0x9fe0ff }, T(-0.06, 0.535, -0.03, 0, 0, 0, 1.1, 1, 0.7));
+    b.add(geo.cone(0.06, 0.2, 5), { color: 0x4f9a3a }, T(0.33, 0.64, -0.22));
+    b.add(geo.sphere(0.05, 6, 4), { color: 0xb9b3aa }, T(-0.34, 0.56, 0.2));
+  });
+  m['drain'] = () => { const g = new THREE.Group(); g.add(block(0xd8c48a, soil, (b) => { b.add(geo.cyl(0.3, 0.22, 0.08, 18), { color: 0x9a7a50 }, T(0, 0.5, 0)); b.add(geo.cyl(0.12, 0.12, 0.09, 12), { color: 0x4fb6e8 }, T(0, 0.5, 0)); })); const a = std(arrow(0x5ab4ff, false)); a.position.set(0, 0.62, 0); a.scale.setScalar(0.8); g.add(a); return g; };
+  m['fill'] = () => block(0x2a7fc4, 0x2a5f94, (b) => {
+    // a bucket of earth tipped into the sea
+    b.add(geo.cyl(0.2, 0.15, 0.3, 12), { color: 0xb9c0c8 }, T(0.08, 0.92, 0, 0, 0, -0.9));
+    b.add(geo.torus(0.17, 0.02, 6, 14, Math.PI), { color: 0x6b4428 }, T(0.14, 1.0, 0, 0, 0, -0.9));
+    b.add(geo.sphere(0.2, 8, 6), { color: 0x86c94f }, T(-0.18, 0.58, 0.05, 0, 0, 0, 1.2, 0.6, 1));
+    b.add(geo.sphere(0.07, 6, 4), { color: 0x8a6440 }, T(-0.1, 0.78, 0.02));
+  });
   m['land'] = () => block(0x86c94f, soil, (b) => { b.add(geo.cone(0.06, 0.18, 4), { color: 0x5fa83a }, T(0.2, 0.62, 0.15)); b.add(geo.cone(0.06, 0.15, 4), { color: 0x5fa83a }, T(0.28, 0.6, 0.05)); b.add(geo.sphere(0.06, 6, 4), { color: 0xf7d84a }, T(-0.2, 0.58, 0.2)); });
   m['mountain'] = () => block(0x86c94f, soil, (b) => {
     b.add(geo.cone(0.42, 0.75, 7), { color: vgrad(0x8d8780, 0xb9b3aa, 0.5, 1.2), flat: true }, T(0, 0.92, 0));

@@ -34,18 +34,22 @@ export const POWERS: PowerDef[] = [
   { id: 'kingdoms', cat: 'observe', mode: 'panel' },
   { id: 'manual', cat: 'observe', mode: 'panel', key: 'F1' },
   // world
-  { id: 'raise', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 12), key: 'Digit1' },
-  { id: 'lower', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 12), key: 'Digit2' },
-  { id: 'flatten', cat: 'world', mode: 'brush', rate: 10, size: B(1, 4, 12), key: 'Digit3' },
-  { id: 'ocean', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14), key: 'Digit4' },
-  { id: 'land', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14), key: 'Digit5' },
-  { id: 'mountain', cat: 'world', mode: 'brush', rate: 10, size: B(2, 4, 12), key: 'Digit6' },
-  { id: 'grass', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14) },
-  { id: 'sand', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14) },
-  { id: 'desert', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14) },
-  { id: 'snow', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14) },
-  { id: 'swamp', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 14) },
+  { id: 'raise', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 40), key: 'Digit1' },
+  { id: 'lower', cat: 'world', mode: 'brush', rate: 14, size: B(1, 3, 40), key: 'Digit2' },
+  { id: 'flatten', cat: 'world', mode: 'brush', rate: 10, size: B(1, 4, 40), key: 'Digit3' },
+  { id: 'ocean', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40), key: 'Digit4' },
+  { id: 'land', cat: 'world', mode: 'brush', rate: 12, size: B(1, 5, 40), key: 'Digit5' },
+  { id: 'mountain', cat: 'world', mode: 'brush', rate: 10, size: B(2, 4, 30), key: 'Digit6' },
+  { id: 'grass', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40) },
+  { id: 'sand', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40) },
+  { id: 'desert', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40) },
+  { id: 'snow', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40) },
+  { id: 'swamp', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40) },
   { id: 'lava', cat: 'world', mode: 'brush', rate: 10, size: B(1, 2, 8) },
+  { id: 'smooth', cat: 'world', mode: 'brush', rate: 14, size: B(1, 4, 40), key: 'Digit7' },
+  { id: 'lake', cat: 'world', mode: 'brush', rate: 12, size: B(1, 3, 24), key: 'Digit8' },
+  { id: 'drain', cat: 'world', mode: 'brush', rate: 12, size: B(1, 4, 40), key: 'Digit9' },
+  { id: 'fill', cat: 'world', mode: 'click', rate: 1, key: 'Digit0' },
   // life
   { id: 'human', cat: 'life', mode: 'click', rate: 6 },
   { id: 'elf', cat: 'life', mode: 'click', rate: 6 },
@@ -87,7 +91,7 @@ export const POWERS: PowerDef[] = [
   // nature
   { id: 'rain', cat: 'nature', mode: 'click' },
   { id: 'storm', cat: 'nature', mode: 'click' },
-  { id: 'forest', cat: 'nature', mode: 'brush', rate: 8, size: B(1, 4, 12) },
+  { id: 'forest', cat: 'nature', mode: 'brush', rate: 8, size: B(1, 4, 30) },
   { id: 'bloom', cat: 'nature', mode: 'brush', rate: 6, size: B(2, 5, 14) },
   { id: 'heat', cat: 'nature', mode: 'brush', rate: 8, size: B(2, 5, 14) },
   { id: 'frost', cat: 'nature', mode: 'brush', rate: 8, size: B(2, 5, 14) },
@@ -121,7 +125,7 @@ export const POWERS: PowerDef[] = [
 ];
 export const POWER_MAP = new Map(POWERS.map((p) => [p.id, p]));
 /** Single-target powers that can be repeated over an area with the count / radius settings. */
-export const MAX_COUNT: Record<string, number> = { nuke: 3, volcano: 3, dragon: 5, meteor: 8, flood: 4, drought: 4, tornado: 6, quake: 4, ufo: 6, invasion: 2, outbreak: 3, acidrain: 3, napalm: 6, mage: 4 };
+export const MAX_COUNT: Record<string, number> = { nuke: 3, volcano: 3, dragon: 5, meteor: 8, flood: 4, drought: 4, tornado: 6, quake: 4, ufo: 6, invasion: 2, outbreak: 3, acidrain: 3, napalm: 6, mage: 4, fill: 1 };
 export const CATS: PowerCat[] = ['world', 'life', 'civ', 'nature', 'disaster', 'military', 'observe', 'settings'];
 
 const SPAWN: Record<string, Sp> = { human: Sp.Human, elf: Sp.Elf, dwarf: Sp.Dwarf, orc: Sp.Orc, sheep: Sp.Sheep, chicken: Sp.Chicken, deer: Sp.Deer, wolf: Sp.Wolf, bear: Sp.Bear, skeleton: Sp.Skeleton, troll: Sp.Troll, rabbit: Sp.Rabbit, fox: Sp.Fox, boar: Sp.Boar, crocodile: Sp.Crocodile, fish: Sp.Fish, dragon: Sp.Dragon };
@@ -133,17 +137,26 @@ export function brushDist(sh: BrushShape, dx: number, dz: number) {
   return sh === 'square' ? Math.max(Math.abs(dx), Math.abs(dz)) : sh === 'diamond' ? (Math.abs(dx) + Math.abs(dz)) * 0.72 : Math.hypot(dx, dz);
 }
 
-/** Visit tiles of the current brush shape with a smooth falloff weight. */
-function brush(sim: Sim, x: number, z: number, r: number, fn: (t: number, k: number, tx: number, tz: number) => void) {
+/** Told which tiles a hand edit is about to change (the undo history listens here). */
+export const editHooks: { touch: ((x0: number, z0: number, x1: number, z1: number) => void) | null } = { touch: null };
+
+/**
+ * Visit tiles of the current brush shape with a falloff weight. Sculpting tools use the soft
+ * profile (full weight in the inner half, easing out); painting tools pass `hard` so the whole
+ * disc takes the full effect in one pass and only the rim is feathered.
+ */
+function brush(sim: Sim, x: number, z: number, r: number, fn: (t: number, k: number, tx: number, tz: number) => void, hard = false) {
   const w = sim.world;
   const R = Math.ceil(r / (shape === 'diamond' ? 0.72 : 1));
+  editHooks.touch?.(Math.floor(x) - R - 2, Math.floor(z) - R - 2, Math.floor(x) + R + 2, Math.floor(z) + R + 2);
+  const inner = r * (hard ? 0.86 : 0.5);
   for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
     const tx = Math.floor(x) + dx, tz = Math.floor(z) + dz;
     if (!w.inside(tx, tz)) continue;
     const d = brushDist(shape, tx + 0.5 - x, tz + 0.5 - z);
     if (d > r + 0.5) continue;
     if (shape === 'spray' && sim.rng.next() > 0.28) continue;
-    const k = 1 - smoothstep(r * 0.5, r + 0.5, d);
+    const k = 1 - smoothstep(inner, r + 0.5, d);
     fn(tz * w.W + tx, k, tx, tz);
   }
   const R2 = R + 2;
@@ -175,36 +188,104 @@ function afterSculpt(sim: Sim, t: number) {
   if (h > 8.5 && w.mat[t] !== Mat.Snow && w.mat[t] !== Mat.Lava) w.mat[t] = h > 11 ? Mat.Snow : Mat.Rock;
 }
 
-export interface ApplyCtx { brush: number; dt: number; first: boolean; unit?: Unit | null; shape?: BrushShape; }
+export interface ApplyCtx {
+  brush: number; dt: number; first: boolean; unit?: Unit | null; shape?: BrushShape;
+  /** how hard a sculpting tool bites per pass (1 = normal) */
+  strength?: number;
+  /** ground height where the stroke began (lakes keep one water level along a stroke) */
+  level?: number;
+}
 
 /** Apply a power at world coords. Returns false if nothing happened (for feedback). */
 export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: ApplyCtx): boolean {
   const w = sim.world;
   shape = ctx.shape ?? 'circle';
   const r = ctx.brush;
+  const S = ctx.strength ?? 1;
   const t0 = w.tileAt(x, z);
   switch (id) {
-    case 'raise': brush(sim, x, z, r, (t, k) => { w.height[t] += 0.55 * k; afterSculpt(sim, t); if (w.height[t] > 0 && w.mat[t] === Mat.Sand && w.height[t] > 0.8) w.mat[t] = Mat.Grass; }); break;
-    case 'lower': brush(sim, x, z, r, (t, k) => { w.height[t] -= 0.55 * k; afterSculpt(sim, t); }); break;
+    case 'raise': brush(sim, x, z, r, (t, k) => { w.height[t] += 0.55 * k * S; afterSculpt(sim, t); if (w.height[t] > 0 && w.mat[t] === Mat.Sand && w.height[t] > 0.8) w.mat[t] = Mat.Grass; }); break;
+    case 'lower': brush(sim, x, z, r, (t, k) => { w.height[t] -= 0.55 * k * S; afterSculpt(sim, t); }); break;
     case 'flatten': {
       if (t0 < 0) return false;
-      const target = w.height[t0];
-      brush(sim, x, z, r, (t, k) => { w.height[t] += (target - w.height[t]) * 0.35 * k; afterSculpt(sim, t); });
+      const target = ctx.level ?? w.height[t0];
+      brush(sim, x, z, r, (t, k) => { w.height[t] += (target - w.height[t]) * Math.min(1, 0.35 * k * S); afterSculpt(sim, t); });
       break;
     }
-    case 'ocean': brush(sim, x, z, r, (t, k) => { w.height[t] += (-3.2 - w.height[t]) * 0.4 * k; w.water[t] = Math.max(0, Math.min(w.water[t], 0)); if (w.height[t] < 0) { w.mat[t] = Mat.Sand; } afterSculpt(sim, t); }); break;
-    case 'land': brush(sim, x, z, r, (t, k) => {
-      if (w.height[t] < 0.6) w.height[t] += (0.7 - w.height[t]) * 0.75 * k;
+    case 'smooth': brush(sim, x, z, r, (t, k, tx, tz) => {
+      // relax toward the neighbours' average (rough ground, terraces and brush marks melt away)
+      let sum = 0, n = 0;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dz) continue; if (!w.inside(tx + dx, tz + dz)) continue; sum += w.height[t + dx + dz * w.W]; n++; }
+      if (n) { w.height[t] += (sum / n - w.height[t]) * Math.min(1, 0.6 * k * S); afterSculpt(sim, t); }
+    }); break;
+    case 'ocean': brush(sim, x, z, r, (t, k) => { w.height[t] += (-3.2 - w.height[t]) * Math.min(1, 0.4 * k * S); w.water[t] = Math.max(0, Math.min(w.water[t], 0)); if (w.height[t] < 0) { w.mat[t] = Mat.Sand; } afterSculpt(sim, t); }); break;
+    case 'land': brush(sim, x, z, r, (t, k, tx, tz) => {
+      // one pass makes land: the whole disc rises to gently rolling ground just above the sea
+      const target = 0.7 + 0.35 * (0.5 + 0.5 * Math.sin(tx * 0.37 + Math.sin(tz * 0.23) * 1.7) * Math.cos(tz * 0.31 + Math.sin(tx * 0.19) * 1.3));
+      if (w.height[t] < target - 0.1) w.height[t] += (target - w.height[t]) * Math.min(1, 1.3 * k * S);
       if (k > 0.3 && w.height[t] > 0.3 && (w.mat[t] === Mat.Sand || w.mat[t] === Mat.Lava)) { w.mat[t] = w.height[t] > 0.55 ? Mat.Grass : Mat.Sand; w.grass[t] = 150; }
       if (w.water[t] > 0 && w.height[t] > 0.3) w.water[t] = 0;
       afterSculpt(sim, t);
-    }); break;
-    case 'mountain': brush(sim, x, z, r, (t, k) => { w.height[t] += 1.1 * k * k; if (k > 0.5) w.mat[t] = w.height[t] > 10 ? Mat.Snow : Mat.Rock; afterSculpt(sim, t); }); break;
-    case 'grass': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Grass); }); break;
-    case 'sand': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Sand); }); break;
-    case 'desert': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Desert); }); break;
-    case 'snow': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Snow); }); break;
-    case 'swamp': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Swamp); }); break;
+    }, true); break;
+    case 'mountain': brush(sim, x, z, r, (t, k) => { w.height[t] += 1.1 * k * k * S; if (k > 0.5) w.mat[t] = w.height[t] > 10 ? Mat.Snow : Mat.Rock; afterSculpt(sim, t); }); break;
+    case 'lake': {
+      // a basin cut into the ground and filled to one level for the whole stroke: drag for a river.
+      // Only ground at about that level or higher is cut, so water never hangs over lower land.
+      if (t0 < 0) return false;
+      const L = Math.max(0.12, (ctx.level ?? w.height[t0]) - 0.18);
+      let any = false;
+      brush(sim, x, z, r, (t, k) => {
+        if (k < 0.12 || w.bld[t] >= 0) return;
+        const h = w.height[t];
+        if (h < L - 0.7 && !(w.water[t] > h)) return;
+        const bed = L - (0.25 + 0.9 * k);
+        if (h > bed) w.height[t] = h + (bed - h) * Math.min(1, 0.9 * S);
+        if (w.height[t] < L - 0.05) { w.water[t] = Math.max(w.water[t], L); w.mat[t] = Mat.Sand; w.grass[t] = 0; any = true; }
+        afterSculpt(sim, t);
+      });
+      if (!any) return false;
+      break;
+    }
+    case 'drain': {
+      // inland water (lakes, rivers, floods standing above the sea) drains away; the sea stays
+      let any = false;
+      brush(sim, x, z, r, (t, k) => { if (k > 0.2 && w.water[t] > 0.001) { w.water[t] = 0; any = true; } }, true);
+      if (!any) return false;
+      break;
+    }
+    case 'fill': {
+      // bucket: the body of water under the cursor (a bay, a lake, a strait) becomes land
+      if (t0 < 0 || !w.isWater(t0)) return false;
+      const lim = Math.max(14, r * 5), cap = 24000;
+      const cx = Math.floor(x), cz = Math.floor(z);
+      const seen = new Set<number>([t0]), q = [t0];
+      for (let i = 0; i < q.length && q.length < cap; i++) {
+        const t = q[i], tx = t % w.W, tz = (t / w.W) | 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = tx + dx, zz = tz + dz;
+          if (!w.inside(xx, zz) || Math.hypot(xx - cx, zz - cz) > lim) continue;
+          const n = zz * w.W + xx;
+          if (seen.has(n) || !w.isWater(n)) continue;
+          seen.add(n); q.push(n);
+        }
+      }
+      const L = Math.ceil(lim) + 2;
+      editHooks.touch?.(cx - L, cz - L, cx + L, cz + L);
+      for (const t of q) {
+        const tx = t % w.W, tz = (t / w.W) | 0;
+        w.height[t] = Math.max(w.height[t], 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(tx * 0.37 + tz * 0.29)));
+        w.water[t] = 0;
+        if (w.mat[t] === Mat.Sand || w.mat[t] === Mat.Lava) { w.mat[t] = Mat.Grass; w.grass[t] = 150; }
+      }
+      w.markTerrain(cx - L, cz - L, cx + L, cz + L);
+      sim.fx.push({ t: 'sprout', x, z, u: t0 });
+      break;
+    }
+    case 'grass': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Grass); }, true); break;
+    case 'sand': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Sand); }, true); break;
+    case 'desert': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Desert); }, true); break;
+    case 'snow': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Snow); }, true); break;
+    case 'swamp': brush(sim, x, z, r, (t, k) => { if (k > 0.35) setMat(sim, t, Mat.Swamp); }, true); break;
     case 'lava': brush(sim, x, z, r, (t, k) => { if (k > 0.4) { setMat(sim, t, Mat.Lava); if (w.height[t] < 0.3) w.height[t] = 0.3; } }); break;
     case 'fish': {
       if (t0 < 0 || w.waterDepth(t0) < 0.3) return false;
@@ -287,8 +368,8 @@ export function applyPower(sim: Sim, id: string, x: number, z: number, ctx: Appl
       const f = m === Mat.Desert ? Feat.Cactus : m === Mat.Snow ? Feat.SnowPine : m === Mat.Sand ? Feat.Palm : m === Mat.Savanna ? Feat.Acacia : m === Mat.Rock || m === Mat.Lava ? Feat.None : sim.rng.pick([Feat.Oak, Feat.Oak, Feat.Pine, Feat.Birch]);
       if (f === Feat.None) return;
       w.setFeat(t, f, 40);
-      sim.fx.push({ t: 'sprout', x: tx + 0.5, z: tz + 0.5, u: t });
-    }); break;
+      if (r <= 8 || sim.rng.chance(0.12)) sim.fx.push({ t: 'sprout', x: tx + 0.5, z: tz + 0.5, u: t });
+    }, true); break;
     case 'bloom': brush(sim, x, z, r, (t, k, tx, tz) => {
       if (w.isWater(t)) return;
       if (w.mat[t] === Mat.Ash || w.mat[t] === Mat.Soil) w.mat[t] = Mat.Grass;
